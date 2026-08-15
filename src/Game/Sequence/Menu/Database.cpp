@@ -1111,9 +1111,7 @@ void CDatabase::BeginFadeIn(void)
 #endif /* TMNT2_BUILD_EU */
     };
 
-    static_assert(COUNT_OF(s_aItemInfo) == DBITEMID::NUM, "table incorrect");
-
-    for (int32 i = DBITEMID::ID_FIRST; i < DBITEMID::NUM; ++i)
+    for (int32 i = 0; i < COUNT_OF(s_aItemInfo); ++i)
     {
         if (!CGameData::Record().Database().IsItemUnlocked(s_aItemInfo[i].id))
             Animation2D().SetTexture(s_aItemInfo[i].textureOrg, s_aItemInfo[i].textureNew);

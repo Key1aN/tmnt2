@@ -1551,7 +1551,7 @@ bool CAreaWorkPool::GetLineDrawEnable(int32 nIndex)
                 break;
 
             case 11:
-                if (GetAreaState(AREAID::ID_AREA14))
+                if (GetAreaState(AREAID::ID_AREA14) == CAreaRecord::STATE_CLEAR)
                     bResult = true;
                 break;
 
