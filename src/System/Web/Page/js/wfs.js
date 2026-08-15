@@ -101,6 +101,7 @@ function onRead(data) {
 
     var buffer = new Uint8Array(size);
     var bytesRead = FS.read(stream, buffer, 0, size, offset);
+    
     FS.close(stream);
 
     self.postMessage({
@@ -133,10 +134,13 @@ function onSize(data) {
     }
 
     var stat = FS.stat(path);
+    var size = stat.size;
+
+    FS.close(stream);
 
     self.postMessage({
         cmd: "SIZE_READY",
-        size: stat.size,
+        size: size,
         opid: opid,
         param: param,
     });
