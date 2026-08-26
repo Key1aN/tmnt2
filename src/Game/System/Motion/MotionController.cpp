@@ -30,7 +30,7 @@ CMotionController::CMotionController(CModel* pModel)
     RwInt32 hierarchyFlagsIn = (hierarchyFlags & (~(rpHANIMHIERARCHYUPDATELTMS | rpHANIMHIERARCHYUPDATEMODELLINGMATRICES)));
     RwInt32 hierarchyFlagsOut = hierarchyFlags;
 
-    const RwInt32 maxInterpKeyFrameSize = 36;
+    const RwInt32 maxInterpKeyFrameSize = sizeof(RpHAnimInterpFrame);
 
     m_pInHierarchy  = RpHAnimHierarchyCreateFromHierarchy(pHierarchy,
                                                           static_cast<RpHAnimHierarchyFlag>(hierarchyFlagsIn),

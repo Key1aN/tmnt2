@@ -188,7 +188,7 @@ void CEnbuSequence::OnMove(bool bRet, const void* pReturnValue)
                     RwRGBAReal lightColor = { 0.6f, 0.6f, 0.6f, 1.0f };
                     RpLightSetColor(m_pLightAmbient, &lightColor);
 
-                    RwUInt8 lightFlags = RpLightGetFlags(m_pLightAmbient);
+                    RwUInt32 lightFlags = RpLightGetFlags(m_pLightAmbient);
                     lightFlags &= (~rpLIGHTLIGHTWORLD);
                     RpLightSetFlags(m_pLightAmbient, lightFlags);
 

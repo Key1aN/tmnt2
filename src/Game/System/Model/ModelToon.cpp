@@ -6,10 +6,10 @@
 
 
 #if defined(TARGET_PC)
-
-#define RpSkinAtomicSetType \
-    RpToonSkinAtomicSetType
-
+    #if defined(TMNT2_RWDRV_D3D9)
+        #define RpSkinAtomicSetType \
+            RpToonSkinAtomicSetType
+    #endif /* defined(TMNT2_RWDRV_D3D9) */
 #endif /* defined(TARGET_PC) */
 
 
