@@ -1,4 +1,4 @@
-name: Build playable Slashuur boss moves
+name: Build playable Slashuur diagnostics
 
 on:
   workflow_dispatch:
@@ -136,12 +136,43 @@ jobs:
             throw "The Release TMNT2.exe output was not found."
           }
 
+          $linkedPdbPath = Join-Path $exe.DirectoryName "TMNT2.pdb"
+          if (Test-Path $linkedPdbPath) {
+            $pdb = Get-Item $linkedPdbPath
+          }
+          else {
+            $pdb = Get-ChildItem "$env:GITHUB_WORKSPACE" -Recurse -File -Filter "TMNT2.pdb" |
+              Where-Object { $_.FullName -notmatch "\\vendor\\" } |
+              Sort-Object LastWriteTimeUtc -Descending |
+              Select-Object -First 1
+          }
+
+          $map = Get-ChildItem "$env:GITHUB_WORKSPACE" -Recurse -File -Filter "TMNT2.map" |
+            Where-Object { $_.FullName -notmatch "\\vendor\\" } |
+            Sort-Object LastWriteTimeUtc -Descending |
+            Select-Object -First 1
+
+          if (-not $pdb) {
+            throw "The matching Release TMNT2.pdb was not found."
+          }
+
+          if (-not $map) {
+            throw "The matching Release TMNT2.map was not found."
+          }
+
           $artifactDir = Join-Path $env:GITHUB_WORKSPACE "artifact"
           New-Item -ItemType Directory -Force -Path $artifactDir | Out-Null
-          $artifactExe = Join-Path $artifactDir "TMNT2_Playable_Slashuur_Boss_Moves_US.exe"
+          $artifactExe = Join-Path $artifactDir "TMNT2_Playable_Slashuur_Diagnostics_US.exe"
+          $artifactPdb = Join-Path $artifactDir "TMNT2.pdb"
+          $artifactMap = Join-Path $artifactDir "TMNT2.map"
           Copy-Item $exe.FullName $artifactExe -Force
+          Copy-Item $pdb.FullName $artifactPdb -Force
+          Copy-Item $map.FullName $artifactMap -Force
+          Copy-Item (Join-Path $env:GITHUB_WORKSPACE "SLASHUUR_CRASH_REPORTING.md") $artifactDir -Force
 
           $hash = (Get-FileHash $artifactExe -Algorithm SHA256).Hash.ToLowerInvariant()
+          $pdbHash = (Get-FileHash $artifactPdb -Algorithm SHA256).Hash.ToLowerInvariant()
+          $mapHash = (Get-FileHash $artifactMap -Algorithm SHA256).Hash.ToLowerInvariant()
           $size = (Get-Item $artifactExe).Length
           $commit = git rev-parse HEAD
 
@@ -150,7 +181,11 @@ jobs:
             "SourceCommit=$commit",
             "Executable=$([System.IO.Path]::GetFileName($artifactExe))",
             "Size=$size",
-            "SHA256=$hash"
+            "SHA256=$hash",
+            "PDB=$([System.IO.Path]::GetFileName($artifactPdb))",
+            "PDBSHA256=$pdbHash",
+            "MAP=$([System.IO.Path]::GetFileName($artifactMap))",
+            "MAPSHA256=$mapHash"
           ) | Set-Content (Join-Path $artifactDir "BUILD_INFO.txt") -Encoding utf8
 
           Get-Content (Join-Path $artifactDir "BUILD_INFO.txt")
@@ -158,7 +193,7 @@ jobs:
       - name: Upload patched executable
         uses: actions/upload-artifact@v4
         with:
-          name: TMNT2-Playable-Slashuur-Boss-Moves-US
+          name: TMNT2-Playable-Slashuur-Diagnostics-US
           path: artifact/*
           if-no-files-found: error
           retention-days: 7

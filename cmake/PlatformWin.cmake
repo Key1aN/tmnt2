@@ -61,6 +61,8 @@ target_compile_options(${EXEC_NAME} PRIVATE
     /MP
     /W4
     /GR-
+    $<$<CONFIG:Release>:/Zi>
+    $<$<CONFIG:Release>:/Oy->
     /wd4200 # nonstandard extension used: zero-sized array in struct/union
     /wd4201 # nonstandard extension used: nameless struct/union
     /wd4996 # function or variable may be unsafe
@@ -76,8 +78,9 @@ if(MSVC_VERSION GREATER_EQUAL 1910)
 endif()
 
 target_link_options(${EXEC_NAME} PRIVATE 
-    $<$<CONFIG:Release>:
-        /INCREMENTAL:NO>
+    $<$<CONFIG:Release>:/INCREMENTAL:NO>
+    $<$<CONFIG:Release>:/DEBUG:FULL>
+    $<$<CONFIG:Release>:/MAP>
     $<$<CONFIG:RelMinSize>:
         /INCREMENTAL:NO>
     /SAFESEH:NO 

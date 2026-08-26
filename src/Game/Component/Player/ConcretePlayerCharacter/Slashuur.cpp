@@ -20,6 +20,13 @@
 #include "Game/System/Map/WorldMap.hpp"
 #include "Game/System/Sound/GameSound.hpp"
 
+#if defined(TARGET_PC)
+#include "System/PC/PCCrashReporter.hpp"
+#define SLASHUUR_TRACE(...) CPCCrashReporter::Breadcrumb(__VA_ARGS__)
+#else
+#define SLASHUUR_TRACE(...) ((void)0)
+#endif /* TARGET_PC */
+
 
 namespace Slashuur
 {
@@ -36,7 +43,16 @@ namespace Slashuur
 
     static void PlayScaledEffect(EFFECTID::VALUE idEffect, const RwV3d& position, float scale)
     {
+        SLASHUUR_TRACE("EFFECT play id=%d position=(%.3f, %.3f, %.3f) scale=%.3f",
+                       static_cast<int32>(idEffect),
+                       position.x,
+                       position.y,
+                       position.z,
+                       scale);
         uint32 hEffect = CEffectManager::Play(idEffect, &position);
+        SLASHUUR_TRACE("EFFECT result id=%d handle=0x%08X",
+                       static_cast<int32>(idEffect),
+                       hEffect);
         if (hEffect)
             CEffectManager::SetScale(hEffect, scale);
     };
@@ -48,6 +64,13 @@ namespace Slashuur
                                         int32 power,
                                         CHitAttackData::STATUS status)
     {
+        SLASHUUR_TRACE("ATTACK register radius=%.3f power=%d status=%d position=(%.3f, %.3f, %.3f)",
+                       radius,
+                       power,
+                       static_cast<int32>(status),
+                       position.x,
+                       position.y,
+                       position.z);
         RwSphere hitSphere;
         hitSphere.center = position;
         hitSphere.radius = radius;
@@ -63,6 +86,7 @@ namespace Slashuur
         attack.SetSphere(&hitSphere);
 
         CHitAttackManager::RegistAttack(&attack);
+        SLASHUUR_TRACE("ATTACK registered");
     };
 
 
@@ -96,6 +120,7 @@ namespace Slashuur
 
     static uint32 SpawnPurpleBall(CPlayerCharacter& character, bool bDownward)
     {
+        SLASHUUR_TRACE("SLABALL begin downward=%d", (bDownward ? 1 : 0));
         RwV3d position = Math::VECTOR3_ZERO;
         character.GetPosition(&position);
 
@@ -115,26 +140,39 @@ namespace Slashuur
         parameter.SetPositon(&position);
         parameter.SetDirection(&direction);
 
+        SLASHUUR_TRACE("SLABALL play position=(%.3f, %.3f, %.3f) direction=(%.3f, %.3f, %.3f)",
+                       position.x,
+                       position.y,
+                       position.z,
+                       direction.x,
+                       direction.y,
+                       direction.z);
         uint32 hMagic = CMagicManager::Play(MAGICID::ID_SLABALL, &parameter);
+        SLASHUUR_TRACE("SLABALL result handle=0x%08X", hMagic);
         if (hMagic && bDownward)
         {
+            SLASHUUR_TRACE("SLABALL configure downward scale=1.73 speed=50");
             CMagicManager::SetScale(hMagic, 1.73f);
             CMagicManager::SetSpeed(hMagic, 50.0f);
         };
 
+        SLASHUUR_TRACE("SLABALL play sound=4401");
         CGameSound::PlayObjectSE(&character, SDCODE_SE(4401));
+        SLASHUUR_TRACE("SLABALL complete");
         return hMagic;
     };
 
 
     static int32 DrainNearbyEnemies(CPlayerCharacter& character)
     {
+        SLASHUUR_TRACE("DRAIN scan begin");
         RwV3d playerPosition = Math::VECTOR3_ZERO;
         character.GetBodyPosition(&playerPosition);
 
         int32 drained = 0;
         const float radiusSq = 8.0f * 8.0f;
         int32 enemyMax = CGameProperty::GetEnemyMax();
+        SLASHUUR_TRACE("DRAIN enemy count=%d", enemyMax);
         for (int32 i = 0; i < enemyMax; ++i)
         {
             CEnemy* pEnemy = CGameProperty::GetEnemy(i);
@@ -151,6 +189,9 @@ namespace Slashuur
             if (Math::Vec3_Dot(&distance, &distance) > radiusSq)
                 continue;
 
+            SLASHUUR_TRACE("DRAIN apply enemy=%d handle=0x%08X",
+                           i,
+                           pEnemy->GetHandle());
             enemyCharacter.OnMessageReceivedDamage(BOSS_DRAIN_DAMAGE);
             PlayScaledEffect(EFFECTID::ID_HPSTEAL_LIGHT, enemyPosition, 1.0f);
             ++drained;
@@ -161,10 +202,12 @@ namespace Slashuur
 
         if (drained > 0)
         {
+            SLASHUUR_TRACE("DRAIN heal player amount=%d", BOSS_DRAIN_DAMAGE * drained);
             character.OnMessageReceivedDamage(-(BOSS_DRAIN_DAMAGE * drained));
             PlayScaledEffect(EFFECTID::ID_HPSTEAL_LIGHT, playerPosition, 1.5f);
         };
 
+        SLASHUUR_TRACE("DRAIN scan complete drained=%d", drained);
         return drained;
     };
 
@@ -186,6 +229,7 @@ namespace Slashuur
 
     void CBossTeleport::OnAttach(void)
     {
+        SLASHUUR_TRACE("MOVE teleport attach begin");
         m_step = 0;
 
         Character().SetAttribute(PLAYERTYPES::ATTRIBUTE_INVINCIBILITY);
@@ -197,11 +241,13 @@ namespace Slashuur
         Character().GetFootPosition(&position);
         PlayScaledEffect(EFFECTID::ID_WARP_START, position, 1.5f);
         CGameSound::PlayObjectSE(m_pPlayerChr, SDCODE_SE(4396));
+        SLASHUUR_TRACE("MOVE teleport attach complete");
     };
 
 
     void CBossTeleport::OnDetach(void)
     {
+        SLASHUUR_TRACE("MOVE teleport detach");
         Character().GetModel()->SetDrawEnable(true);
         Character().SetEnableBodyHit(true);
         Character().SetEnableCatchHit(true);
@@ -218,6 +264,7 @@ namespace Slashuur
         case 0:
             if (duration >= 0.18f)
             {
+                SLASHUUR_TRACE("MOVE teleport step=0 hide");
                 Character().GetModel()->SetDrawEnable(false);
                 Character().SetEnableBodyHit(false);
                 Character().SetEnableCatchHit(false);
@@ -229,6 +276,7 @@ namespace Slashuur
         case 1:
             if (duration >= 0.36f)
             {
+                SLASHUUR_TRACE("MOVE teleport step=1 relocate");
                 TeleportForward(Character());
 
                 RwV3d position = Math::VECTOR3_ZERO;
@@ -249,7 +297,10 @@ namespace Slashuur
 
         case 2:
             if (duration >= 0.58f)
+            {
+                SLASHUUR_TRACE("MOVE teleport step=2 idle");
                 StateMachine().ChangeStatus(PLAYERTYPES::STATUS_IDLE);
+            };
             break;
 
         default:
@@ -260,23 +311,29 @@ namespace Slashuur
 
     void CBossScythe::OnAttach(void)
     {
+        SLASHUUR_TRACE("MOVE scythe attach begin");
         m_step = 0;
         m_fPulseTime = 0.2f;
 
         Character().SetAttribute(PLAYERTYPES::ATTRIBUTE_INVINCIBILITY);
         Character().ResetVelocity();
         Character().ResetAcceleration();
+        SLASHUUR_TRACE("MOVE scythe change motion=E2 begin");
         Character().ChangeMotion(MOTIONNAMES::SCYTHE_LOOP, true);
+        SLASHUUR_TRACE("MOVE scythe change motion=E2 complete");
 
         RwV3d position = Math::VECTOR3_ZERO;
         Character().GetFootPosition(&position);
         PlayScaledEffect(EFFECTID::ID_WARP_OUT, position, 1.25f);
+        SLASHUUR_TRACE("MOVE scythe play sound=4403");
         CGameSound::PlayObjectSE(m_pPlayerChr, SDCODE_SE(4403));
+        SLASHUUR_TRACE("MOVE scythe attach complete");
     };
 
 
     void CBossScythe::OnDetach(void)
     {
+        SLASHUUR_TRACE("MOVE scythe detach");
         Character().ClearAttribute(PLAYERTYPES::ATTRIBUTE_INVINCIBILITY);
         CGameSound::FadeOutSE(SDCODE_SE(4403), CGameSound::FADESPEED_NORMAL);
     };
@@ -289,6 +346,7 @@ namespace Slashuur
             m_fPulseTime += CGameProperty::GetElapsedTime();
             if (m_fPulseTime >= 0.45f)
             {
+                SLASHUUR_TRACE("MOVE scythe pulse begin");
                 m_fPulseTime = 0.0f;
 
                 RwV3d center = Math::VECTOR3_ZERO;
@@ -303,16 +361,20 @@ namespace Slashuur
                     position.z += std::cos(angle) * BOSS_SCYTHE_RADIUS;
                     PlayScaledEffect(EFFECTID::ID_SICKLE_WARP, position, 0.8f);
                 };
+                SLASHUUR_TRACE("MOVE scythe pulse complete");
             };
 
             if (StateMachine().GetStatusDuration() >= 2.0f)
             {
+                SLASHUUR_TRACE("MOVE scythe change motion=E3 begin");
                 Character().ChangeMotion(MOTIONNAMES::SCYTHE_END, true);
+                SLASHUUR_TRACE("MOVE scythe change motion=E3 complete");
                 ++m_step;
             };
         }
         else if (Character().IsMotionEnd())
         {
+            SLASHUUR_TRACE("MOVE scythe idle");
             StateMachine().ChangeStatus(PLAYERTYPES::STATUS_IDLE);
         };
     };
@@ -320,6 +382,7 @@ namespace Slashuur
 
     void CBossGroundBlast::OnAttach(void)
     {
+        SLASHUUR_TRACE("MOVE ground_blast attach begin");
         m_step = 0;
         m_bShot = false;
 
@@ -327,13 +390,17 @@ namespace Slashuur
         Character().ResetVelocity();
         Character().ResetAcceleration();
         Character().SetCharacterFlag(CHARACTERTYPES::FLAG_FIXED_MODEL_ROTATION);
+        SLASHUUR_TRACE("MOVE ground_blast change motion=D1 begin");
         Character().ChangeMotion(MOTIONNAMES::GROUND_BLAST_START, true);
+        SLASHUUR_TRACE("MOVE ground_blast change motion=D1 complete");
         CGameSound::PlayAttackSE(m_pPlayerChr);
+        SLASHUUR_TRACE("MOVE ground_blast attach complete");
     };
 
 
     void CBossGroundBlast::OnDetach(void)
     {
+        SLASHUUR_TRACE("MOVE ground_blast detach step=%d shot=%d", m_step, (m_bShot ? 1 : 0));
         Character().ClearAttribute(PLAYERTYPES::ATTRIBUTE_INVINCIBILITY);
         Character().ClearPlayerFlag(PLAYERTYPES::FLAG_AERIAL_STATUS);
         Character().ClearCharacterFlag(CHARACTERTYPES::FLAG_FIXED_MODEL_ROTATION |
@@ -348,7 +415,9 @@ namespace Slashuur
         case 0:
             if (Character().IsMotionEnd())
             {
+                SLASHUUR_TRACE("MOVE ground_blast step=0 change motion=D2 begin");
                 Character().ChangeMotion(MOTIONNAMES::GROUND_BLAST_JUMP, true);
+                SLASHUUR_TRACE("MOVE ground_blast step=0 change motion=D2 complete");
 
                 RwV3d velocity = Math::VECTOR3_ZERO;
                 velocity.y = BOSS_GROUND_BLAST_JUMP_SPEED;
@@ -365,7 +434,10 @@ namespace Slashuur
                 Character().GetVelocity(&velocity);
                 if (velocity.y <= 0.0f)
                 {
+                    SLASHUUR_TRACE("MOVE ground_blast step=1 apex velocityY=%.3f", velocity.y);
+                    SLASHUUR_TRACE("MOVE ground_blast change motion=DAttack begin");
                     Character().ChangeMotion(MOTIONNAMES::GROUND_BLAST_FIRE, true);
+                    SLASHUUR_TRACE("MOVE ground_blast change motion=DAttack complete");
                     SpawnPurpleBall(Character(), true);
                     m_bShot = true;
                     ++m_step;
@@ -386,10 +458,13 @@ namespace Slashuur
                 if ((std::fabs(footPosition.y - mapHeight) <= 0.25f) &&
                     (std::fabs(velocity.y) <= 0.01f))
                 {
+                    SLASHUUR_TRACE("MOVE ground_blast step=2 landed mapHeight=%.3f", mapHeight);
                     Character().ResetVelocity();
                     Character().ResetAcceleration();
                     Character().ClearPlayerFlag(PLAYERTYPES::FLAG_AERIAL_STATUS);
+                    SLASHUUR_TRACE("MOVE ground_blast change motion=D3 begin");
                     Character().ChangeMotion(MOTIONNAMES::GROUND_BLAST_END, true);
+                    SLASHUUR_TRACE("MOVE ground_blast change motion=D3 complete");
                     ++m_step;
                 };
             };
@@ -397,7 +472,10 @@ namespace Slashuur
 
         case 3:
             if (Character().IsMotionEnd())
+            {
+                SLASHUUR_TRACE("MOVE ground_blast idle");
                 StateMachine().ChangeStatus(PLAYERTYPES::STATUS_IDLE);
+            };
             break;
 
         default:
@@ -408,18 +486,22 @@ namespace Slashuur
 
     void CBossShot::OnAttach(void)
     {
+        SLASHUUR_TRACE("MOVE shot attach begin");
         m_bShot = false;
 
         Character().ResetVelocity();
         Character().ResetAcceleration();
+        SLASHUUR_TRACE("MOVE shot change motion=ATTACK_KNIFE begin");
         Character().ChangeMotion(PLAYERTYPES::MOTIONNAMES::ATTACK_KNIFE, true);
+        SLASHUUR_TRACE("MOVE shot change motion=ATTACK_KNIFE complete");
         CGameSound::PlayAttackSE(m_pPlayerChr);
+        SLASHUUR_TRACE("MOVE shot attach complete");
     };
 
 
     void CBossShot::OnDetach(void)
     {
-        ;
+        SLASHUUR_TRACE("MOVE shot detach fired=%d", (m_bShot ? 1 : 0));
     };
 
 
@@ -427,17 +509,22 @@ namespace Slashuur
     {
         if (!m_bShot && Character().TestCharacterFlag(CHARACTERTYPES::FLAG_OCCURED_TIMING))
         {
+            SLASHUUR_TRACE("MOVE shot timing fired");
             SpawnPurpleBall(Character(), false);
             m_bShot = true;
         };
 
         if (Character().IsMotionEnd())
+        {
+            SLASHUUR_TRACE("MOVE shot idle");
             StateMachine().ChangeStatus(PLAYERTYPES::STATUS_IDLE);
+        };
     };
 
 
     void CBossDrain::OnAttach(void)
     {
+        SLASHUUR_TRACE("MOVE drain attach begin");
         m_step = 0;
         m_hEffect = 0;
         m_bDrained = false;
@@ -445,13 +532,20 @@ namespace Slashuur
         Character().SetAttribute(PLAYERTYPES::ATTRIBUTE_INVINCIBILITY);
         Character().ResetVelocity();
         Character().ResetAcceleration();
+        SLASHUUR_TRACE("MOVE drain change motion=C1 begin");
         Character().ChangeMotion(MOTIONNAMES::DRAIN_START, true);
+        SLASHUUR_TRACE("MOVE drain change motion=C1 complete");
         CGameSound::PlayObjectSE(m_pPlayerChr, SDCODE_SE(4402));
+        SLASHUUR_TRACE("MOVE drain attach complete");
     };
 
 
     void CBossDrain::OnDetach(void)
     {
+        SLASHUUR_TRACE("MOVE drain detach step=%d effect=0x%08X drained=%d",
+                       m_step,
+                       m_hEffect,
+                       (m_bDrained ? 1 : 0));
         Character().ClearAttribute(PLAYERTYPES::ATTRIBUTE_INVINCIBILITY);
         if (m_hEffect)
         {
@@ -470,10 +564,12 @@ namespace Slashuur
         case 0:
             if (Character().TestCharacterFlag(CHARACTERTYPES::FLAG_OCCURED_TIMING))
             {
+                SLASHUUR_TRACE("MOVE drain step=0 timing effect=SLA_SHADOW begin");
                 RwV3d position = Math::VECTOR3_ZERO;
                 Character().GetFootPosition(&position);
                 position.y += 0.1f;
                 m_hEffect = CEffectManager::Play(EFFECTID::ID_SLA_SHADOW, &position);
+                SLASHUUR_TRACE("MOVE drain step=0 effect result=0x%08X", m_hEffect);
                 if (m_hEffect)
                     CEffectManager::SetScale(m_hEffect, 1.25f);
                 ++m_step;
@@ -483,7 +579,9 @@ namespace Slashuur
         case 1:
             if (Character().IsMotionEnd())
             {
+                SLASHUUR_TRACE("MOVE drain step=1 change motion=C2 begin");
                 Character().ChangeMotion(MOTIONNAMES::DRAIN_START2, true);
+                SLASHUUR_TRACE("MOVE drain step=1 change motion=C2 complete");
                 ++m_step;
             };
             break;
@@ -491,13 +589,17 @@ namespace Slashuur
         case 2:
             if (!m_bDrained && Character().TestCharacterFlag(CHARACTERTYPES::FLAG_OCCURED_TIMING))
             {
+                SLASHUUR_TRACE("MOVE drain step=2 timing drain begin");
                 DrainNearbyEnemies(Character());
+                SLASHUUR_TRACE("MOVE drain step=2 timing drain complete");
                 m_bDrained = true;
             };
 
             if (Character().IsMotionEnd())
             {
+                SLASHUUR_TRACE("MOVE drain step=2 change motion=C3 begin");
                 Character().ChangeMotion(MOTIONNAMES::DRAIN_LOOP, true);
+                SLASHUUR_TRACE("MOVE drain step=2 change motion=C3 complete");
                 ++m_step;
             };
             break;
@@ -505,14 +607,19 @@ namespace Slashuur
         case 3:
             if (StateMachine().GetStatusDuration() >= 3.0f)
             {
+                SLASHUUR_TRACE("MOVE drain step=3 change motion=C4 begin");
                 Character().ChangeMotion(MOTIONNAMES::DRAIN_END, true);
+                SLASHUUR_TRACE("MOVE drain step=3 change motion=C4 complete");
                 ++m_step;
             };
             break;
 
         case 4:
             if (Character().IsMotionEnd())
+            {
+                SLASHUUR_TRACE("MOVE drain idle");
                 StateMachine().ChangeStatus(PLAYERTYPES::STATUS_IDLE);
+            };
             break;
 
         default:
