@@ -1,0 +1,112 @@
+name: Build playable Slashuur boss moves
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - "master"
+      - "codex/playable-slashuur-boss-moves"
+
+permissions:
+  contents: read
+
+jobs:
+  build-windows-x86-us:
+    runs-on: windows-2022
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out patched source
+        uses: actions/checkout@v4
+
+      - name: Stage DirectX headers and x86 libraries
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+
+          $kitsRoot = "${env:ProgramFiles(x86)}\Windows Kits\10"
+          if (-not (Test-Path $kitsRoot)) {
+            throw "Windows 10 SDK was not found at $kitsRoot"
+          }
+
+          $includeVersion = Get-ChildItem "$kitsRoot\Include" -Directory |
+            Where-Object { Test-Path "$($_.FullName)\um\d3d9.h" } |
+            Sort-Object Name -Descending |
+            Select-Object -First 1
+
+          $libraryVersion = Get-ChildItem "$kitsRoot\Lib" -Directory |
+            Where-Object { Test-Path "$($_.FullName)\um\x86\d3d9.lib" } |
+            Sort-Object Name -Descending |
+            Select-Object -First 1
+
+          if (-not $includeVersion -or -not $libraryVersion) {
+            throw "A Windows SDK containing Direct3D 9 x86 files was not found."
+          }
+
+          $dxsdk = Join-Path $env:RUNNER_TEMP "tmnt2-dxsdk"
+          $includeOut = Join-Path $dxsdk "Include"
+          $libOut = Join-Path $dxsdk "Lib\x86"
+          New-Item -ItemType Directory -Force -Path $includeOut, $libOut | Out-Null
+
+          Copy-Item "$($includeVersion.FullName)\um\*" $includeOut -Recurse -Force
+          Copy-Item "$($includeVersion.FullName)\shared\*" $includeOut -Recurse -Force
+
+          foreach ($library in @("d3d9.lib", "dinput8.lib", "dxguid.lib", "dsound.lib")) {
+            $source = Join-Path $libraryVersion.FullName "um\x86\$library"
+            if (-not (Test-Path $source)) {
+              throw "Required DirectX library was not found: $source"
+            }
+            Copy-Item $source $libOut -Force
+          }
+
+          "DXSDK_DIR=$dxsdk" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          Write-Host "DXSDK_DIR=$dxsdk"
+          Write-Host "Windows SDK include version: $($includeVersion.Name)"
+          Write-Host "Windows SDK library version: $($libraryVersion.Name)"
+
+      - name: Configure US Win32 Release build
+        shell: pwsh
+        run: cmake --preset vs2022 -DOPT_EU_BUILD=OFF
+
+      - name: Build patched executable
+        shell: pwsh
+        run: cmake --build --preset vs2022-release --parallel
+
+      - name: Collect and verify executable
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $exe = Get-ChildItem "$env:GITHUB_WORKSPACE\bin\win" -Recurse -File -Filter "TMNT2.exe" |
+            Where-Object { $_.FullName -match "\\release\\" } |
+            Select-Object -First 1
+
+          if (-not $exe) {
+            throw "The Release TMNT2.exe output was not found."
+          }
+
+          $artifactDir = Join-Path $env:GITHUB_WORKSPACE "artifact"
+          New-Item -ItemType Directory -Force -Path $artifactDir | Out-Null
+          $artifactExe = Join-Path $artifactDir "TMNT2_Playable_Slashuur_Boss_Moves_US.exe"
+          Copy-Item $exe.FullName $artifactExe -Force
+
+          $hash = (Get-FileHash $artifactExe -Algorithm SHA256).Hash.ToLowerInvariant()
+          $size = (Get-Item $artifactExe).Length
+          $commit = git rev-parse HEAD
+
+          @(
+            "Build=US/NA x86 Release",
+            "SourceCommit=$commit",
+            "Executable=$([System.IO.Path]::GetFileName($artifactExe))",
+            "Size=$size",
+            "SHA256=$hash"
+          ) | Set-Content (Join-Path $artifactDir "BUILD_INFO.txt") -Encoding utf8
+
+          Get-Content (Join-Path $artifactDir "BUILD_INFO.txt")
+
+      - name: Upload patched executable
+        uses: actions/upload-artifact@v4
+        with:
+          name: TMNT2-Playable-Slashuur-Boss-Moves-US
+          path: artifact/*
+          if-no-files-found: error
+          retention-days: 7
