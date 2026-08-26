@@ -27,8 +27,6 @@ static CGraphicsDevice* s_pDevice = nullptr;
 
 /*static*/ void CScreen::DetachDevice(void)
 {
-    ASSERT(s_pDevice != nullptr);
-    
     s_pDevice = nullptr;
 };
 

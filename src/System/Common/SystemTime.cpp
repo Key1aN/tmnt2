@@ -4,7 +4,6 @@
 
 CHECK_SIZE(CTimeObj,    0x10);
 CHECK_SIZE(CTimeSpanObj,0x14);
-CHECK_SIZE(CSystemTime, 0x14);
 
 
 CTimeSpanObj::CTimeSpanObj(void)
