@@ -232,3 +232,15 @@ static inline float GetFontHeight(Rt2dFont* pFont)
 {
     m_pFont->SetIntergapSpacing(fSpacing);
 };
+
+
+/*static*/ bool CGameFont::IsOpen(void)
+{
+    if (!m_pFont)
+        return false;
+
+    if (!m_pFont->GetFontObj())
+        return false;
+
+    return true;
+};

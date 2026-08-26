@@ -92,7 +92,8 @@ static double NowTimeMS(void)
 
 static void DrawDiag(void)
 {
-    if (!CGameFont::GetFontObj())
+#if defined(_DEBUG) || defined(TMNT2_TEST)
+    if (!CGameFont::IsOpen())
         return;
 
     static double s_dPrevT = 0.0;
@@ -154,6 +155,7 @@ static void DrawDiag(void)
     RENDERSTATE_POP(rwRENDERSTATEVERTEXALPHAENABLE);
     CSprite::PopRenderStates();
     PopVirtualScreenEx();
+#endif /* defined(_DEBUG) || defined(TMNT2_TEST) */
 };
 
 
