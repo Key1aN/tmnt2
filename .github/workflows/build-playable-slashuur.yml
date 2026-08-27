@@ -2,10 +2,6 @@ name: Build playable Slashuur diagnostics
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - "master"
-      - "codex/playable-slashuur-boss-moves"
 
 permissions:
   contents: read

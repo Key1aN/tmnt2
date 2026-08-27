@@ -478,6 +478,11 @@ void CPlayerCharacter::OnMessageReceivedDamage(int32 nDamage)
 		{
 			/* Round half damage up so small attacks still receive the full 2.5x rule. */
 			nDamage = static_cast<int32>((static_cast<float>(nDamage) * 2.5f) + 0.5f);
+		}
+		else if (difficulty == GAMETYPES::DIFFICULTY_EXTREME)
+		{
+			/* Apply Extreme directly at the final player HP-loss path. */
+			nDamage *= 3;
 		};
 	};
 

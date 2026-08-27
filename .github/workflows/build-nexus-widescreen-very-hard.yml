@@ -1,4 +1,4 @@
-name: Build final Nexus widescreen Slashuur and Extreme
+name: Build final Nexus widescreen Slashuur and Extreme v3
 
 on:
   workflow_dispatch:
@@ -137,7 +137,7 @@ jobs:
 
           $artifactDir = Join-Path $env:GITHUB_WORKSPACE "artifact"
           New-Item -ItemType Directory -Force -Path $artifactDir | Out-Null
-          $artifactExe = Join-Path $artifactDir "TMNT2_Final_Nexus_Widescreen_Extreme_Slashuur_US.exe"
+          $artifactExe = Join-Path $artifactDir "TMNT2_Final_Nexus_Widescreen_Extreme_v3_Slashuur_US.exe"
           Copy-Item $exe.FullName $artifactExe -Force
           Copy-Item (Join-Path $env:GITHUB_WORKSPACE "NEXUS_WIDESCREEN_VERY_HARD.md") $artifactDir -Force
 
@@ -151,7 +151,7 @@ jobs:
             "Executable=$([System.IO.Path]::GetFileName($artifactExe))",
             "Size=$size",
             "SHA256=$hash",
-            "Features=AnimationPool512;HorPlusWidescreen;OriginalStretchedUI;VeryHardDamageReceived2.5x;ExtremeEnemyDamageReceived3x;SlashuurRemappedBossMoves;TeleportComboCancel;VulnerableScythe",
+            "Features=AnimationPool512;HorPlusWidescreen;OriginalStretchedUI;VeryHardDamageReceived2.5x;ExtremeFinalHPReduction3x;SlashuurRemappedBossMoves;TeleportComboCancel;VulnerableScythe",
             "Excluded=ColdBreath;DeveloperDebugMenu"
           ) | Set-Content (Join-Path $artifactDir "BUILD_INFO.txt") -Encoding utf8
 
@@ -160,7 +160,7 @@ jobs:
       - name: Upload patched executable
         uses: actions/upload-artifact@v4
         with:
-          name: TMNT2-Final-Nexus-Widescreen-Extreme-Slashuur-US
+          name: TMNT2-Final-Nexus-Widescreen-Extreme-v3-Slashuur-US
           path: artifact/*
           if-no-files-found: error
           retention-days: 7
