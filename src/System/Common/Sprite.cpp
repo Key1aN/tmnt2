@@ -32,6 +32,31 @@ static inline float CosFloat(float x)
     m_fVirtualScreenY = VIRTUALSCREEN_DEFAULT_Y;
     m_fVirtualScreenW = VIRTUALSCREEN_DEFAULT_W;
     m_fVirtualScreenH = VIRTUALSCREEN_DEFAULT_H;
+
+    const int32 screenWidth = CScreen::Width();
+    const int32 screenHeight = CScreen::Height();
+    if ((screenWidth <= 0) || (screenHeight <= 0))
+        return;
+
+    const float screenAspect = static_cast<float>(screenWidth) /
+                               static_cast<float>(screenHeight);
+
+    /*
+     * The original UI is authored for a centered 640x480 (4:3) canvas.
+     * Expand the virtual canvas on the long axis instead of stretching that
+     * canvas to the framebuffer. Sprites and Rt2d fonts then retain their
+     * original proportions while the 3D camera remains Hor+ widescreen.
+     */
+    if (screenAspect > TYPEDEF::DEFAULT_ASPECTRATIO)
+    {
+        m_fVirtualScreenW *= screenAspect / TYPEDEF::DEFAULT_ASPECTRATIO;
+        m_fVirtualScreenX = -(m_fVirtualScreenW * 0.5f);
+    }
+    else if (screenAspect < TYPEDEF::DEFAULT_ASPECTRATIO)
+    {
+        m_fVirtualScreenH *= TYPEDEF::DEFAULT_ASPECTRATIO / screenAspect;
+        m_fVirtualScreenY = -(m_fVirtualScreenH * 0.5f);
+    };
 };
 
 
@@ -387,4 +412,3 @@ void CSprite::DrawRotate(void) const
 
     RwIm2DRenderPrimitive(rwPRIMTYPETRISTRIP, aVertices, COUNT_OF(aVertices));
 };
-

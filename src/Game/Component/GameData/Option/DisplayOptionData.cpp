@@ -1,4 +1,5 @@
 #include "DisplayOptionData.hpp"
+#include "System/Common/Sprite.hpp"
 #include "System/Common/System2D.hpp"
 
 #ifdef TARGET_PC
@@ -174,6 +175,7 @@ bool CDisplayOptionData::ApplyVideomode(void) const
 
     if (CPCSpecific::SetVideomode(m_iVideomodeCur))
     {
+        CSprite::SetDefaultVirtualScreen();
         CSystem2D::Reset();
         return true;
     };

@@ -1,4 +1,4 @@
-# TMNT2 Nexus + Widescreen + Very Hard build
+# TMNT2 final Nexus + Widescreen + Very Hard + Slashuur build
 
 This is a US/NA Win32 Release build based on the stable Nexus-loading fix.
 
@@ -10,12 +10,51 @@ This is a US/NA Win32 Release build based on the stable Nexus-loading fix.
   **Options > Display > Resolution**.
 - 3D cameras use Hor+ widescreen projection. Vertical FOV is preserved while
   horizontal FOV and the RenderWare frustum expand to the active aspect ratio.
+- The 2D HUD, menus, sprites, and fonts retain their original proportions in a
+  centered 4:3 safe area. They no longer stretch horizontally at 16:9, while
+  the 3D scene continues to use the full widescreen framebuffer.
 - **Very Hard** appears after Hard in **Options > Game > Difficulty**.
 - Very Hard uses Hard enemy AI/parameter tables and multiplies every positive
   player damage event by 2.5 before HP is removed.
 - The fourth difficulty value is stored in the existing difficulty field, so
   the save layout and size are unchanged. Existing Easy/Normal/Hard saves stay
   valid.
+- Playable Slashuur's imported boss moves use the revised controls below.
+- Guard + Dash can cancel Slashuur's normal combo/charged-attack states into
+  the teleport strike. It cannot bypass damage, knockdown, grab, or stun states.
+- Slashuur can receive damage during spinning scythe. Teleport keeps its brief
+  invulnerability because the character is hidden and has no collision while
+  relocating.
+
+## Playable Slashuur boss-move controls
+
+- Guard + Weak Attack: spinning scythe
+- Guard + Strong Attack: area HP drain
+- Guard + Jump: aerial ground blast
+- Guard + Shuriken: purple energy ball
+- Guard + Dash: teleport strike
+
+These source changes use the boss assets already installed in the existing
+modded `TMNT.DAT`. This update does not require rebuilding or replacing that
+archive.
+
+## Slashuur combo audit
+
+Playable Slashuur registers the complete standard player combo tree. The later
+branches are progression-gated, not dead code:
+
+- A -> AA
+- AA + Strong -> AAB
+- AA + Weak+Strong -> AAC (Attack level 1)
+- AAB + Strong -> AABB (Attack level 2)
+- AAB + Weak+Strong -> AABC (Defence level 2)
+- AABB + Strong -> AABBB (Aerial level 3)
+- AABB + Weak+Strong -> AABBC (Charge level 3)
+
+Boss Slashuur uses a shorter A/AA/AAB-or-AAC chain plus separate enemy-only
+AI states. The boss source contains a disabled throw observer, but its Nage
+animations overlap the normal playable throw system and do not form a unique
+hidden combo worth enabling here.
 
 ## Explicitly excluded
 
@@ -33,3 +72,4 @@ available because this overlay does not replace those unrelated files.
 3. Confirm the Display settings.
 4. Open **Options > Game > Difficulty**.
 5. Move right once past Hard to select **Very Hard**.
+6. Select playable Slashuur and test the revised Guard combinations above.

@@ -48,6 +48,7 @@ namespace Slashuur
     class CBossTeleport : public CBossMoveStatus
     {
     public:
+        virtual bool IsEnableChangeStatus(PLAYERTYPES::STATUS status) override;
         virtual void OnAttach(void) override;
         virtual void OnDetach(void) override;
         virtual void OnRun(void) override;
