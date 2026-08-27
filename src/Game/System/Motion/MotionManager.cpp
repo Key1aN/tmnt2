@@ -57,7 +57,12 @@ public:
 
 private:
     CHAnimationSet m_aHAnimationSet[16];
-    CHAnimation m_aHAnimation[384];
+    /*
+     * Retail content fits narrowly inside 384 animation records. Character
+     * mods can add motions that remain resident while a stage transition
+     * streams the next package, so keep enough headroom for those additions.
+     */
+    CHAnimation m_aHAnimation[512];
     CList<CHAnimationSet> m_listFreeSet;
     CList<CHAnimationSet> m_listAllocSet;
     CList<CHAnimation> m_listHAnimationPool;
@@ -440,4 +445,3 @@ static inline CHAnimationContainer& AnimationContainer(void)
 
     return nullptr;
 };
-
