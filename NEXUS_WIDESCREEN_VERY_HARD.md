@@ -10,9 +10,10 @@ This is a US/NA Win32 Release build based on the stable Nexus-loading fix.
   **Options > Display > Resolution**.
 - 3D cameras use Hor+ widescreen projection. Vertical FOV is preserved while
   horizontal FOV and the RenderWare frustum expand to the active aspect ratio.
-- The 2D HUD, menus, sprites, and fonts retain their original proportions in a
-  centered 4:3 safe area. They no longer stretch horizontally at 16:9, while
-  the 3D scene continues to use the full widescreen framebuffer.
+- The original 2D HUD/menu renderer is left unchanged. UI elements stretch
+  from their 4:3 layout at widescreen resolutions; this avoids the broken
+  positions, clipping, transition coverage, and menu layouts caused by forcing
+  the many independent 2D systems into a generic 4:3 safe area.
 - **Very Hard** appears after Hard in **Options > Game > Difficulty**.
 - Very Hard uses Hard enemy AI/parameter tables and multiplies every positive
   player damage event by 2.5 before HP is removed.

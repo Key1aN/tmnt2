@@ -151,7 +151,7 @@ jobs:
             "Executable=$([System.IO.Path]::GetFileName($artifactExe))",
             "Size=$size",
             "SHA256=$hash",
-            "Features=AnimationPool512;HorPlusWidescreen;AspectCorrect4x3UI;VeryHardDamage2.5x;SlashuurRemappedBossMoves;TeleportComboCancel;VulnerableScythe",
+            "Features=AnimationPool512;HorPlusWidescreen;OriginalStretchedUI;VeryHardDamage2.5x;SlashuurRemappedBossMoves;TeleportComboCancel;VulnerableScythe",
             "Excluded=ColdBreath;DeveloperDebugMenu"
           ) | Set-Content (Join-Path $artifactDir "BUILD_INFO.txt") -Encoding utf8
 
