@@ -471,11 +471,18 @@ void CPlayerCharacter::OnMessageAttackResult(CHitCatchData* pCatch)
 
 void CPlayerCharacter::OnMessageReceivedDamage(int32 nDamage)
 {
-	if ((nDamage > 0) &&
-	    (CGameData::Option().Play().GetDifficulty() == GAMETYPES::DIFFICULTY_VERY_HARD))
+	if (nDamage > 0)
 	{
-		/* Round half damage up so small attacks still receive the full 2.5x rule. */
-		nDamage = static_cast<int32>((static_cast<float>(nDamage) * 2.5f) + 0.5f);
+		GAMETYPES::DIFFICULTY difficulty = CGameData::Option().Play().GetDifficulty();
+		if (difficulty == GAMETYPES::DIFFICULTY_VERY_HARD)
+		{
+			/* Round half damage up so small attacks still receive the full 2.5x rule. */
+			nDamage = static_cast<int32>((static_cast<float>(nDamage) * 2.5f) + 0.5f);
+		}
+		else if (difficulty == GAMETYPES::DIFFICULTY_EXTREME)
+		{
+			nDamage *= 3;
+		};
 	};
 
 	CGameProperty::Player(m_nPlayerNo)->AddHP(-nDamage);

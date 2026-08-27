@@ -47,10 +47,12 @@ namespace GAMETYPES
         DIFFICULTY_NUM,
 
         /*
-         * Very Hard is an option-layer extension. Runtime enemy tables still
-         * use the original three difficulty rows and treat this as Hard.
+         * Very Hard and Extreme are option-layer extensions. Runtime enemy
+         * tables still use the original three difficulty rows and treat both
+         * extensions as Hard.
          */
         DIFFICULTY_VERY_HARD = DIFFICULTY_NUM,
+        DIFFICULTY_EXTREME,
         DIFFICULTY_OPTION_NUM,
     };
 

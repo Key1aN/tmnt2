@@ -6,6 +6,7 @@
 #include "Game/Component/Effect/EffectGeneric.hpp"
 #include "Game/Component/Effect/EffectManager.hpp"
 #include "Game/Component/Effect/Effect.hpp"
+#include "Game/Component/Effect/Magic.hpp"
 #include "Game/Component/Player/PlayerCharacter.hpp"
 #include "Game/Component/Enemy/CharacterCompositor.hpp"
 #include "Game/Component/Gimmick/Gimmick.hpp"
@@ -22,6 +23,41 @@ namespace EFFECTNAMES
     static const char* GUARD_BREAK  = "all_guardbreak";
     static const char* COUNTER      = "all_count";
     static const char* STUN_HIT     = "all_piyohit";
+};
+
+
+static bool IsPlayerOwnedAttack(const CGameObject* pObject)
+{
+    if (!pObject)
+        return false;
+
+    switch (pObject->GetType())
+    {
+    case GAMEOBJECTTYPE::CHARACTER:
+        return (static_cast<const CCharacter*>(pObject)->GetAttackCharacterType() == CCharacter::TYPE_PLAYER);
+
+    case GAMEOBJECTTYPE::SHOT:
+        {
+            const CShot* pShot = static_cast<const CShot*>(pObject);
+            return IsPlayerOwnedAttack(CGameObjectManager::GetObject(pShot->GetParentHandle()));
+        }
+
+    case GAMEOBJECTTYPE::EFFECT:
+        {
+            const CEffect* pEffect = static_cast<const CEffect*>(pObject);
+            if (pEffect->GetEffectType() == CEffect::TYPE_WITHHIT)
+            {
+                const CMagic* pMagic = static_cast<const CMagic*>(pEffect);
+                return IsPlayerOwnedAttack(CGameObjectManager::GetObject(pMagic->GetParent()));
+            };
+        }
+        break;
+
+    default:
+        break;
+    };
+
+    return false;
 };
 
 
@@ -142,6 +178,13 @@ float CCharacterAttackCalculator::CalcDamage(CHARACTERTYPES::ATTACKRESULTTYPE at
 
         if (CGameData::Record().Secret().IsUnlockedSecret(SECRETID::ID_CHALLENGE_NIGHTMARE))
             fPowerRatio *= 2.0f;
+    };
+
+    if ((CGameData::Option().Play().GetDifficulty() == GAMETYPES::DIFFICULTY_EXTREME) &&
+        (m_rCharacter.GetAttackCharacterType() == CCharacter::TYPE_ENEMY) &&
+        IsPlayerOwnedAttack(m_rAttack.GetObject()))
+    {
+        fPowerRatio *= 0.5f;
     };
 
     fDamage = static_cast<float>(m_rAttack.GetPower()) * fPowerRatio;

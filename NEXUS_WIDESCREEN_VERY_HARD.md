@@ -1,4 +1,4 @@
-# TMNT2 final Nexus + Widescreen + Very Hard + Slashuur build
+# TMNT2 final Nexus + Widescreen + Extreme + Slashuur build
 
 This is a US/NA Win32 Release build based on the stable Nexus-loading fix.
 
@@ -17,9 +17,12 @@ This is a US/NA Win32 Release build based on the stable Nexus-loading fix.
 - **Very Hard** appears after Hard in **Options > Game > Difficulty**.
 - Very Hard uses Hard enemy AI/parameter tables and multiplies every positive
   player damage event by 2.5 before HP is removed.
-- The fourth difficulty value is stored in the existing difficulty field, so
-  the save layout and size are unchanged. Existing Easy/Normal/Hard saves stay
-  valid.
+- **Extreme** appears immediately after Very Hard. It uses the same Hard enemy
+  AI/parameter tables, halves damage dealt by player-owned melee, shots, and
+  magic, and triples every positive damage event received by a player.
+- The fourth and fifth difficulty values are stored in the existing difficulty
+  field, so the save layout and size are unchanged. Existing
+  Easy/Normal/Hard/Very Hard saves stay valid.
 - Playable Slashuur's imported boss moves use the revised controls below.
 - Guard + Dash can cancel Slashuur's normal combo/charged-attack states into
   the teleport strike. It cannot bypass damage, knockdown, grab, or stun states.
@@ -72,5 +75,8 @@ available because this overlay does not replace those unrelated files.
 2. Select a resolution labeled `[16:9]`, such as 1920 x 1080.
 3. Confirm the Display settings.
 4. Open **Options > Game > Difficulty**.
-5. Move right once past Hard to select **Very Hard**.
-6. Select playable Slashuur and test the revised Guard combinations above.
+5. Move right once past Hard to select **Very Hard**, or twice to select
+   **Extreme**.
+6. On Extreme, verify that player-owned attacks deal half normal damage and
+   every positive player damage event removes three times the normal HP.
+7. Select playable Slashuur and test the revised Guard combinations above.
