@@ -18,8 +18,9 @@ This is a US/NA Win32 Release build based on the stable Nexus-loading fix.
 - Very Hard uses Hard enemy AI/parameter tables and multiplies every positive
   player damage event by 2.5 before HP is removed.
 - **Extreme** appears immediately after Very Hard. It uses the same Hard enemy
-  AI/parameter tables, halves damage dealt by player-owned melee, shots, and
-  magic, and triples every positive damage event received by a player.
+  AI/parameter tables and makes enemy-owned melee attacks, projectiles, and
+  magic reduce player HP by three times their normal amount. Player damage
+  dealt is unchanged.
 - The fourth and fifth difficulty values are stored in the existing difficulty
   field, so the save layout and size are unchanged. Existing
   Easy/Normal/Hard/Very Hard saves stay valid.
@@ -77,6 +78,6 @@ available because this overlay does not replace those unrelated files.
 4. Open **Options > Game > Difficulty**.
 5. Move right once past Hard to select **Very Hard**, or twice to select
    **Extreme**.
-6. On Extreme, verify that player-owned attacks deal half normal damage and
-   every positive player damage event removes three times the normal HP.
+6. On Extreme, verify that an enemy's melee attack or projectile removes three
+   times the normal HP. Player attack damage remains normal.
 7. Select playable Slashuur and test the revised Guard combinations above.
