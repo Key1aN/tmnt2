@@ -60,7 +60,8 @@ static inline CGamePropertyObject& GamePropertyObject(void)
     
     GAMETYPES::DIFFICULTY difficulty = CGameData::Option().Play().GetDifficulty();
     if ((difficulty == GAMETYPES::DIFFICULTY_VERY_HARD) ||
-        (difficulty == GAMETYPES::DIFFICULTY_EXTREME))
+        (difficulty == GAMETYPES::DIFFICULTY_EXTREME) ||
+        (difficulty == GAMETYPES::DIFFICULTY_SOULS_LIKE))
         return GAMETYPES::DIFFICULTY_HARD;
 
     return difficulty;

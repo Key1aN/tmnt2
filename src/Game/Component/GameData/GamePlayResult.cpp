@@ -223,9 +223,19 @@ void CGamePlayResult::InitForArea(void)
         break;
 
     case GAMETYPES::DIFFICULTY_HARD:
-    case GAMETYPES::DIFFICULTY_VERY_HARD:
-    case GAMETYPES::DIFFICULTY_EXTREME:
         m_baserank = GAMETYPES::CLEARRANK_C;
+        break;
+
+    case GAMETYPES::DIFFICULTY_VERY_HARD:
+        m_baserank = GAMETYPES::CLEARRANK_B;
+        break;
+
+    case GAMETYPES::DIFFICULTY_EXTREME:
+        m_baserank = GAMETYPES::CLEARRANK_A;
+        break;
+
+    case GAMETYPES::DIFFICULTY_SOULS_LIKE:
+        m_baserank = GAMETYPES::CLEARRANK_S;
         break;
 
     default:

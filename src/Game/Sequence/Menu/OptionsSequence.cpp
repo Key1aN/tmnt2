@@ -2963,6 +2963,7 @@ void COptions::SwitchDifficuly(int32 Line)
 {
     static const char* VERY_HARD_TEXT = "Very Hard";
     static const char* EXTREME_TEXT   = "Extreme";
+    static const char* SOULS_LIKE_TEXT = "Souls Like";
 
     GAMETEXT aTextId[] =
     {
@@ -2986,6 +2987,11 @@ void COptions::SwitchDifficuly(int32 Line)
     {
         m_OnOff[Line].TextId = GAMETEXT_EMPTY;
         m_OnOff[Line].Text = EXTREME_TEXT;
+    }
+    else if (difficulty == GAMETYPES::DIFFICULTY_SOULS_LIKE)
+    {
+        m_OnOff[Line].TextId = GAMETEXT_EMPTY;
+        m_OnOff[Line].Text = SOULS_LIKE_TEXT;
     }
     else
     {

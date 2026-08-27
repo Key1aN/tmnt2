@@ -1,4 +1,4 @@
-# TMNT2 final Nexus + Widescreen + Extreme v3 + Slashuur build
+# TMNT2 final build: Very Hard, Extreme, and Souls Like
 
 This is a US/NA Win32 Release build based on the stable Nexus-loading fix.
 
@@ -14,16 +14,32 @@ This is a US/NA Win32 Release build based on the stable Nexus-loading fix.
   from their 4:3 layout at widescreen resolutions; this avoids the broken
   positions, clipping, transition coverage, and menu layouts caused by forcing
   the many independent 2D systems into a generic 4:3 safe area.
-- **Very Hard** appears after Hard in **Options > Game > Difficulty**.
-- Very Hard uses Hard enemy AI/parameter tables and multiplies every positive
-  player damage event by 2.5 before HP is removed.
-- **Extreme** appears immediately after Very Hard. It uses the Hard enemy
-  AI/parameter tables and multiplies every positive player HP reduction by 3
-  at the final damage-delivery point. Player attack damage and healing are
-  unchanged.
-- The fourth and fifth difficulty values are stored in the existing difficulty
-  field, so the save layout and size are unchanged. Existing
-  Easy/Normal/Hard/Very Hard saves stay valid.
+- Three new options appear after Hard in **Options > Game > Difficulty**:
+  **Very Hard**, **Extreme**, and **Souls Like**.
+- The original game has only three authored difficulty rows. Every new option
+  therefore uses the original Hard row for boss and enemy tables, then applies
+  the safe extensions shown below. This prevents out-of-range table access.
+
+| Parameter | Hard | Very Hard | Extreme | Souls Like |
+|---|---:|---:|---:|---:|
+| Enemy maximum HP | 1.00x | 1.25x | 1.50x | 1.75x |
+| Positive player HP damage | 1.00x | 1.50x | 2.00x | 3.00x |
+| EPB attack/guard/fire and activity scale | 1.05x | 1.10x | 1.15x | 1.20x |
+| Common enemy attack interval | 1.00x | 0.85x | 0.70x | 0.50x |
+| Enemy no-reaction threshold | 1.00x | 0.85x | 0.70x | 0.50x |
+| Starting clear-rank base | C | B | A | S |
+
+- A shorter attack interval makes supported enemy and boss AI attack more
+  frequently. A lower no-reaction threshold makes enemies enter their normal
+  anti-stunlock/super-armor state after less accumulated damage.
+- Positive HP damage is multiplied only at the final player damage-delivery
+  path, so enemy hits, projectiles, and damaging stage hazards are covered.
+  Healing and player attack damage remain unchanged.
+- The three new values use the existing difficulty save field. Its layout and
+  size are unchanged; existing Easy, Normal, Hard, Very Hard, and Extreme saves
+  remain valid.
+- Nexus mode keeps the original game's forced Normal table row, but the direct
+  HP, incoming-damage, common-interval, and no-reaction extensions still apply.
 - Playable Slashuur's imported boss moves use the revised controls below.
 - Guard + Dash can cancel Slashuur's normal combo/charged-attack states into
   the teleport strike. It cannot bypass damage, knockdown, grab, or stun states.
@@ -76,8 +92,8 @@ available because this overlay does not replace those unrelated files.
 2. Select a resolution labeled `[16:9]`, such as 1920 x 1080.
 3. Confirm the Display settings.
 4. Open **Options > Game > Difficulty**.
-5. Move right once past Hard to select **Very Hard**, or twice to select
-   **Extreme**.
-6. On Extreme, the same positive damage event removes exactly three times the
-   HP it removes on Hard. Player attack damage remains normal.
+5. Move right once past Hard for **Very Hard**, twice for **Extreme**, or three
+   times for **Souls Like**.
+6. Player attack damage and healing stay at their original values on all three
+   new modes.
 7. Select playable Slashuur and test the revised Guard combinations above.

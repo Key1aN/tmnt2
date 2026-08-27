@@ -13,6 +13,7 @@
 #include "Game/Component/Effect/MagicParameter.hpp"
 #include "Game/Component/Player/PlayerCharacter.hpp"
 #include "Game/Component/GameData/GameData.hpp"
+#include "Game/Component/GameMain/ExtendedDifficulty.hpp"
 #include "Game/Component/GameMain/GameProperty.hpp"
 #include "Game/Component/GameMain/GamePlayer.hpp"
 #include "Game/Component/GameMain/StageInfo.hpp"
@@ -276,13 +277,14 @@ void CEnemyUtils::CKnockBackControl::SetKnockBackControlEnable(bool bEnable)
 
 void CEnemyUtils::CKnockBackControl::SetDamageKnockBackControl(int32 iDamageKnockBackControl)
 {
+    float fDamage = 0.0f;
     if (iDamageKnockBackControl >= 0)
     {
-        m_iDamageKnockBackControl = iDamageKnockBackControl;
+        fDamage = static_cast<float>(iDamageKnockBackControl);
     }
     else
     {
-        float fDamage = ((GetPlayerNumRate() * -40.0f) + 80.0f);
+        fDamage = ((GetPlayerNumRate() * -40.0f) + 80.0f);
 
         GAMETYPES::DIFFICULTY difficulty = CGameProperty::GetDifficulty();
         switch (difficulty)
@@ -291,9 +293,14 @@ void CEnemyUtils::CKnockBackControl::SetDamageKnockBackControl(int32 iDamageKnoc
         case GAMETYPES::DIFFICULTY_HARD: fDamage *= 0.75f; break;
         default: break;
         };
-
-        m_iDamageKnockBackControl = static_cast<int32>(fDamage);
     };
+
+    GAMETYPES::DIFFICULTY optionDifficulty = CGameData::Option().Play().GetDifficulty();
+    fDamage *= EXTENDEDDIFFICULTY::GetKnockBackThresholdScale(optionDifficulty);
+
+    m_iDamageKnockBackControl = static_cast<int32>(fDamage);
+    if ((iDamageKnockBackControl != 0) && (m_iDamageKnockBackControl < 1))
+        m_iDamageKnockBackControl = 1;
 };
 
 

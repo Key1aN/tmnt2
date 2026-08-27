@@ -6,6 +6,7 @@
 
 #include "Game/Component/Player/PlayerStatus.hpp"
 #include "Game/Component/GameData/GameData.hpp"
+#include "Game/Component/GameMain/ExtendedDifficulty.hpp"
 #include "Game/Component/GameMain/GameProperty.hpp"
 #include "Game/System/Character/CharacterAttackCalculator.hpp"
 #include "Game/System/Hit/HitAttackData.hpp"
@@ -259,6 +260,12 @@ bool CEnemyCharacter::Initialize(PARAMETER* pParameter, bool bReplaceParameter)
     if (m_createinfo.m_iHPMax != 0)
         m_pParameter->m_feature.m_iHPMax = m_createinfo.m_iHPMax;
 #endif /* _DEBUG */
+
+    GAMETYPES::DIFFICULTY optionDifficulty = CGameData::Option().Play().GetDifficulty();
+    float fEnemyHPScale = EXTENDEDDIFFICULTY::GetEnemyHPScale(optionDifficulty);
+    m_pParameter->m_feature.m_iHPMax = static_cast<int32>(
+        (static_cast<float>(m_pParameter->m_feature.m_iHPMax) * fEnemyHPScale) + 0.5f
+    );
 
     m_pParameter->m_feature.m_iHP           = m_pParameter->m_feature.m_iHPMax;
     m_pParameter->m_feature.m_vPatrolOrigin = m_createinfo.m_vPosition;

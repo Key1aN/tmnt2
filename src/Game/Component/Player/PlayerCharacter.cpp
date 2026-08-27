@@ -19,6 +19,7 @@
 #include "Game/Component/GameMain/GameProperty.hpp"
 #include "Game/Component/GameMain/GameEvent.hpp"
 #include "Game/Component/GameMain/GamePlayer.hpp"
+#include "Game/Component/GameMain/ExtendedDifficulty.hpp"
 #include "Game/Component/GameData/GameData.hpp"
 #include "Game/Component/Module/ModuleManager.hpp"
 #include "Game/Component/Module/ToGimmickMessageModule.hpp"
@@ -474,16 +475,8 @@ void CPlayerCharacter::OnMessageReceivedDamage(int32 nDamage)
 	if (nDamage > 0)
 	{
 		GAMETYPES::DIFFICULTY difficulty = CGameData::Option().Play().GetDifficulty();
-		if (difficulty == GAMETYPES::DIFFICULTY_VERY_HARD)
-		{
-			/* Round half damage up so small attacks still receive the full 2.5x rule. */
-			nDamage = static_cast<int32>((static_cast<float>(nDamage) * 2.5f) + 0.5f);
-		}
-		else if (difficulty == GAMETYPES::DIFFICULTY_EXTREME)
-		{
-			/* Apply Extreme directly at the final player HP-loss path. */
-			nDamage *= 3;
-		};
+		float fScale = EXTENDEDDIFFICULTY::GetPlayerDamageReceivedScale(difficulty);
+		nDamage = static_cast<int32>((static_cast<float>(nDamage) * fScale) + 0.5f);
 	};
 
 	CGameProperty::Player(m_nPlayerNo)->AddHP(-nDamage);
