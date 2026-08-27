@@ -32,12 +32,27 @@ void CDisplayOptionData::Initialize(void)
     {
 		PC::VIDEOMODE videomode;
 		CPCSpecific::GetVideomode(i, videomode);
+
+        float fAspect = static_cast<float>(videomode.w) /
+                        static_cast<float>(videomode.h);
+        bool bWidescreen = (std::fabs(fAspect - (16.0f / 9.0f)) < 0.01f);
         
-        std::sprintf(m_pVideomode[i].m_szName,
-                     "%d x %d x %d",
-                     videomode.w,
-                     videomode.h,
-                     videomode.d);
+        if (bWidescreen)
+        {
+            std::sprintf(m_pVideomode[i].m_szName,
+                         "%d x %d x %d  [16:9]",
+                         videomode.w,
+                         videomode.h,
+                         videomode.d);
+        }
+        else
+        {
+            std::sprintf(m_pVideomode[i].m_szName,
+                         "%d x %d x %d",
+                         videomode.w,
+                         videomode.h,
+                         videomode.d);
+        };
     };
 #endif /* TMNT2_FEATURE_DISPLAYRESO */
 };

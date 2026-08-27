@@ -223,6 +223,7 @@ void CGamePlayResult::InitForArea(void)
         break;
 
     case GAMETYPES::DIFFICULTY_HARD:
+    case GAMETYPES::DIFFICULTY_VERY_HARD:
         m_baserank = GAMETYPES::CLEARRANK_C;
         break;
 
@@ -848,5 +849,4 @@ void CGamePlayResult::takeOnePrize(AREAID::VALUE idArea, GAMETYPES::PRIZE prize)
         break;
     };
 };
-
 

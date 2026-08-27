@@ -7,6 +7,8 @@ public:
     static CCamera* GetCamera(void);
     static RwCamera* CloneCamera(RwCamera* pRwCamera);
     static void FramebufferChanged(void);
+    static void SetAspectCorrectViewWindow(RwCamera* pRwCamera, float fViewSize);
+    static void RefreshAspectRatio(RwCamera* pRwCamera);
 
     CCamera(RwCamera* pRwCamera);
     virtual ~CCamera(void);

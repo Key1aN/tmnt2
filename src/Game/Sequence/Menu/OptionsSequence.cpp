@@ -1148,9 +1148,19 @@ void COptions::Draw(void)
         {
             CGameFont::SetHeightScaled(m_OnOff[i].Height);
             CGameFont::SetRGBA(m_OnOff[i].Color);
-            CGameFont::Show(CGameText::GetText(m_OnOff[i].TextId),
-                            m_OnOff[i].ScreenPos.x,
-                            m_OnOff[i].ScreenPos.y);
+
+            if (m_OnOff[i].TextId != GAMETEXT_EMPTY)
+            {
+                CGameFont::Show(CGameText::GetText(m_OnOff[i].TextId),
+                                m_OnOff[i].ScreenPos.x,
+                                m_OnOff[i].ScreenPos.y);
+            }
+            else if (m_OnOff[i].Text)
+            {
+                CGameFont::Show(m_OnOff[i].Text,
+                                m_OnOff[i].ScreenPos.x,
+                                m_OnOff[i].ScreenPos.y);
+            };
         };
     };
 
@@ -2951,6 +2961,8 @@ void COptions::SwitchSound(int32 Line)
 
 void COptions::SwitchDifficuly(int32 Line)
 {
+    static const char* VERY_HARD_TEXT = "Very Hard";
+
     GAMETEXT aTextId[] =
     {
         GAMETEXT_OP_GAME_EASY,
@@ -2960,8 +2972,19 @@ void COptions::SwitchDifficuly(int32 Line)
 
     static_assert(COUNT_OF(aTextId) == GAMETYPES::DIFFICULTY_NUM, "update me");
 
-    m_OnOff[Line].Flag      = true;
-    m_OnOff[Line].TextId    = aTextId[CGameData::Option().Play().GetDifficulty()];
+    int32 difficulty = CGameData::Option().Play().GetDifficulty();
+
+    m_OnOff[Line].Flag = true;
+    m_OnOff[Line].Text = nullptr;
+    if (difficulty == GAMETYPES::DIFFICULTY_VERY_HARD)
+    {
+        m_OnOff[Line].TextId = GAMETEXT_EMPTY;
+        m_OnOff[Line].Text = VERY_HARD_TEXT;
+    }
+    else
+    {
+        m_OnOff[Line].TextId = aTextId[difficulty];
+    };
 #ifdef TMNT2_BUILD_EU
     m_OnOff[Line].ScreenPos = { -77.0f,
                                 (float(Line) * 58.0f) - 91.0f };
@@ -2976,22 +2999,20 @@ void COptions::SwitchDifficuly(int32 Line)
 
     if (m_bSwitchMode)
     {
-        int32 difficulty = CGameData::Option().Play().GetDifficulty();
-        
         int32 virtualPad = CGameData::Attribute().GetVirtualPad();
         if (CController::GetDigitalTrigger(virtualPad, CController::DIGITAL_LLEFT))
         {
             CGameSound::PlaySE(SDCODE_SE(0x1004));
 
             m_fSwitchMoveL = SWITCH_ANM;
-            difficulty = InvClamp(difficulty - 1, 0, GAMETYPES::DIFFICULTY_NUM - 1);
+            difficulty = InvClamp(difficulty - 1, 0, GAMETYPES::DIFFICULTY_OPTION_NUM - 1);
         }
         else if (CController::GetDigitalTrigger(virtualPad, CController::DIGITAL_LRIGHT))
         {
             CGameSound::PlaySE(SDCODE_SE(0x1004));
 
             m_fSwitchMoveR = SWITCH_ANM;
-            difficulty = InvClamp(difficulty + 1, 0, GAMETYPES::DIFFICULTY_NUM - 1);
+            difficulty = InvClamp(difficulty + 1, 0, GAMETYPES::DIFFICULTY_OPTION_NUM - 1);
         };
         
         CGameData::Option().Play().SetDifficulty(GAMETYPES::DIFFICULTY(difficulty));

@@ -360,10 +360,7 @@ bool CGraphicsDevice::CreateCamera(void)
     RwCameraSetNearClipPlane(m_pCamera, TYPEDEF::DEFAULT_CLIP_NEAR);
     RwCameraSetFarClipPlane(m_pCamera, TYPEDEF::DEFAULT_CLIP_FAR);
 
-    RwV2d ViewWindow;
-    ViewWindow.x = TYPEDEF::DEFAULT_VIEWWINDOW;
-    ViewWindow.y = TYPEDEF::DEFAULT_VIEWWINDOW / TYPEDEF::DEFAULT_ASPECTRATIO;
-    RwCameraSetViewWindow(m_pCamera, &ViewWindow);
+    CCamera::SetAspectCorrectViewWindow(m_pCamera, TYPEDEF::DEFAULT_VIEWWINDOW);
     
     RwCameraClear(m_pCamera, &m_ClearColor, rwCAMERACLEARIMAGE | rwCAMERACLEARZ);
     RwCameraShowRaster(m_pCamera, nullptr, rwRASTERFLIPWAITVSYNC);

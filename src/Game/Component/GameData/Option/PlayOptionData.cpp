@@ -49,10 +49,10 @@ void CPlayOptionData::Apply(void)
 bool CPlayOptionData::IsValid(void) const
 {
     ASSERT(m_difficulty >= GAMETYPES::DIFFICULTY_EASY);
-    ASSERT(m_difficulty <  GAMETYPES::DIFFICULTY_NUM);
+    ASSERT(m_difficulty <  GAMETYPES::DIFFICULTY_OPTION_NUM);
 
     if ((m_difficulty <  GAMETYPES::DIFFICULTY_EASY) ||
-        (m_difficulty >= GAMETYPES::DIFFICULTY_NUM))
+        (m_difficulty >= GAMETYPES::DIFFICULTY_OPTION_NUM))
         return false;
 
     return true;
@@ -76,7 +76,7 @@ void CPlayOptionData::Restore(const RAWDATA& rRawData)
 void CPlayOptionData::SetDifficulty(GAMETYPES::DIFFICULTY difficulty)
 {
     ASSERT(difficulty >= GAMETYPES::DIFFICULTY_EASY);
-    ASSERT(difficulty <  GAMETYPES::DIFFICULTY_NUM);
+    ASSERT(difficulty <  GAMETYPES::DIFFICULTY_OPTION_NUM);
 
     m_difficulty = difficulty;
 };

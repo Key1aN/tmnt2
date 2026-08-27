@@ -159,7 +159,12 @@ struct CPCGraphicsDevice::DEVICEINFO : public RwSubSystemInfo
 
     for (int32 i = 0; i < COUNT_OF(s_aAspectRatio); ++i)
     {
-        if ((pVideomode->width * s_aAspectRatio[i].y) == (pVideomode->height * s_aAspectRatio[i].x))
+        float fCurrentAspect = static_cast<float>(pVideomode->width) /
+                               static_cast<float>(pVideomode->height);
+        float fTargetAspect = s_aAspectRatio[i].x / s_aAspectRatio[i].y;
+
+        /* Accept common near-16:9 PC modes such as 1366x768 and 1360x768. */
+        if (std::fabs(fCurrentAspect - fTargetAspect) < 0.01f)
             return true;
     };
 

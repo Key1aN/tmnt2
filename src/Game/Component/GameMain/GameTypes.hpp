@@ -45,6 +45,13 @@ namespace GAMETYPES
         DIFFICULTY_HARD,
 
         DIFFICULTY_NUM,
+
+        /*
+         * Very Hard is an option-layer extension. Runtime enemy tables still
+         * use the original three difficulty rows and treat this as Hard.
+         */
+        DIFFICULTY_VERY_HARD = DIFFICULTY_NUM,
+        DIFFICULTY_OPTION_NUM,
     };
 
     enum CRYSTALTYPE
