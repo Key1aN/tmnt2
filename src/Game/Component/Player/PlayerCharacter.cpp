@@ -19,7 +19,6 @@
 #include "Game/Component/GameMain/GameProperty.hpp"
 #include "Game/Component/GameMain/GameEvent.hpp"
 #include "Game/Component/GameMain/GamePlayer.hpp"
-#include "Game/Component/GameMain/ExtendedDifficulty.hpp"
 #include "Game/Component/GameData/GameData.hpp"
 #include "Game/Component/Module/ModuleManager.hpp"
 #include "Game/Component/Module/ToGimmickMessageModule.hpp"
@@ -472,13 +471,6 @@ void CPlayerCharacter::OnMessageAttackResult(CHitCatchData* pCatch)
 
 void CPlayerCharacter::OnMessageReceivedDamage(int32 nDamage)
 {
-	if (nDamage > 0)
-	{
-		GAMETYPES::DIFFICULTY difficulty = CGameData::Option().Play().GetDifficulty();
-		float fScale = EXTENDEDDIFFICULTY::GetPlayerDamageReceivedScale(difficulty);
-		nDamage = static_cast<int32>((static_cast<float>(nDamage) * fScale) + 0.5f);
-	};
-
 	CGameProperty::Player(m_nPlayerNo)->AddHP(-nDamage);
 };
 

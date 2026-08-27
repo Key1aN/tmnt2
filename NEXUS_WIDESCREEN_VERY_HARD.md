@@ -1,5 +1,25 @@
 # TMNT2 final build: Very Hard, Extreme, and Souls Like
 
+## v2 damage-path correction
+
+Player damage scaling now runs inside `CCharacterAttackCalculator::CalcDamage`
+after the game has identified the defender as a player. This is the common
+calculation used by enemy melee attacks, projectiles, guarded hits, and damaging
+hitboxes. The earlier player-message multiplier was removed, so damage is
+scaled exactly once.
+
+The release build writes runtime verification to
+`TMNT2_Slashuur_trace.log` beside the executable. Relevant lines begin with
+`DIFFICULTY` and record:
+
+- the option value selected and applied;
+- the original and scaled HP of every initialized enemy; and
+- every player hit's raw option, original Hard table row, attack power,
+  multiplier, and calculated final damage.
+
+Raw difficulty values are Easy 0, Normal 1, Hard 2, Very Hard 3, Extreme 4,
+and Souls Like 5.
+
 This is a US/NA Win32 Release build based on the stable Nexus-loading fix.
 
 ## Included

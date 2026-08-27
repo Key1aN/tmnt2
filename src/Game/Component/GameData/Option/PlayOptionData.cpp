@@ -1,5 +1,9 @@
 #include "PlayOptionData.hpp"
 
+#if defined(TARGET_PC)
+#include "System/PC/PCCrashReporter.hpp"
+#endif /* defined(TARGET_PC) */
+
 #ifdef TARGET_WEB
 #include "System/Web/WebSpecific.hpp"
 #endif /* TARGET_WEB */
@@ -43,6 +47,10 @@ void CPlayOptionData::Apply(void)
 		OUTPUT("%s is invalid! Set to default!\n", __FUNCTION__);
 		SetDefault();
 	};
+
+#if defined(TARGET_PC)
+    CPCCrashReporter::Breadcrumb("DIFFICULTY option_apply raw=%d", static_cast<int32>(m_difficulty));
+#endif /* defined(TARGET_PC) */
 };
 
 
@@ -77,6 +85,11 @@ void CPlayOptionData::SetDifficulty(GAMETYPES::DIFFICULTY difficulty)
 {
     ASSERT(difficulty >= GAMETYPES::DIFFICULTY_EASY);
     ASSERT(difficulty <  GAMETYPES::DIFFICULTY_OPTION_NUM);
+
+#if defined(TARGET_PC)
+    if (m_difficulty != difficulty)
+        CPCCrashReporter::Breadcrumb("DIFFICULTY option_set raw=%d", static_cast<int32>(difficulty));
+#endif /* defined(TARGET_PC) */
 
     m_difficulty = difficulty;
 };
