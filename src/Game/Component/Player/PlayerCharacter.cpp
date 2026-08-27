@@ -46,6 +46,29 @@
 #include "System/Common/Controller.hpp"
 
 
+namespace
+{
+    const float COLD_BREATH_INITIAL_DELAY = 1.0f;
+    const float COLD_BREATH_INTERVAL = 3.0f;
+    const float COLD_BREATH_PLAYER_STAGGER = 0.35f;
+
+
+    bool IsColdBreathStage(STAGEID::VALUE stageId)
+    {
+        switch (stageId)
+        {
+        case STAGEID::ID_ST12N: // Frozen Relic
+        case STAGEID::ID_ST13R: // Glacial Valley
+        case STAGEID::ID_ST14N: // Mt. Zero
+            return true;
+
+        default:
+            return false;
+        };
+    };
+};
+
+
 #ifdef _DEBUG
 
 static inline bool IsDuplicateCharacterExist(const char* pszName)
@@ -157,6 +180,7 @@ CPlayerCharacter::CPlayerCharacter(const char* pszName, PLAYERID::VALUE idPlayer
 , m_vReplacepoint(Math::VECTOR3_ZERO)
 , m_bActive(false)
 , m_bSimplifiedInput(CGameData::Option().Play().IsSimplifiedInput())
+, m_fColdBreathTimer(0.0f)
 {
 	;
 };
@@ -176,6 +200,48 @@ void CPlayerCharacter::Run(void)
 {
     m_pStateMachine->Run();
     CCharacter::Run();
+    UpdateColdBreathEffect();
+};
+
+
+void CPlayerCharacter::UpdateColdBreathEffect(void)
+{
+    if (!m_bActive)
+        return;
+
+    if (!IsColdBreathStage(CGameData::PlayParam().GetStage()))
+        return;
+
+    const bool bRideStage = (CGameData::PlayParam().GetStageMode() == GAMETYPES::STAGEMODE_RIDE);
+    if (!bRideStage)
+    {
+        PLAYERTYPES::STATUS status = GetStatus();
+        if ((status == PLAYERTYPES::STATUS_DEAD) ||
+            (status == PLAYERTYPES::STATUS_DEAD_FLYAWAY))
+        {
+            return;
+        };
+    };
+
+    m_fColdBreathTimer -= CGameProperty::GetElapsedTime();
+    if (m_fColdBreathTimer > 0.0f)
+        return;
+
+    /*
+     * Bone 10 is the head attachment used by the existing player target tracer.
+     * The small local +Z offset places this one-shot effect just in front of the
+     * face. Sound is disabled because all_breath intentionally has no SE mapping.
+     */
+    const RwV3d vMouthOffset = { 0.0f, 0.0f, 0.12f };
+    CEffectManager::PlayTrace(EFFECTID::ID_ALL_BREATH,
+                              new CPlayerTargetTracer(this),
+                              &vMouthOffset,
+                              false);
+
+    int32 playerSlot = (m_nPlayerNo >= 0 ? m_nPlayerNo : 0);
+    m_fColdBreathTimer = COLD_BREATH_INTERVAL +
+                         (static_cast<float>(playerSlot % GAMETYPES::PLAYERS_MAX) *
+                          COLD_BREATH_PLAYER_STAGGER);
 };
 
 
@@ -888,6 +954,10 @@ void CPlayerCharacter::OnAttach(CPlayerCharacter* pBeforeCharacter, bool bChange
 
     m_nPlayerNo = GetPlayerIndex();
     m_bActive = true;
+    int32 playerSlot = (m_nPlayerNo >= 0 ? m_nPlayerNo : 0);
+    m_fColdBreathTimer = COLD_BREATH_INITIAL_DELAY +
+                         (static_cast<float>(playerSlot % GAMETYPES::PLAYERS_MAX) *
+                          COLD_BREATH_PLAYER_STAGGER);
 };
 
 
@@ -913,6 +983,7 @@ void CPlayerCharacter::OnDetach(CPlayerCharacter* pAfterCharacter)
 
     m_nPlayerIndex = -1;
     m_bActive = false;
+    m_fColdBreathTimer = 0.0f;
 };
 
 

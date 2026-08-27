@@ -119,6 +119,9 @@ public:
 	/*inline*/ int32 GetNumWallJump() const;
 
 private:
+    void UpdateColdBreathEffect(void);
+
+private:
     PLAYERID::VALUE m_idPlayer;
     GAMETYPES::COSTUME m_costume;
     int32 m_nPlayerIndex;
@@ -135,6 +138,7 @@ private:
     RwV3d m_vReplacepoint;
     bool m_bActive;
     bool m_bSimplifiedInput;
+    float m_fColdBreathTimer;
 };
 
 
