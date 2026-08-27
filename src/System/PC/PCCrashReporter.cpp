@@ -23,6 +23,7 @@ namespace
 
     static LPTOP_LEVEL_EXCEPTION_FILTER s_pPreviousFilter = nullptr;
     static volatile LONG s_handlingCrash = 0;
+    static HANDLE s_hTrace = INVALID_HANDLE_VALUE;
 
 
     static void GetGameDirectory(char* path, size_t pathSize)
@@ -99,6 +100,20 @@ namespace
 
     static void AppendTraceText(const char* text)
     {
+        if (!text)
+            return;
+
+        if (s_hTrace != INVALID_HANDLE_VALUE)
+        {
+            DWORD bytesWritten = 0;
+            WriteFile(s_hTrace,
+                      text,
+                      static_cast<DWORD>(std::strlen(text)),
+                      &bytesWritten,
+                      nullptr);
+            return;
+        };
+
         char path[MAX_PATH] = {};
         BuildGamePath(path, COUNT_OF(path), "TMNT2_Slashuur_trace.log");
 
@@ -111,7 +126,12 @@ namespace
                                    nullptr);
         if (hFile != INVALID_HANDLE_VALUE)
         {
-            WriteAll(hFile, text);
+            DWORD bytesWritten = 0;
+            WriteFile(hFile,
+                      text,
+                      static_cast<DWORD>(std::strlen(text)),
+                      &bytesWritten,
+                      nullptr);
             CloseHandle(hFile);
         };
     };
@@ -191,6 +211,9 @@ namespace
     {
         if (InterlockedExchange(&s_handlingCrash, 1) != 0)
             return EXCEPTION_EXECUTE_HANDLER;
+
+        if (s_hTrace != INVALID_HANDLE_VALUE)
+            FlushFileBuffers(s_hTrace);
 
         SYSTEMTIME time = {};
         GetLocalTime(&time);
@@ -335,19 +358,24 @@ namespace
     char path[MAX_PATH] = {};
     BuildGamePath(path, COUNT_OF(path), "TMNT2_Slashuur_trace.log");
 
-    HANDLE hFile = CreateFileA(path,
-                               GENERIC_WRITE,
-                               FILE_SHARE_READ | FILE_SHARE_WRITE,
-                               nullptr,
-                               CREATE_ALWAYS,
-                               FILE_ATTRIBUTE_NORMAL,
-                               nullptr);
-    if (hFile != INVALID_HANDLE_VALUE)
+    if (s_hTrace != INVALID_HANDLE_VALUE)
     {
-        WriteAll(hFile,
+        CloseHandle(s_hTrace);
+        s_hTrace = INVALID_HANDLE_VALUE;
+    };
+
+    s_hTrace = CreateFileA(path,
+                           GENERIC_WRITE,
+                           FILE_SHARE_READ | FILE_SHARE_WRITE,
+                           nullptr,
+                           CREATE_ALWAYS,
+                           FILE_ATTRIBUTE_NORMAL,
+                           nullptr);
+    if (s_hTrace != INVALID_HANDLE_VALUE)
+    {
+        WriteAll(s_hTrace,
                  "TMNT2 Playable Slashuur runtime trace\r\n"
-                 "Crash logger: version 1\r\n");
-        CloseHandle(hFile);
+                 "Crash logger: version 2 (buffered trace)\r\n");
     };
 
     s_handlingCrash = 0;
@@ -359,6 +387,12 @@ namespace
 /*static*/ void CPCCrashReporter::Uninstall(void)
 {
     Breadcrumb("SESSION normal shutdown");
+    if (s_hTrace != INVALID_HANDLE_VALUE)
+    {
+        FlushFileBuffers(s_hTrace);
+        CloseHandle(s_hTrace);
+        s_hTrace = INVALID_HANDLE_VALUE;
+    };
     SetUnhandledExceptionFilter(s_pPreviousFilter);
     s_pPreviousFilter = nullptr;
 };

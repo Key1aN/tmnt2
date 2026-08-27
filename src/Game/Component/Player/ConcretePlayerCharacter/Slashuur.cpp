@@ -33,6 +33,7 @@ namespace Slashuur
     static const float BOSS_GROUND_BLAST_JUMP_SPEED = 10.606602f;
     static const float BOSS_SCYTHE_RADIUS = 3.2f;
     static const int32 BOSS_DRAIN_DAMAGE = 30;
+    static const int32 BOSS_MAGIC_BONE_ID = 3;
 
 
     static PLAYERTYPES::STATUS BossStatus(STATUS status)
@@ -125,7 +126,15 @@ namespace Slashuur
         character.GetPosition(&position);
 
         RwV3d offset = Math::VECTOR3_ZERO;
-        character.GetOffsetPosition(&offset, 1);
+        /*
+         * Boss Slashuur's CHR has a second position record (slot 1) that
+         * resolves to bone 3 with a zero local offset. Playable Slashuur's
+         * retail CHR has only slot 0, so requesting slot 1 dereferences a null
+         * CHitSphereParameter. Both characters use the same model/skeleton;
+         * resolve the authored bone directly instead of depending on the
+         * boss-only CHR slot.
+         */
+        character.GetBonePosition(&offset, BOSS_MAGIC_BONE_ID, nullptr);
         Math::Vec3_Add(&position, &position, &offset);
 
         RwV3d direction = { 0.0f, -1.0f, 0.0f };
