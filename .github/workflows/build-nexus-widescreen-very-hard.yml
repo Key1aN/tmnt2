@@ -1,4 +1,4 @@
-name: Build final TMNT2 three new difficulties v2 verified
+name: Build final TMNT2 brutal difficulties v3
 
 on:
   workflow_dispatch:
@@ -137,7 +137,7 @@ jobs:
 
           $artifactDir = Join-Path $env:GITHUB_WORKSPACE "artifact"
           New-Item -ItemType Directory -Force -Path $artifactDir | Out-Null
-          $artifactExe = Join-Path $artifactDir "TMNT2_Final_Three_New_Difficulties_v2_US.exe"
+          $artifactExe = Join-Path $artifactDir "TMNT2_Final_Brutal_Difficulties_v3_US.exe"
           Copy-Item $exe.FullName $artifactExe -Force
           Copy-Item (Join-Path $env:GITHUB_WORKSPACE "NEXUS_WIDESCREEN_VERY_HARD.md") $artifactDir -Force
 
@@ -167,7 +167,7 @@ jobs:
             "Executable=$([System.IO.Path]::GetFileName($artifactExe))",
             "Size=$size",
             "SHA256=$hash",
-            "Features=AnimationPool512;HorPlusWidescreen;OriginalStretchedUI;VeryHard;Extreme;SoulsLike;DamageCalculatorScalingV2;RuntimeDifficultyTrace;ExtendedEnemyHP;ExtendedAggression;ExtendedSuperArmor;SlashuurRemappedBossMoves;TeleportComboCancel;VulnerableScythe",
+            "Features=AnimationPool512;HorPlusWidescreen;OriginalStretchedUI;VeryHardDamage2.5x;ExtremeDamage4x;SoulsLikeDamage6x;DamageCalculatorScalingV2;RuntimeDifficultyTrace;ExtendedEnemyHP;ExtendedAggression;ExtendedSuperArmor;SlashuurRemappedBossMoves;TeleportComboCancel;VulnerableScythe",
             "Excluded=ColdBreath;DeveloperDebugMenu"
           ) | Set-Content (Join-Path $artifactDir "BUILD_INFO.txt") -Encoding utf8
 
@@ -176,7 +176,7 @@ jobs:
       - name: Upload patched executable
         uses: actions/upload-artifact@v4
         with:
-          name: TMNT2-Final-Three-New-Difficulties-v2-Verified-US
+          name: TMNT2-Final-Brutal-Difficulties-v3-US
           path: artifact/*
           if-no-files-found: error
           retention-days: 7

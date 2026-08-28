@@ -1,5 +1,11 @@
 # TMNT2 final build: Very Hard, Extreme, and Souls Like
 
+## v3 brutal balance
+
+The proven v2 central damage-calculator hook and runtime verification log are
+unchanged. V3 raises all three extended difficulties substantially; the full
+balance table appears under **Included** below.
+
 ## v2 damage-path correction
 
 Player damage scaling now runs inside `CCharacterAttackCalculator::CalcDamage`
@@ -42,19 +48,20 @@ This is a US/NA Win32 Release build based on the stable Nexus-loading fix.
 
 | Parameter | Hard | Very Hard | Extreme | Souls Like |
 |---|---:|---:|---:|---:|
-| Enemy maximum HP | 1.00x | 1.25x | 1.50x | 1.75x |
-| Positive player HP damage | 1.00x | 1.50x | 2.00x | 3.00x |
-| EPB attack/guard/fire and activity scale | 1.05x | 1.10x | 1.15x | 1.20x |
-| Common enemy attack interval | 1.00x | 0.85x | 0.70x | 0.50x |
-| Enemy no-reaction threshold | 1.00x | 0.85x | 0.70x | 0.50x |
+| Enemy maximum HP | 1.00x | 1.50x | 2.00x | 2.50x |
+| Positive player HP damage | 1.00x | 2.50x | 4.00x | 6.00x |
+| EPB attack/guard/fire and activity scale | 1.05x | 1.15x | 1.25x | 1.35x |
+| Common enemy attack interval | 1.00x | 0.75x | 0.50x | 0.30x |
+| Enemy no-reaction threshold | 1.00x | 0.75x | 0.50x | 0.30x |
 | Starting clear-rank base | C | B | A | S |
 
 - A shorter attack interval makes supported enemy and boss AI attack more
   frequently. A lower no-reaction threshold makes enemies enter their normal
   anti-stunlock/super-armor state after less accumulated damage.
-- Positive HP damage is multiplied only at the final player damage-delivery
-  path, so enemy hits, projectiles, and damaging stage hazards are covered.
-  Healing and player attack damage remain unchanged.
+- Positive hit damage is multiplied in the central attack calculator after the
+  game identifies the defender as a player, so enemy melee attacks, projectiles,
+  guarded hits, and damaging attack hitboxes are covered. Healing and player
+  attack damage remain unchanged.
 - The three new values use the existing difficulty save field. Its layout and
   size are unchanged; existing Easy, Normal, Hard, Very Hard, and Extreme saves
   remain valid.
