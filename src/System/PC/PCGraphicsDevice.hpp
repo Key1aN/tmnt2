@@ -41,6 +41,9 @@ public:
 private:
     void OutputInfo(void);
     bool IsFullscreenWindow(void) const;
+    int32 GetCurrentModeMaxMultiSamplingLevels(void) const;
+    void SetMultiSamplingBeforeStart(void);
+    bool ChangeMultiSamplingAfterStart(const char* pszPhase);
 
 private:
     CPCFrameTimer* m_pFrameTimer;

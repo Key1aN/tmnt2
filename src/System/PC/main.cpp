@@ -24,6 +24,7 @@ _tWinMain(
 )
 {
     CPCCrashReporter::Install();
+    CPCCrashReporter::Breadcrumb("BUILD TMNT2_MSAA_Restore_v1_US");
 
 #ifdef VLDCHECK    
     VLDEnable();

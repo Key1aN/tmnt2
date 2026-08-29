@@ -9,6 +9,7 @@ public:
     static const PC::VIDEOMODE VIDEOMODE_DEFAULT;
     static PC::VIDEOMODE m_videomode;
     static bool m_bWindowMode;
+    static int32 m_nMSAASamples;
 
 public:
     static void Initialize(void);

@@ -3,6 +3,7 @@
 #include "PCSpecific.hpp"
 #include "PCSetting.hpp"
 #include "PCError.hpp"
+#include "PCCrashReporter.hpp"
 
 #include "System/Common/Configure.hpp"
 #include "System/Common/Screen.hpp"
@@ -16,8 +17,11 @@
 #define RwDrvSetRefreshRate \
     // no op
 
-#define RwDrvSetMultiSamplingLevels \
-    // no op
+#define RwDrvSetMultiSamplingLevels(_levels) \
+    ((void)(_levels))
+
+#define RwDrvChangeMultiSamplingLevels(_levels) \
+    (true)
 
 #define RwDrvGetMaxMultiSamplingLevels() \
     (0)
@@ -33,10 +37,39 @@
 #define RwDrvSetMultiSamplingLevels \
     RwD3D9EngineSetMultiSamplingLevels
 
+#define RwDrvChangeMultiSamplingLevels \
+    RwD3D9ChangeMultiSamplingLevels
+
 #define RwDrvGetMaxMultiSamplingLevels \
     RwD3D9EngineGetMaxMultiSamplingLevels
 
 #endif
+
+
+namespace
+{
+    static int32 SelectSupportedMSAASamples(int32 nRequestedSamples, int32 nMaxSamples)
+    {
+        const int32 nLimit = std::min(nRequestedSamples, nMaxSamples);
+
+        if (nLimit >= 8)
+            return 8;
+
+        if (nLimit >= 4)
+            return 4;
+
+        if (nLimit >= 2)
+            return 2;
+
+        return 0;
+    };
+
+
+    static uint32 GetRenderWareMultiSamplingLevels(int32 nSamples)
+    {
+        return (nSamples >= 2 ? static_cast<uint32>(nSamples) : 1u);
+    };
+}; /* anonymous namespace */
 
 #define NOASM
 #if defined(TMNT2_RWDRV_OPENGL)
@@ -203,12 +236,10 @@ bool CPCGraphicsDevice::Initialize(void)
     if (!m_pFrameTimer)
         return false;
 
+    SetMultiSamplingBeforeStart();
+
     if (m_bFullscreen)
     {
-        int32 numMsLevels = m_pDeviceInfo[m_curDevice].m_numMultisamplingLvls;
-
-        RwDrvSetMultiSamplingLevels(numMsLevels ?  numMsLevels * 2 : 1);
-
         uint32 refreshRate = 60;
 #ifdef TMNT2_BUILD_EU
         if ((CConfigure::GetTVMode() == TYPEDEF::CONFIG_TV_PAL) && IsPalMode())
@@ -252,6 +283,9 @@ bool CPCGraphicsDevice::Start(void)
     };
 
     RwImageSetGamma(1.2f);
+    CPCCrashReporter::Breadcrumb("MSAA engine_start active=%d fullscreen=%d",
+                                 m_multisamplingLvl,
+                                 (m_bFullscreen ? 1 : 0));
     return true;
 };
 
@@ -617,6 +651,22 @@ bool CPCGraphicsDevice::SetVideomode(const PC::VIDEOMODE& vm)
     curDevice = SearchAndSetVideomode(vm, false);
     ASSERT(curDevice == m_curDevice);
 
+    if (m_bFullscreen && (m_multisamplingLvl >= 2))
+    {
+        if (RwDrvChangeMultiSamplingLevels(1u))
+        {
+            CPCCrashReporter::Breadcrumb("MSAA mode_change prepare disabled_previous=%d",
+                                         m_multisamplingLvl);
+            m_multisamplingLvl = 0;
+            m_pDeviceInfo[m_curDevice].m_numMultisamplingLvls = 0;
+        }
+        else
+        {
+            CPCCrashReporter::Breadcrumb("MSAA mode_change prepare_disable_failed previous=%d",
+                                         m_multisamplingLvl);
+        };
+    };
+
     //
     //  adjust window size and recreate frame buffers
     //
@@ -633,12 +683,12 @@ bool CPCGraphicsDevice::SetVideomode(const PC::VIDEOMODE& vm)
     if (RwDrvChangeVideoMode(Videomode()))
     {
         bVideomodeChangedFlag = true;
+        bool bMultiSamplingReady = true;
 
         if (m_bFullscreen)
         {
-            int32 numMsLevels = m_pDeviceInfo[m_curDevice].m_numMultisamplingLvls;
-
-            RwDrvSetMultiSamplingLevels(numMsLevels ? numMsLevels * 2 : 1);
+            if (!ChangeMultiSamplingAfterStart("mode_change"))
+                bMultiSamplingReady = false;
 
             uint32 refreshRate = 60;
 #ifdef TMNT2_BUILD_EU
@@ -649,7 +699,7 @@ bool CPCGraphicsDevice::SetVideomode(const PC::VIDEOMODE& vm)
             RwDrvSetRefreshRate(refreshRate);
         };
 
-        if (m_bFullscreen || CreateFrameBuffer())
+        if (bMultiSamplingReady && (m_bFullscreen || CreateFrameBuffer()))
         {
             CScreen::DeviceChanged();
             return true;
@@ -665,6 +715,9 @@ bool CPCGraphicsDevice::SetVideomode(const PC::VIDEOMODE& vm)
 
     if (bVideomodeChangedFlag)
         RwDrvChangeVideoMode(Videomode());
+
+    if (m_bFullscreen)
+        ChangeMultiSamplingAfterStart("mode_change_rollback");
 
     if (!m_bFullscreen)
     {
@@ -729,6 +782,98 @@ int32 CPCGraphicsDevice::GetVideomodeNum(void) const
 bool CPCGraphicsDevice::IsFullscreen(void) const
 {
     return m_bFullscreen;
+};
+
+
+int32 CPCGraphicsDevice::GetCurrentModeMaxMultiSamplingLevels(void) const
+{
+    ASSERT(m_pDeviceInfo);
+    ASSERT(m_curDevice >= 0);
+    ASSERT(m_curDevice < m_numDevices);
+
+    const DEVICEINFO* pDeviceInfo = &m_pDeviceInfo[m_curDevice];
+    ASSERT(pDeviceInfo->m_curMode >= 0);
+    ASSERT(pDeviceInfo->m_curMode < pDeviceInfo->m_numModes);
+
+    return pDeviceInfo->m_pModes[pDeviceInfo->m_curMode].m_maxMultiSamplingLevels;
+};
+
+
+void CPCGraphicsDevice::SetMultiSamplingBeforeStart(void)
+{
+    m_multisamplingLvl = 0;
+    m_pDeviceInfo[m_curDevice].m_numMultisamplingLvls = 0;
+
+    if (!m_bFullscreen)
+    {
+        CPCCrashReporter::Breadcrumb("MSAA initialize requested=%d active=0 reason=windowed_mode",
+                                     CPCSetting::m_nMSAASamples);
+        return;
+    };
+
+    const int32 nMaxSamples = GetCurrentModeMaxMultiSamplingLevels();
+    m_multisamplingLvl = SelectSupportedMSAASamples(CPCSetting::m_nMSAASamples, nMaxSamples);
+    m_pDeviceInfo[m_curDevice].m_numMultisamplingLvls = m_multisamplingLvl;
+
+    RwDrvSetMultiSamplingLevels(GetRenderWareMultiSamplingLevels(m_multisamplingLvl));
+
+    const VIDEOMODE* pVideomode =
+        &m_pDeviceInfo[m_curDevice].m_pModes[m_pDeviceInfo[m_curDevice].m_curMode];
+    CPCCrashReporter::Breadcrumb(
+        "MSAA initialize requested=%d max=%d active=%d rw_levels=%u mode=%dx%dx%d",
+        CPCSetting::m_nMSAASamples,
+        nMaxSamples,
+        m_multisamplingLvl,
+        GetRenderWareMultiSamplingLevels(m_multisamplingLvl),
+        pVideomode->width,
+        pVideomode->height,
+        pVideomode->depth);
+};
+
+
+bool CPCGraphicsDevice::ChangeMultiSamplingAfterStart(const char* pszPhase)
+{
+    ASSERT(m_bFullscreen);
+
+    const int32 nMaxSamples = GetCurrentModeMaxMultiSamplingLevels();
+    const int32 nSelectedSamples =
+        SelectSupportedMSAASamples(CPCSetting::m_nMSAASamples, nMaxSamples);
+    const uint32 nRenderWareLevels = GetRenderWareMultiSamplingLevels(nSelectedSamples);
+
+    if (RwDrvChangeMultiSamplingLevels(nRenderWareLevels))
+    {
+        m_multisamplingLvl = nSelectedSamples;
+        m_pDeviceInfo[m_curDevice].m_numMultisamplingLvls = m_multisamplingLvl;
+        CPCCrashReporter::Breadcrumb(
+            "MSAA %s requested=%d max=%d active=%d rw_levels=%u result=success",
+            pszPhase,
+            CPCSetting::m_nMSAASamples,
+            nMaxSamples,
+            m_multisamplingLvl,
+            nRenderWareLevels);
+        return true;
+    };
+
+    if ((nSelectedSamples >= 2) && RwDrvChangeMultiSamplingLevels(1u))
+    {
+        m_multisamplingLvl = 0;
+        m_pDeviceInfo[m_curDevice].m_numMultisamplingLvls = 0;
+        CPCCrashReporter::Breadcrumb(
+            "MSAA %s requested=%d max=%d active=0 result=fallback_disabled",
+            pszPhase,
+            CPCSetting::m_nMSAASamples,
+            nMaxSamples);
+        return true;
+    };
+
+    m_multisamplingLvl = 0;
+    m_pDeviceInfo[m_curDevice].m_numMultisamplingLvls = 0;
+    CPCCrashReporter::Breadcrumb(
+        "MSAA %s requested=%d max=%d active=0 result=change_failed",
+        pszPhase,
+        CPCSetting::m_nMSAASamples,
+        nMaxSamples);
+    return false;
 };
 
 

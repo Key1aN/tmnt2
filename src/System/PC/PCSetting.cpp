@@ -1,6 +1,7 @@
 #include "PCSetting.hpp"
 #include "PCSpecific.hpp"
 #include "PCGraphicsDevice.hpp"
+#include "PCCrashReporter.hpp"
 
 #include "System/Common/Configure.hpp"
 
@@ -8,11 +9,31 @@
 /*static*/ const PC::VIDEOMODE CPCSetting::VIDEOMODE_DEFAULT = { 640, 480, 32 };
 /*static*/ PC::VIDEOMODE CPCSetting::m_videomode;
 /*static*/ bool CPCSetting::m_bWindowMode;
+/*static*/ int32 CPCSetting::m_nMSAASamples;
+
+
+namespace
+{
+    static int32 NormalizeMSAASamples(int32 nSamples)
+    {
+        if (nSamples >= 8)
+            return 8;
+
+        if (nSamples >= 4)
+            return 4;
+
+        if (nSamples >= 2)
+            return 2;
+
+        return 0;
+    };
+}; /* anonymous namespace */
 
 
 /*static*/ void CPCSetting::Initialize(void)
 {
     m_videomode = VIDEOMODE_DEFAULT;
+    m_nMSAASamples = 4;
 #ifdef _DEBUG    
     m_bWindowMode = true;
 #else
@@ -45,6 +66,13 @@
 
     if (GetPrivateProfileStringA("SCREEN", "DEPTH", "32", szBuff, COUNT_OF(szBuff), Path.c_str()))
         m_videomode.d = std::atol(szBuff);
+
+    if (GetPrivateProfileStringA("GRAPHICS", "MSAA", "4", szBuff, COUNT_OF(szBuff), Path.c_str()))
+    {
+        int32 nRawSamples = std::atol(szBuff);
+        m_nMSAASamples = NormalizeMSAASamples(nRawSamples);
+        CPCCrashReporter::Breadcrumb("MSAA config raw=%d normalized=%d", nRawSamples, m_nMSAASamples);
+    };
 };
 
 
@@ -64,6 +92,9 @@
 
     std::sprintf(szBuff, "%d", m_videomode.d);
     WritePrivateProfileStringA("SCREEN", "DEPTH", szBuff, Path.c_str());
+
+    std::sprintf(szBuff, "%d", m_nMSAASamples);
+    WritePrivateProfileStringA("GRAPHICS", "MSAA", szBuff, Path.c_str());
 };
 
 
