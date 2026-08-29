@@ -45,6 +45,7 @@ private:
     int32 GetCurrentModeMaxMultiSamplingLevels(void) const;
     void SetMultiSamplingBeforeStart(void);
     bool ChangeMultiSamplingAfterStart(const char* pszPhase);
+    int32 TraceActualMultiSampling(const char* pszPhase, int32 nExpectedSamples);
 
 private:
     CPCFrameTimer* m_pFrameTimer;

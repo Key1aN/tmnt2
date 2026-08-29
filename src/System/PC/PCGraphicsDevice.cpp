@@ -8,6 +8,10 @@
 #include "System/Common/Configure.hpp"
 #include "System/Common/Screen.hpp"
 
+#if defined(TMNT2_RWDRV_D3D9)
+#include <d3d9.h>
+#endif /* defined(TMNT2_RWDRV_D3D9) */
+
 
 #if defined(TMNT2_RWDRV_OPENGL)
 
@@ -283,9 +287,37 @@ bool CPCGraphicsDevice::Start(void)
     };
 
     RwImageSetGamma(1.2f);
-    CPCCrashReporter::Breadcrumb("MSAA engine_start active=%d fullscreen=%d",
-                                 m_multisamplingLvl,
-                                 (m_bFullscreen ? 1 : 0));
+
+    const int32 nExpectedSamples = m_multisamplingLvl;
+    const int32 nActualSamples =
+        TraceActualMultiSampling("engine_start", nExpectedSamples);
+
+    if (nActualSamples >= 0)
+    {
+        m_multisamplingLvl = nActualSamples;
+        m_pDeviceInfo[m_curDevice].m_numMultisamplingLvls = nActualSamples;
+    };
+
+    CPCCrashReporter::Breadcrumb(
+        "MSAA engine_start expected=%d actual=%d fullscreen=%d",
+        nExpectedSamples,
+        nActualSamples,
+        (m_bFullscreen ? 1 : 0));
+
+    if (m_bFullscreen &&
+        (nExpectedSamples >= 2) &&
+        (nActualSamples >= 0) &&
+        (nActualSamples != nExpectedSamples))
+    {
+        CPCCrashReporter::Breadcrumb(
+            "MSAA engine_start repair expected=%d actual=%d action=disable_then_enable",
+            nExpectedSamples,
+            nActualSamples);
+
+        RwDrvChangeMultiSamplingLevels(1u);
+        ChangeMultiSamplingAfterStart("engine_start_repair");
+    };
+
     return true;
 };
 
@@ -807,6 +839,15 @@ bool CPCGraphicsDevice::ApplyConfiguredMultiSampling(void)
         return true;
     };
 
+    /*
+     * A driver or wrapper can leave the real target non-multisampled while
+     * RenderWare still remembers the requested level. Cycling through OFF
+     * guarantees that the following call performs a device reset instead of
+     * returning early because its internal selection already matches.
+     */
+    if (nSelectedSamples >= 2)
+        RwDrvChangeMultiSamplingLevels(1u);
+
     if (!ChangeMultiSamplingAfterStart("display_menu"))
         return false;
 
@@ -872,15 +913,21 @@ bool CPCGraphicsDevice::ChangeMultiSamplingAfterStart(const char* pszPhase)
 
     if (RwDrvChangeMultiSamplingLevels(nRenderWareLevels))
     {
-        m_multisamplingLvl = nSelectedSamples;
+        const int32 nActualSamples =
+            TraceActualMultiSampling(pszPhase, nSelectedSamples);
+
+        m_multisamplingLvl =
+            (nActualSamples >= 0 ? nActualSamples : nSelectedSamples);
         m_pDeviceInfo[m_curDevice].m_numMultisamplingLvls = m_multisamplingLvl;
         CPCCrashReporter::Breadcrumb(
-            "MSAA %s requested=%d max=%d active=%d rw_levels=%u result=success",
+            "MSAA %s requested=%d max=%d active=%d rw_levels=%u result=%s",
             pszPhase,
             CPCSetting::m_nMSAASamples,
             nMaxSamples,
             m_multisamplingLvl,
-            nRenderWareLevels);
+            nRenderWareLevels,
+            ((nActualSamples < 0) || (nActualSamples == nSelectedSamples)) ?
+                "success" : "surface_mismatch");
         return true;
     };
 
@@ -904,6 +951,108 @@ bool CPCGraphicsDevice::ChangeMultiSamplingAfterStart(const char* pszPhase)
         CPCSetting::m_nMSAASamples,
         nMaxSamples);
     return false;
+};
+
+
+int32 CPCGraphicsDevice::TraceActualMultiSampling(const char* pszPhase,
+                                                  int32 nExpectedSamples)
+{
+#if defined(TMNT2_RWDRV_D3D9)
+    IDirect3DDevice9* pDevice =
+        static_cast<IDirect3DDevice9*>(RwD3D9GetCurrentD3DDevice());
+    if (!pDevice)
+    {
+        CPCCrashReporter::Breadcrumb(
+            "MSAA surface phase=%s expected=%d result=no_d3d9_device",
+            pszPhase,
+            nExpectedSamples);
+        return -1;
+    };
+
+    DWORD dwStateBefore = 0;
+    DWORD dwStateAfter = 0;
+    HRESULT hrStateBefore =
+        pDevice->GetRenderState(D3DRS_MULTISAMPLEANTIALIAS, &dwStateBefore);
+
+    /* Use RenderWare's setter so its state cache and the D3D9 device agree. */
+    RwD3D9SetRenderState(D3DRS_MULTISAMPLEANTIALIAS,
+                         (nExpectedSamples >= 2 ? TRUE : FALSE));
+
+    HRESULT hrStateAfter =
+        pDevice->GetRenderState(D3DRS_MULTISAMPLEANTIALIAS, &dwStateAfter);
+
+    IDirect3DSurface9* pRenderTarget = nullptr;
+    IDirect3DSurface9* pBackBuffer = nullptr;
+    IDirect3DSurface9* pDepthBuffer = nullptr;
+    D3DSURFACE_DESC renderTargetDesc = {};
+    D3DSURFACE_DESC backBufferDesc = {};
+    D3DSURFACE_DESC depthBufferDesc = {};
+
+    HRESULT hrRenderTarget = pDevice->GetRenderTarget(0, &pRenderTarget);
+    if (SUCCEEDED(hrRenderTarget) && pRenderTarget)
+        hrRenderTarget = pRenderTarget->GetDesc(&renderTargetDesc);
+
+    HRESULT hrBackBuffer =
+        pDevice->GetBackBuffer(0, 0, D3DBACKBUFFER_TYPE_MONO, &pBackBuffer);
+    if (SUCCEEDED(hrBackBuffer) && pBackBuffer)
+        hrBackBuffer = pBackBuffer->GetDesc(&backBufferDesc);
+
+    HRESULT hrDepthBuffer = pDevice->GetDepthStencilSurface(&pDepthBuffer);
+    if (SUCCEEDED(hrDepthBuffer) && pDepthBuffer)
+        hrDepthBuffer = pDepthBuffer->GetDesc(&depthBufferDesc);
+
+    const D3DMULTISAMPLE_TYPE multisampleType =
+        (SUCCEEDED(hrRenderTarget) ? renderTargetDesc.MultiSampleType :
+         (SUCCEEDED(hrBackBuffer) ? backBufferDesc.MultiSampleType :
+          D3DMULTISAMPLE_NONE));
+
+    int32 nActualSamples = -1;
+    if (SUCCEEDED(hrRenderTarget) || SUCCEEDED(hrBackBuffer))
+    {
+        if (multisampleType == D3DMULTISAMPLE_NONE)
+            nActualSamples = 0;
+        else if (multisampleType == D3DMULTISAMPLE_NONMASKABLE)
+            nActualSamples = nExpectedSamples;
+        else
+            nActualSamples = static_cast<int32>(multisampleType);
+    };
+
+    CPCCrashReporter::Breadcrumb(
+        "MSAA surface phase=%s expected=%d actual=%d rt_hr=0x%08lX rt_type=%u rt_quality=%lu rt=%ux%u bb_hr=0x%08lX bb_type=%u bb_quality=%lu depth_hr=0x%08lX depth_type=%u depth_quality=%lu state_before_hr=0x%08lX state_before=%lu state_after_hr=0x%08lX state_after=%lu",
+        pszPhase,
+        nExpectedSamples,
+        nActualSamples,
+        static_cast<unsigned long>(hrRenderTarget),
+        static_cast<unsigned int>(renderTargetDesc.MultiSampleType),
+        static_cast<unsigned long>(renderTargetDesc.MultiSampleQuality),
+        static_cast<unsigned int>(renderTargetDesc.Width),
+        static_cast<unsigned int>(renderTargetDesc.Height),
+        static_cast<unsigned long>(hrBackBuffer),
+        static_cast<unsigned int>(backBufferDesc.MultiSampleType),
+        static_cast<unsigned long>(backBufferDesc.MultiSampleQuality),
+        static_cast<unsigned long>(hrDepthBuffer),
+        static_cast<unsigned int>(depthBufferDesc.MultiSampleType),
+        static_cast<unsigned long>(depthBufferDesc.MultiSampleQuality),
+        static_cast<unsigned long>(hrStateBefore),
+        static_cast<unsigned long>(dwStateBefore),
+        static_cast<unsigned long>(hrStateAfter),
+        static_cast<unsigned long>(dwStateAfter));
+
+    if (pDepthBuffer)
+        pDepthBuffer->Release();
+    if (pBackBuffer)
+        pBackBuffer->Release();
+    if (pRenderTarget)
+        pRenderTarget->Release();
+
+    return nActualSamples;
+#else /* defined(TMNT2_RWDRV_D3D9) */
+    CPCCrashReporter::Breadcrumb(
+        "MSAA surface phase=%s expected=%d result=non_d3d9_renderer",
+        pszPhase,
+        nExpectedSamples);
+    return 0;
+#endif /* defined(TMNT2_RWDRV_D3D9) */
 };
 
 

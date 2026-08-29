@@ -24,7 +24,7 @@ _tWinMain(
 )
 {
     CPCCrashReporter::Install();
-    CPCCrashReporter::Breadcrumb("BUILD TMNT2_MSAA_Display_Menu_v2_US");
+    CPCCrashReporter::Breadcrumb("BUILD TMNT2_MSAA_Active_Surface_Fix_v3_US");
 
 #ifdef VLDCHECK    
     VLDEnable();
