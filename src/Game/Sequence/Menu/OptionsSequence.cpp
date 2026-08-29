@@ -84,6 +84,7 @@ enum OPTIONMODE
     OPTIONMODE_MARKER,
     OPTIONMODE_WINDOW,
     OPTIONMODE_RESOLUTION,
+    OPTIONMODE_MSAA,
     OPTIONMODE_DISPLAY_OK,
 
     OPTIONMODE_CONFIGURE_CONTROL_BEGIN,
@@ -425,6 +426,7 @@ static const FontData_t s_aDisplayFont[] =
     { true, GAMETEXT_OP_DISP_HELP,  { FONT_DISPLAY_X_POS(2), FONT_DISPLAY_Y_POS(2) }, FONT_HEIGHT_SCALE, s_ColorOrange, nullptr },
 #ifdef TMNT2_FEATURE_DISPLAYRESO
     { true, GAMETEXT_OP_DISP_RESO,  { FONT_DISPLAY_X_POS(3), FONT_DISPLAY_Y_POS(3) }, FONT_HEIGHT_SCALE, s_ColorOrange, nullptr },
+    { true, GAMETEXT_EMPTY,         { FONT_DISPLAY_X_POS(4), FONT_DISPLAY_Y_POS(4) }, FONT_HEIGHT_SCALE, s_ColorOrange, "ANTI-ALIASING" },
 #endif /* TMNT2_FEATURE_DISPLAYRESO */    
     { true, GAMETEXT_OP_OK,         { -223.0f,               26.0f                 }, FONT_HEIGHT_SCALE, s_ColorOrange, nullptr },
     {},
@@ -619,6 +621,7 @@ static OPTIONMODE s_aNextModeDisplay[] =
     OPTIONMODE_WINDOW,
 #ifdef TMNT2_FEATURE_DISPLAYRESO
     OPTIONMODE_RESOLUTION,
+    OPTIONMODE_MSAA,
 #endif /* TMNT2_FEATURE_DISPLAYRESO */    
     OPTIONMODE_DISPLAY_OK
 };
@@ -778,6 +781,7 @@ public:
     void PasswordClear(void);
     void SwitchRumble(void);
     void SwitchResolution(void);
+    void SwitchMultiSampling(int32 Line);
     void SelectResolution(void);
     bool SwitchOnOff(bool On);
     bool SwitchOnOffTouch(bool On);
@@ -811,6 +815,8 @@ private:
     int32 m_VideomodeNum;
     int32 m_VideomodeNoSel;
     int32 m_VideomodeNoCur;
+    int32 m_MultiSamplingSamplesSel;
+    int32 m_MultiSamplingSamplesCur;
     int32 m_aVideomodeNo[10];
     int32 m_ConfigPad;
     int32 m_CtrlPad;
@@ -890,6 +896,8 @@ COptions::COptions(void)
 , m_VideomodeNum(0)
 , m_VideomodeNoSel(0)
 , m_VideomodeNoCur(0)
+, m_MultiSamplingSamplesSel(0)
+, m_MultiSamplingSamplesCur(0)
 , m_aVideomodeNo()
 , m_ConfigPad(-1)
 , m_CtrlPad(-1)
@@ -1398,6 +1406,8 @@ void COptions::SettingInit(bool bDisplayChanged)
     m_VideomodeNum   = CGameData::Option().Display().GetVideomodeNum();
     m_VideomodeNoCur = CGameData::Option().Display().GetVideomodeCur();
     m_VideomodeNoSel = m_VideomodeNoCur;
+    m_MultiSamplingSamplesCur = CGameData::Option().Display().GetMultiSamplingSamples();
+    m_MultiSamplingSamplesSel = m_MultiSamplingSamplesCur;
 #endif /* TMNT2_FEATURE_DISPLAYRESO */
 };
 
@@ -1689,6 +1699,7 @@ bool COptions::SettingProc(void)
             SwitchDisp(2, CGameData::Option().Display().IsHelpEnabled());
 #ifdef TMNT2_FEATURE_DISPLAYRESO
             SwitchResolution();
+            SwitchMultiSampling(4);
 #endif /* TMNT2_FEATURE_DISPLAYRESO */
         }
         break;
@@ -1730,6 +1741,13 @@ bool COptions::SettingProc(void)
         }
         break;
 
+    case OPTIONMODE_MSAA:
+        {
+            m_bSwitchMode = true;
+            SwitchMultiSampling(4);
+        }
+        break;
+
     case OPTIONMODE_DISPLAY_OK:
         {
             m_eOptionModePrev = OPTIONMODE_DISPLAY_OK;
@@ -1737,10 +1755,15 @@ bool COptions::SettingProc(void)
             m_IndexLine       = m_IndexLineExit;
 
 #ifdef TMNT2_FEATURE_DISPLAYRESO
-            if (m_VideomodeNoCur != m_VideomodeNoSel)
+            bool bVideomodeChanged = (m_VideomodeNoCur != m_VideomodeNoSel);
+            bool bMultiSamplingChanged =
+                (m_MultiSamplingSamplesCur != m_MultiSamplingSamplesSel);
+            if (bVideomodeChanged || bMultiSamplingChanged)
             {
-                CGameData::Option().Display().SetVideomode(m_VideomodeNoSel);
-                if (CGameData::Option().Display().ApplyVideomode())
+                CDisplayOptionData& display = CGameData::Option().Display();
+                display.SetVideomode(m_VideomodeNoSel);
+                display.SetMultiSamplingSamples(m_MultiSamplingSamplesSel);
+                if (display.ApplyPCGraphics(bVideomodeChanged))
                     SettingInit(true);
             };
 #endif /* TMNT2_FEATURE_DISPLAYRESO */
@@ -2272,14 +2295,20 @@ bool COptions::SettingProc(void)
             {
                 if (m_pDialog->GetStatus() == CDialog::STATUS_YES)
                 {
+                    bool bPCDisplayReset = false;
+
                     CGameData::Option().Play().SetDefault();
                     CGameData::Option().Play().Apply();
 
                     CGameData::Option().Sound().SetDefault();
                     CGameData::Option().Sound().Apply();
 
-                    CGameData::Option().Display().SetDefault();
-                    CGameData::Option().Display().Apply();
+                    CDisplayOptionData& display = CGameData::Option().Display();
+                    display.SetDefault();
+                    display.Apply();
+#ifdef TMNT2_FEATURE_DISPLAYRESO
+                    bPCDisplayReset = display.ApplyPCGraphics(false);
+#endif /* TMNT2_FEATURE_DISPLAYRESO */
 
                     for (int32 i = 0; i < CController::Max(); ++i)
                     {
@@ -2296,6 +2325,9 @@ bool COptions::SettingProc(void)
                     CGameData::Option().Touch().SetDefault();
                     CGameData::Option().Touch().Apply();
 #endif /* defined(TMNT2_FEATURE_TOUCHCONTROLLER) */
+
+                    if (bPCDisplayReset)
+                        SettingInit(true);
                 };
 
                 m_bDefaultYes = false;
@@ -3376,6 +3408,66 @@ void COptions::SwitchResolution(void)
 
         m_fSwitchMoveL = 0.0f;
         m_fSwitchMoveR = 0.0f;
+    };
+#endif /* TMNT2_FEATURE_DISPLAYRESO */
+};
+
+
+void COptions::SwitchMultiSampling(int32 Line)
+{
+#ifdef TMNT2_FEATURE_DISPLAYRESO
+    static const int32 s_anSamples[] = { 0, 2, 4, 8 };
+    static const char* s_apszNames[] = { "OFF", "2X MSAA", "4X MSAA", "8X MSAA" };
+    static_assert(COUNT_OF(s_anSamples) == COUNT_OF(s_apszNames), "MSAA menu tables must match");
+
+    int32 nOption = 0;
+    for (int32 i = 0; i < COUNT_OF(s_anSamples); ++i)
+    {
+        if (m_MultiSamplingSamplesSel == s_anSamples[i])
+        {
+            nOption = i;
+            break;
+        };
+    };
+
+    ArrowDisp(Line);
+
+    m_OnOff[Line].Flag = true;
+#ifdef TMNT2_BUILD_EU
+    m_OnOff[Line].ScreenPos = { -77.0f,
+                                (float(Line) * 58.0f) - 91.0f };
+#else /* TMNT2_BUILD_EU */
+    m_OnOff[Line].ScreenPos = { 105.0f,
+                                (float(Line) * 29.0f) - 126.0f };
+#endif /* TMNT2_BUILD_EU */
+    m_OnOff[Line].TextId = GAMETEXT_EMPTY;
+    m_OnOff[Line].Text = s_apszNames[nOption];
+    m_OnOff[Line].Height = (m_bSwitchMode ? 2.5f : 2.0f);
+    m_OnOff[Line].Color = (m_bSwitchMode ? s_ColorGreen : s_ColorOrange);
+
+    if (m_bSwitchMode)
+    {
+        int32 virtualPad = CGameData::Attribute().GetVirtualPad();
+        if (CController::GetDigitalTrigger(virtualPad, CController::DIGITAL_LLEFT))
+        {
+            CGameSound::PlaySE(SDCODE_SE(0x1004));
+            m_fSwitchMoveL = SWITCH_ANM;
+            nOption = Clamp(nOption - 1, 0, COUNT_OF(s_anSamples) - 1);
+        }
+        else if (CController::GetDigitalTrigger(virtualPad, CController::DIGITAL_LRIGHT))
+        {
+            CGameSound::PlaySE(SDCODE_SE(0x1004));
+            m_fSwitchMoveR = SWITCH_ANM;
+            nOption = Clamp(nOption + 1, 0, COUNT_OF(s_anSamples) - 1);
+        };
+
+        m_MultiSamplingSamplesSel = s_anSamples[nOption];
+
+        if (m_fSwitchMoveL > 0.0f)
+            m_fSwitchMoveL -= SWITCH_ANM_STEP;
+
+        if (m_fSwitchMoveR > 0.0f)
+            m_fSwitchMoveR -= SWITCH_ANM_STEP;
     };
 #endif /* TMNT2_FEATURE_DISPLAYRESO */
 };

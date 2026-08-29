@@ -785,6 +785,36 @@ bool CPCGraphicsDevice::IsFullscreen(void) const
 };
 
 
+bool CPCGraphicsDevice::ApplyConfiguredMultiSampling(void)
+{
+    if (!m_bFullscreen)
+    {
+        m_multisamplingLvl = 0;
+        m_pDeviceInfo[m_curDevice].m_numMultisamplingLvls = 0;
+        CPCCrashReporter::Breadcrumb("MSAA display_menu requested=%d active=0 reason=windowed_mode",
+                                     CPCSetting::m_nMSAASamples);
+        return true;
+    };
+
+    const int32 nSelectedSamples =
+        SelectSupportedMSAASamples(CPCSetting::m_nMSAASamples,
+                                   GetCurrentModeMaxMultiSamplingLevels());
+    if (nSelectedSamples == m_multisamplingLvl)
+    {
+        CPCCrashReporter::Breadcrumb("MSAA display_menu requested=%d active=%d result=unchanged",
+                                     CPCSetting::m_nMSAASamples,
+                                     m_multisamplingLvl);
+        return true;
+    };
+
+    if (!ChangeMultiSamplingAfterStart("display_menu"))
+        return false;
+
+    CScreen::DeviceChanged();
+    return true;
+};
+
+
 int32 CPCGraphicsDevice::GetCurrentModeMaxMultiSamplingLevels(void) const
 {
     ASSERT(m_pDeviceInfo);

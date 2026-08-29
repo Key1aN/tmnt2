@@ -37,6 +37,7 @@ public:
     int32 GetVideomodeCur(void) const;
     int32 GetVideomodeNum(void) const;
     bool IsFullscreen(void) const;
+    bool ApplyConfiguredMultiSampling(void);
 
 private:
     void OutputInfo(void);

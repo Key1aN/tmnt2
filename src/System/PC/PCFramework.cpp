@@ -11,6 +11,7 @@
 #include "PCSoundDevice.hpp"
 #include "PCError.hpp"
 #include "PCFrameSkipController.hpp"
+#include "PCCrashReporter.hpp"
 
 #include "File/PCFileManager.hpp"
 
@@ -241,6 +242,28 @@ int32 CPCFramework::GetVideomodeCur(void)
 int32 CPCFramework::GetVideomodeNum(void)
 {
     return GraphicsDevice().GetVideomodeNum();
+};
+
+
+bool CPCFramework::ApplyDisplaySettings(int32 nVideomodeNo,
+                                        int32 nMSAASamples,
+                                        bool bVideomodeChanged)
+{
+    CPCSetting::SetMSAASamples(nMSAASamples);
+    CPCCrashReporter::Breadcrumb("MSAA display_apply requested=%d videomode_changed=%d",
+                                 CPCSetting::m_nMSAASamples,
+                                 (bVideomodeChanged ? 1 : 0));
+
+    if (bVideomodeChanged)
+        return SetVideomode(nVideomodeNo);
+
+    return GraphicsDevice().ApplyConfiguredMultiSampling();
+};
+
+
+int32 CPCFramework::GetMultiSamplingSamples(void) const
+{
+    return CPCSetting::m_nMSAASamples;
 };
 
 

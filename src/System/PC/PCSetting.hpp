@@ -16,5 +16,6 @@ public:
     static void Terminate(void);
     static void Load(void);
     static void Save(void);
+    static void SetMSAASamples(int32 nSamples);
     static void GetIniPath(std::string& Path);
 };

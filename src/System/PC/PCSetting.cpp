@@ -70,7 +70,7 @@ namespace
     if (GetPrivateProfileStringA("GRAPHICS", "MSAA", "4", szBuff, COUNT_OF(szBuff), Path.c_str()))
     {
         int32 nRawSamples = std::atol(szBuff);
-        m_nMSAASamples = NormalizeMSAASamples(nRawSamples);
+        SetMSAASamples(nRawSamples);
         CPCCrashReporter::Breadcrumb("MSAA config raw=%d normalized=%d", nRawSamples, m_nMSAASamples);
     };
 };
@@ -95,6 +95,12 @@ namespace
 
     std::sprintf(szBuff, "%d", m_nMSAASamples);
     WritePrivateProfileStringA("GRAPHICS", "MSAA", szBuff, Path.c_str());
+};
+
+
+/*static*/ void CPCSetting::SetMSAASamples(int32 nSamples)
+{
+    m_nMSAASamples = NormalizeMSAASamples(nSamples);
 };
 
 
