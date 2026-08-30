@@ -1,0 +1,200 @@
+name: Build TMNT2 MSAA Frame State Lock v4 US
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - "feature/msaa-frame-state-lock-v4-us"
+
+permissions:
+  contents: read
+
+jobs:
+  build-msaa-frame-state-lock-windows-x86-us:
+    runs-on: windows-2022
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out MSAA frame-state-lock source
+        uses: actions/checkout@v4
+
+      - name: Stage DirectX headers and x86 libraries
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+
+          $dxsdk = Join-Path $env:RUNNER_TEMP "tmnt2-dxsdk"
+          $includeOut = Join-Path $dxsdk "Include"
+          $libOut = Join-Path $dxsdk "Lib\x86"
+          New-Item -ItemType Directory -Force -Path $includeOut, $libOut | Out-Null
+
+          $sdkPackageVersion = "10.0.26100.7705"
+
+          function Get-VerifiedNuGetPackage {
+            param(
+              [string]$PackageName,
+              [string]$ExpectedHash,
+              [string]$OutputName
+            )
+
+            $packageUrl = "https://api.nuget.org/v3-flatcontainer/$PackageName/$sdkPackageVersion/$PackageName.$sdkPackageVersion.nupkg"
+            $packageZip = Join-Path $env:RUNNER_TEMP "$OutputName.zip"
+            $packageOut = Join-Path $env:RUNNER_TEMP $OutputName
+
+            & curl.exe --location --fail --retry 3 --retry-delay 2 --output $packageZip $packageUrl
+            if ($LASTEXITCODE -ne 0) {
+              throw "Failed to download $PackageName $sdkPackageVersion."
+            }
+
+            $actualHash = (Get-FileHash $packageZip -Algorithm SHA256).Hash.ToLowerInvariant()
+            if ($actualHash -ne $ExpectedHash) {
+              throw "$PackageName hash mismatch: $actualHash"
+            }
+
+            Expand-Archive -Path $packageZip -DestinationPath $packageOut -Force
+            return $packageOut
+          }
+
+          $x86PackageOut = Get-VerifiedNuGetPackage `
+            -PackageName "microsoft.windows.sdk.cpp.x86" `
+            -ExpectedHash "4a8504308e253842054f0c385817522a895306308bf4d6dc11f09064bb27c280" `
+            -OutputName "winsdk-x86"
+
+          $kitsRoot = "${env:ProgramFiles(x86)}\Windows Kits\10"
+          $d3d9Header = $null
+          if (Test-Path "$kitsRoot\Include") {
+            $d3d9Header = Get-ChildItem "$kitsRoot\Include" -Recurse -File -Filter "d3d9.h" |
+              Where-Object { $_.DirectoryName -match "\\(shared|um)$" } |
+              Sort-Object FullName -Descending |
+              Select-Object -First 1
+          }
+
+          if ($d3d9Header) {
+            $headerVersionRoot = Get-Item (Split-Path $d3d9Header.DirectoryName -Parent)
+          }
+          else {
+            Write-Host "The runner SDK has no DirectX 9 headers; downloading Microsoft's SDK header package."
+            $headersPackageOut = Get-VerifiedNuGetPackage `
+              -PackageName "microsoft.windows.sdk.cpp" `
+              -ExpectedHash "ff455660bee071a744715a9665666fa29c07681579d3d815959a9eec5a556424" `
+              -OutputName "winsdk-headers"
+
+            $headerVersionRoot = Get-ChildItem "$headersPackageOut\c\Include" -Directory |
+              Where-Object {
+                (Test-Path (Join-Path $_.FullName "shared\d3d9.h")) -and
+                (Test-Path (Join-Path $_.FullName "um\dinput.h")) -and
+                (Test-Path (Join-Path $_.FullName "um\dsound.h"))
+              } |
+              Sort-Object Name -Descending |
+              Select-Object -First 1
+          }
+
+          if (-not $headerVersionRoot) {
+            throw "The Microsoft Windows SDK package did not contain the required DirectX headers."
+          }
+
+          Copy-Item "$($headerVersionRoot.FullName)\um\*" $includeOut -Recurse -Force
+          Copy-Item "$($headerVersionRoot.FullName)\shared\*" $includeOut -Recurse -Force
+
+          foreach ($library in @("d3d9.lib", "dinput8.lib", "dxguid.lib", "dsound.lib")) {
+            $source = Join-Path $x86PackageOut "c\um\x86\$library"
+            if (-not (Test-Path $source)) {
+              throw "Required DirectX library was not found: $source"
+            }
+            Copy-Item $source $libOut -Force
+          }
+
+          foreach ($header in @("d3d9.h", "dinput.h", "dsound.h")) {
+            if (-not (Test-Path (Join-Path $includeOut $header))) {
+              throw "Required DirectX header was not staged: $header"
+            }
+          }
+
+          "DXSDK_DIR=$dxsdk" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          Write-Host "DXSDK_DIR=$dxsdk"
+          Write-Host "Windows SDK package version: $sdkPackageVersion"
+          Write-Host "Windows SDK header source: $($headerVersionRoot.FullName)"
+
+      - name: Configure US Win32 Release build
+        shell: pwsh
+        run: cmake --preset vs2022 -DOPT_EU_BUILD=OFF
+
+      - name: Build TMNT2 MSAA Frame State Lock v4 US
+        shell: pwsh
+        run: cmake --build --preset vs2022-release --parallel
+
+      - name: Collect and verify uniquely named MSAA frame-state-lock outputs
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $exe = Get-ChildItem "$env:GITHUB_WORKSPACE\bin\win" -Recurse -File -Filter "TMNT2.exe" |
+            Where-Object { $_.FullName -match "\\release\\" } |
+            Select-Object -First 1
+
+          if (-not $exe) {
+            throw "The Release TMNT2.exe output was not found."
+          }
+
+          $linkedPdbPath = Join-Path $exe.DirectoryName "TMNT2.pdb"
+          if (Test-Path $linkedPdbPath) {
+            $pdb = Get-Item $linkedPdbPath
+          }
+          else {
+            $pdb = Get-ChildItem "$env:GITHUB_WORKSPACE" -Recurse -File -Filter "TMNT2.pdb" |
+              Where-Object { $_.FullName -notmatch "\\vendor\\" } |
+              Sort-Object LastWriteTimeUtc -Descending |
+              Select-Object -First 1
+          }
+          if (-not $pdb) {
+            throw "The matching Release TMNT2.pdb was not found."
+          }
+
+          $map = Get-ChildItem "$env:GITHUB_WORKSPACE" -Recurse -File -Filter "TMNT2.map" |
+            Where-Object { $_.FullName -notmatch "\\vendor\\" } |
+            Sort-Object LastWriteTimeUtc -Descending |
+            Select-Object -First 1
+          if (-not $map) {
+            throw "The matching Release TMNT2.map was not found."
+          }
+
+          $artifactDir = Join-Path $env:GITHUB_WORKSPACE "artifact-msaa-frame-state-lock-v4-us"
+          New-Item -ItemType Directory -Force -Path $artifactDir | Out-Null
+
+          $artifactExe = Join-Path $artifactDir "TMNT2_MSAA_Frame_State_Lock_v4_US.exe"
+          $artifactPdb = Join-Path $artifactDir "TMNT2_MSAA_Frame_State_Lock_v4_US.pdb"
+          $artifactMap = Join-Path $artifactDir "TMNT2_MSAA_Frame_State_Lock_v4_US.map"
+          Copy-Item $exe.FullName $artifactExe -Force
+          Copy-Item $pdb.FullName $artifactPdb -Force
+          Copy-Item $map.FullName $artifactMap -Force
+          Copy-Item (Join-Path $env:GITHUB_WORKSPACE "MSAA_FRAME_STATE_LOCK_V4_US.md") $artifactDir -Force
+
+          $commit = git rev-parse HEAD
+          $exeHash = (Get-FileHash $artifactExe -Algorithm SHA256).Hash.ToLowerInvariant()
+          $pdbHash = (Get-FileHash $artifactPdb -Algorithm SHA256).Hash.ToLowerInvariant()
+          $mapHash = (Get-FileHash $artifactMap -Algorithm SHA256).Hash.ToLowerInvariant()
+
+          @(
+            "Project=TMNT2_MSAA_Frame_State_Lock_v4_US",
+            "Build=US/NA x86 Release",
+            "SourceCommit=$commit",
+            "Executable=TMNT2_MSAA_Frame_State_Lock_v4_US.exe",
+            "ExecutableSHA256=$exeHash",
+            "PDB=TMNT2_MSAA_Frame_State_Lock_v4_US.pdb",
+            "PDBSHA256=$pdbHash",
+            "MAP=TMNT2_MSAA_Frame_State_Lock_v4_US.map",
+            "MAPSHA256=$mapHash",
+            "MSAA=DisplayMenuSelector;FullscreenOnly;Values0_2_4_8;ActualSurfaceVerification;DisableEnableReset;StartupRepair;RenderBeginFrameStateLock;RenderWareCacheSync;DirectD3D9Enforcement;NonSpammingBreadcrumbs",
+            "Features=AnimationPool512;HorPlusWidescreen;OriginalStretchedUI;BrutalDifficultiesV3;HardRowSafeMapping;NexusForcedNormal;DamageCalculatorScalingV2;SlashuurFiveBossMoves;SlashuurDirectBone3Fix;TeleportComboCancel;VulnerableScythe",
+            "Archive=KeepExistingFinalModdedTMNT.DAT",
+            "Excluded=ColdBreath;DeveloperDebugMenu"
+          ) | Set-Content (Join-Path $artifactDir "BUILD_INFO_TMNT2_MSAA_Frame_State_Lock_v4_US.txt") -Encoding utf8
+
+          Get-Content (Join-Path $artifactDir "BUILD_INFO_TMNT2_MSAA_Frame_State_Lock_v4_US.txt")
+
+      - name: Upload TMNT2 MSAA Frame State Lock v4 US artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: TMNT2-MSAA-Frame-State-Lock-v4-US-run-${{ github.run_number }}
+          path: artifact-msaa-frame-state-lock-v4-us/*
+          if-no-files-found: error
+          retention-days: 14

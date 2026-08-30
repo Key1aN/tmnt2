@@ -215,6 +215,8 @@ CPCGraphicsDevice::CPCGraphicsDevice(void)
 , m_numDevices(0)
 , m_curDevice(-1)
 , m_multisamplingLvl(0)
+, m_bMSAAFrameStateReported(false)
+, m_bMSAAFrameCorrectionReported(false)
 , m_bFullscreen(false)
 , m_bHighReso(false)
 {
@@ -318,6 +320,21 @@ bool CPCGraphicsDevice::Start(void)
         ChangeMultiSamplingAfterStart("engine_start_repair");
     };
 
+    return true;
+};
+
+
+bool CPCGraphicsDevice::RenderBegin(void)
+{
+    if (!CGraphicsDevice::RenderBegin())
+        return false;
+
+    /*
+     * Enforce MSAA after RwCameraBeginUpdate and immediately before the game's
+     * draw dispatcher. This is the last stable boundary at which RenderWare or
+     * game setup code could otherwise leave the D3D9 state disabled.
+     */
+    GuardMultiSamplingFrameState();
     return true;
 };
 
@@ -919,6 +936,8 @@ bool CPCGraphicsDevice::ChangeMultiSamplingAfterStart(const char* pszPhase)
         m_multisamplingLvl =
             (nActualSamples >= 0 ? nActualSamples : nSelectedSamples);
         m_pDeviceInfo[m_curDevice].m_numMultisamplingLvls = m_multisamplingLvl;
+        m_bMSAAFrameStateReported = false;
+        m_bMSAAFrameCorrectionReported = false;
         CPCCrashReporter::Breadcrumb(
             "MSAA %s requested=%d max=%d active=%d rw_levels=%u result=%s",
             pszPhase,
@@ -935,6 +954,8 @@ bool CPCGraphicsDevice::ChangeMultiSamplingAfterStart(const char* pszPhase)
     {
         m_multisamplingLvl = 0;
         m_pDeviceInfo[m_curDevice].m_numMultisamplingLvls = 0;
+        m_bMSAAFrameStateReported = false;
+        m_bMSAAFrameCorrectionReported = false;
         CPCCrashReporter::Breadcrumb(
             "MSAA %s requested=%d max=%d active=0 result=fallback_disabled",
             pszPhase,
@@ -945,6 +966,8 @@ bool CPCGraphicsDevice::ChangeMultiSamplingAfterStart(const char* pszPhase)
 
     m_multisamplingLvl = 0;
     m_pDeviceInfo[m_curDevice].m_numMultisamplingLvls = 0;
+    m_bMSAAFrameStateReported = false;
+    m_bMSAAFrameCorrectionReported = false;
     CPCCrashReporter::Breadcrumb(
         "MSAA %s requested=%d max=%d active=0 result=change_failed",
         pszPhase,
@@ -1052,6 +1075,68 @@ int32 CPCGraphicsDevice::TraceActualMultiSampling(const char* pszPhase,
         pszPhase,
         nExpectedSamples);
     return 0;
+#endif /* defined(TMNT2_RWDRV_D3D9) */
+};
+
+
+void CPCGraphicsDevice::GuardMultiSamplingFrameState(void)
+{
+#if defined(TMNT2_RWDRV_D3D9)
+    IDirect3DDevice9* pDevice =
+        static_cast<IDirect3DDevice9*>(RwD3D9GetCurrentD3DDevice());
+    if (!pDevice)
+    {
+        if (!m_bMSAAFrameStateReported)
+        {
+            CPCCrashReporter::Breadcrumb(
+                "MSAA frame_guard active=%d fullscreen=%d result=no_d3d9_device",
+                m_multisamplingLvl,
+                (m_bFullscreen ? 1 : 0));
+            m_bMSAAFrameStateReported = true;
+        };
+        return;
+    };
+
+    DWORD dwStateBefore = 0;
+    DWORD dwStateAfter = 0;
+    HRESULT hrStateBefore =
+        pDevice->GetRenderState(D3DRS_MULTISAMPLEANTIALIAS, &dwStateBefore);
+    HRESULT hrDirectSet = D3D_OK;
+
+    const bool bShouldEnable = m_bFullscreen && (m_multisamplingLvl >= 2);
+    if (bShouldEnable)
+    {
+        /* Keep RenderWare's cache synchronized, then force the real device. */
+        RwD3D9SetRenderState(D3DRS_MULTISAMPLEANTIALIAS, TRUE);
+        hrDirectSet =
+            pDevice->SetRenderState(D3DRS_MULTISAMPLEANTIALIAS, TRUE);
+    };
+
+    HRESULT hrStateAfter =
+        pDevice->GetRenderState(D3DRS_MULTISAMPLEANTIALIAS, &dwStateAfter);
+    const bool bCorrected =
+        bShouldEnable &&
+        (FAILED(hrStateBefore) || (dwStateBefore != TRUE));
+
+    const bool bCorrectionEvent = bCorrected || FAILED(hrDirectSet);
+    if (!m_bMSAAFrameStateReported ||
+        (bCorrectionEvent && !m_bMSAAFrameCorrectionReported))
+    {
+        CPCCrashReporter::Breadcrumb(
+            "MSAA frame_guard active=%d fullscreen=%d should_enable=%d before_hr=0x%08lX before=%lu direct_hr=0x%08lX after_hr=0x%08lX after=%lu corrected=%d",
+            m_multisamplingLvl,
+            (m_bFullscreen ? 1 : 0),
+            (bShouldEnable ? 1 : 0),
+            static_cast<unsigned long>(hrStateBefore),
+            static_cast<unsigned long>(dwStateBefore),
+            static_cast<unsigned long>(hrDirectSet),
+            static_cast<unsigned long>(hrStateAfter),
+            static_cast<unsigned long>(dwStateAfter),
+            (bCorrected ? 1 : 0));
+        m_bMSAAFrameStateReported = true;
+        if (bCorrectionEvent)
+            m_bMSAAFrameCorrectionReported = true;
+    };
 #endif /* defined(TMNT2_RWDRV_D3D9) */
 };
 
