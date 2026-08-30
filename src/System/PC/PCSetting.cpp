@@ -10,6 +10,7 @@
 /*static*/ PC::VIDEOMODE CPCSetting::m_videomode;
 /*static*/ bool CPCSetting::m_bWindowMode;
 /*static*/ int32 CPCSetting::m_nMSAASamples;
+/*static*/ int32 CPCSetting::m_nAnisotropyLevel;
 
 
 namespace
@@ -27,6 +28,24 @@ namespace
 
         return 0;
     };
+
+
+    static int32 NormalizeAnisotropyLevel(int32 nLevel)
+    {
+        if (nLevel >= 16)
+            return 16;
+
+        if (nLevel >= 8)
+            return 8;
+
+        if (nLevel >= 4)
+            return 4;
+
+        if (nLevel >= 2)
+            return 2;
+
+        return 0;
+    };
 }; /* anonymous namespace */
 
 
@@ -34,6 +53,7 @@ namespace
 {
     m_videomode = VIDEOMODE_DEFAULT;
     m_nMSAASamples = 4;
+    m_nAnisotropyLevel = 16;
 #ifdef _DEBUG    
     m_bWindowMode = true;
 #else
@@ -73,6 +93,15 @@ namespace
         SetMSAASamples(nRawSamples);
         CPCCrashReporter::Breadcrumb("MSAA config raw=%d normalized=%d", nRawSamples, m_nMSAASamples);
     };
+
+    if (GetPrivateProfileStringA("GRAPHICS", "ANISOTROPY", "16", szBuff, COUNT_OF(szBuff), Path.c_str()))
+    {
+        int32 nRawLevel = std::atol(szBuff);
+        SetAnisotropyLevel(nRawLevel);
+        CPCCrashReporter::Breadcrumb("AF config raw=%d normalized=%d",
+                                     nRawLevel,
+                                     m_nAnisotropyLevel);
+    };
 };
 
 
@@ -95,12 +124,21 @@ namespace
 
     std::sprintf(szBuff, "%d", m_nMSAASamples);
     WritePrivateProfileStringA("GRAPHICS", "MSAA", szBuff, Path.c_str());
+
+    std::sprintf(szBuff, "%d", m_nAnisotropyLevel);
+    WritePrivateProfileStringA("GRAPHICS", "ANISOTROPY", szBuff, Path.c_str());
 };
 
 
 /*static*/ void CPCSetting::SetMSAASamples(int32 nSamples)
 {
     m_nMSAASamples = NormalizeMSAASamples(nSamples);
+};
+
+
+/*static*/ void CPCSetting::SetAnisotropyLevel(int32 nLevel)
+{
+    m_nAnisotropyLevel = NormalizeAnisotropyLevel(nLevel);
 };
 
 

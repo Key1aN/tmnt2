@@ -30,8 +30,12 @@ public:
     bool GetVideomode(int32 No, PC::VIDEOMODE& vm);
     int32 GetVideomodeCur(void);
     int32 GetVideomodeNum(void);
-    bool ApplyDisplaySettings(int32 nVideomodeNo, int32 nMSAASamples, bool bVideomodeChanged);
+    bool ApplyDisplaySettings(int32 nVideomodeNo,
+                              int32 nMSAASamples,
+                              int32 nAnisotropyLevel,
+                              bool bVideomodeChanged);
     int32 GetMultiSamplingSamples(void) const;
+    int32 GetAnisotropyLevel(void) const;
     void SetSkipEnable(bool bState);
 
 private:

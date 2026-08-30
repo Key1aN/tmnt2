@@ -24,7 +24,7 @@ _tWinMain(
 )
 {
     CPCCrashReporter::Install();
-    CPCCrashReporter::Breadcrumb("BUILD TMNT2_MSAA_Frame_State_Lock_v4_US");
+    CPCCrashReporter::Breadcrumb("BUILD TMNT2_Anisotropic_Filtering_v1_US");
 
 #ifdef VLDCHECK    
     VLDEnable();

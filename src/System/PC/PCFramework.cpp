@@ -247,11 +247,14 @@ int32 CPCFramework::GetVideomodeNum(void)
 
 bool CPCFramework::ApplyDisplaySettings(int32 nVideomodeNo,
                                         int32 nMSAASamples,
+                                        int32 nAnisotropyLevel,
                                         bool bVideomodeChanged)
 {
     CPCSetting::SetMSAASamples(nMSAASamples);
-    CPCCrashReporter::Breadcrumb("MSAA display_apply requested=%d videomode_changed=%d",
+    CPCSetting::SetAnisotropyLevel(nAnisotropyLevel);
+    CPCCrashReporter::Breadcrumb("DISPLAY apply msaa=%d af=%d videomode_changed=%d",
                                  CPCSetting::m_nMSAASamples,
+                                 CPCSetting::m_nAnisotropyLevel,
                                  (bVideomodeChanged ? 1 : 0));
 
     if (bVideomodeChanged)
@@ -264,6 +267,12 @@ bool CPCFramework::ApplyDisplaySettings(int32 nVideomodeNo,
 int32 CPCFramework::GetMultiSamplingSamples(void) const
 {
     return CPCSetting::m_nMSAASamples;
+};
+
+
+int32 CPCFramework::GetAnisotropyLevel(void) const
+{
+    return CPCSetting::m_nAnisotropyLevel;
 };
 
 

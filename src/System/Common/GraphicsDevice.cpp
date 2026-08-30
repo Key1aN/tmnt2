@@ -21,6 +21,10 @@
 #include "rtcharse.h"
 #include "rptoon.h"
 
+#if defined(TARGET_PC) && defined(TMNT2_RWDRV_D3D9)
+#include "rpanisot.h"
+#endif /* defined(TARGET_PC) && defined(TMNT2_RWDRV_D3D9) */
+
 
 /*static*/ const RwRGBA CGraphicsDevice::DEFAULT_CLEAR_COLOR = { 0x00, 0x00, 0x00, 0x00 };
 
@@ -231,6 +235,11 @@ bool CGraphicsDevice::AttachPlugin(void)
 {
     if (!RpWorldPluginAttach())
         return false;
+
+#if defined(TARGET_PC) && defined(TMNT2_RWDRV_D3D9)
+    if (!RpAnisotPluginAttach())
+        return false;
+#endif /* defined(TARGET_PC) && defined(TMNT2_RWDRV_D3D9) */
     
     if (!RtAnimInitialize())
         return false;

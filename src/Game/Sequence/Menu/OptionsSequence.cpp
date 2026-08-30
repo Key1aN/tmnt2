@@ -85,6 +85,7 @@ enum OPTIONMODE
     OPTIONMODE_WINDOW,
     OPTIONMODE_RESOLUTION,
     OPTIONMODE_MSAA,
+    OPTIONMODE_ANISOTROPY,
     OPTIONMODE_DISPLAY_OK,
 
     OPTIONMODE_CONFIGURE_CONTROL_BEGIN,
@@ -195,6 +196,7 @@ static const RwRGBA s_ColorWhite    = { 0xFF, 0xFF, 0xFF, 0xFF };
 #define FONT_DISPLAY_HEIGHT             (58.0f)
 #define FONT_DISPLAY_X_POS(itemNo)      (FONT_DISPLAY_X)
 #define FONT_DISPLAY_Y_POS(itemNo)      (FONT_Y_POS(FONT_DISPLAY_Y, FONT_DISPLAY_HEIGHT, itemNo))
+#define FONT_DISPLAY_OK_Y_POS           (26.0f)
 
 /* pad config font */
 #define FONT_PAD_X                      (-108.0f)
@@ -305,6 +307,7 @@ static const RwRGBA s_ColorWhite    = { 0xFF, 0xFF, 0xFF, 0xFF };
 #define FONT_DISPLAY_HEIGHT             (29.0f)
 #define FONT_DISPLAY_X_POS(itemNo)      (FONT_DISPLAY_X)
 #define FONT_DISPLAY_Y_POS(itemNo)      (FONT_Y_POS(FONT_DISPLAY_Y, FONT_DISPLAY_HEIGHT, itemNo))
+#define FONT_DISPLAY_OK_Y_POS           (55.0f)
 
 /* pad config font */
 #define FONT_PAD_X                      (-108.0f)
@@ -427,8 +430,9 @@ static const FontData_t s_aDisplayFont[] =
 #ifdef TMNT2_FEATURE_DISPLAYRESO
     { true, GAMETEXT_OP_DISP_RESO,  { FONT_DISPLAY_X_POS(3), FONT_DISPLAY_Y_POS(3) }, FONT_HEIGHT_SCALE, s_ColorOrange, nullptr },
     { true, GAMETEXT_EMPTY,         { FONT_DISPLAY_X_POS(4), FONT_DISPLAY_Y_POS(4) }, FONT_HEIGHT_SCALE, s_ColorOrange, "ANTI-ALIASING" },
+    { true, GAMETEXT_EMPTY,         { FONT_DISPLAY_X_POS(5), FONT_DISPLAY_Y_POS(5) }, FONT_HEIGHT_SCALE, s_ColorOrange, "ANISOTROPIC" },
 #endif /* TMNT2_FEATURE_DISPLAYRESO */    
-    { true, GAMETEXT_OP_OK,         { -223.0f,               26.0f                 }, FONT_HEIGHT_SCALE, s_ColorOrange, nullptr },
+    { true, GAMETEXT_OP_OK,         { -223.0f,               FONT_DISPLAY_OK_Y_POS }, FONT_HEIGHT_SCALE, s_ColorOrange, nullptr },
     {},
 };
 
@@ -622,6 +626,7 @@ static OPTIONMODE s_aNextModeDisplay[] =
 #ifdef TMNT2_FEATURE_DISPLAYRESO
     OPTIONMODE_RESOLUTION,
     OPTIONMODE_MSAA,
+    OPTIONMODE_ANISOTROPY,
 #endif /* TMNT2_FEATURE_DISPLAYRESO */    
     OPTIONMODE_DISPLAY_OK
 };
@@ -782,6 +787,7 @@ public:
     void SwitchRumble(void);
     void SwitchResolution(void);
     void SwitchMultiSampling(int32 Line);
+    void SwitchAnisotropy(int32 Line);
     void SelectResolution(void);
     bool SwitchOnOff(bool On);
     bool SwitchOnOffTouch(bool On);
@@ -817,6 +823,8 @@ private:
     int32 m_VideomodeNoCur;
     int32 m_MultiSamplingSamplesSel;
     int32 m_MultiSamplingSamplesCur;
+    int32 m_AnisotropyLevelSel;
+    int32 m_AnisotropyLevelCur;
     int32 m_aVideomodeNo[10];
     int32 m_ConfigPad;
     int32 m_CtrlPad;
@@ -898,6 +906,8 @@ COptions::COptions(void)
 , m_VideomodeNoCur(0)
 , m_MultiSamplingSamplesSel(0)
 , m_MultiSamplingSamplesCur(0)
+, m_AnisotropyLevelSel(0)
+, m_AnisotropyLevelCur(0)
 , m_aVideomodeNo()
 , m_ConfigPad(-1)
 , m_CtrlPad(-1)
@@ -1408,6 +1418,8 @@ void COptions::SettingInit(bool bDisplayChanged)
     m_VideomodeNoSel = m_VideomodeNoCur;
     m_MultiSamplingSamplesCur = CGameData::Option().Display().GetMultiSamplingSamples();
     m_MultiSamplingSamplesSel = m_MultiSamplingSamplesCur;
+    m_AnisotropyLevelCur = CGameData::Option().Display().GetAnisotropyLevel();
+    m_AnisotropyLevelSel = m_AnisotropyLevelCur;
 #endif /* TMNT2_FEATURE_DISPLAYRESO */
 };
 
@@ -1700,6 +1712,7 @@ bool COptions::SettingProc(void)
 #ifdef TMNT2_FEATURE_DISPLAYRESO
             SwitchResolution();
             SwitchMultiSampling(4);
+            SwitchAnisotropy(5);
 #endif /* TMNT2_FEATURE_DISPLAYRESO */
         }
         break;
@@ -1748,6 +1761,13 @@ bool COptions::SettingProc(void)
         }
         break;
 
+    case OPTIONMODE_ANISOTROPY:
+        {
+            m_bSwitchMode = true;
+            SwitchAnisotropy(5);
+        }
+        break;
+
     case OPTIONMODE_DISPLAY_OK:
         {
             m_eOptionModePrev = OPTIONMODE_DISPLAY_OK;
@@ -1758,11 +1778,14 @@ bool COptions::SettingProc(void)
             bool bVideomodeChanged = (m_VideomodeNoCur != m_VideomodeNoSel);
             bool bMultiSamplingChanged =
                 (m_MultiSamplingSamplesCur != m_MultiSamplingSamplesSel);
-            if (bVideomodeChanged || bMultiSamplingChanged)
+            bool bAnisotropyChanged =
+                (m_AnisotropyLevelCur != m_AnisotropyLevelSel);
+            if (bVideomodeChanged || bMultiSamplingChanged || bAnisotropyChanged)
             {
                 CDisplayOptionData& display = CGameData::Option().Display();
                 display.SetVideomode(m_VideomodeNoSel);
                 display.SetMultiSamplingSamples(m_MultiSamplingSamplesSel);
+                display.SetAnisotropyLevel(m_AnisotropyLevelSel);
                 if (display.ApplyPCGraphics(bVideomodeChanged))
                     SettingInit(true);
             };
@@ -3462,6 +3485,67 @@ void COptions::SwitchMultiSampling(int32 Line)
         };
 
         m_MultiSamplingSamplesSel = s_anSamples[nOption];
+
+        if (m_fSwitchMoveL > 0.0f)
+            m_fSwitchMoveL -= SWITCH_ANM_STEP;
+
+        if (m_fSwitchMoveR > 0.0f)
+            m_fSwitchMoveR -= SWITCH_ANM_STEP;
+    };
+#endif /* TMNT2_FEATURE_DISPLAYRESO */
+};
+
+
+void COptions::SwitchAnisotropy(int32 Line)
+{
+#ifdef TMNT2_FEATURE_DISPLAYRESO
+    static const int32 s_anLevels[] = { 0, 2, 4, 8, 16 };
+    static const char* s_apszNames[] = { "OFF", "2X AF", "4X AF", "8X AF", "16X AF" };
+    static_assert(COUNT_OF(s_anLevels) == COUNT_OF(s_apszNames),
+                  "anisotropy menu tables must match");
+
+    int32 nOption = 0;
+    for (int32 i = 0; i < COUNT_OF(s_anLevels); ++i)
+    {
+        if (m_AnisotropyLevelSel == s_anLevels[i])
+        {
+            nOption = i;
+            break;
+        };
+    };
+
+    ArrowDisp(Line);
+
+    m_OnOff[Line].Flag = true;
+#ifdef TMNT2_BUILD_EU
+    m_OnOff[Line].ScreenPos = { -77.0f,
+                                (float(Line) * 58.0f) - 91.0f };
+#else /* TMNT2_BUILD_EU */
+    m_OnOff[Line].ScreenPos = { 105.0f,
+                                (float(Line) * 29.0f) - 126.0f };
+#endif /* TMNT2_BUILD_EU */
+    m_OnOff[Line].TextId = GAMETEXT_EMPTY;
+    m_OnOff[Line].Text = s_apszNames[nOption];
+    m_OnOff[Line].Height = (m_bSwitchMode ? 2.5f : 2.0f);
+    m_OnOff[Line].Color = (m_bSwitchMode ? s_ColorGreen : s_ColorOrange);
+
+    if (m_bSwitchMode)
+    {
+        int32 virtualPad = CGameData::Attribute().GetVirtualPad();
+        if (CController::GetDigitalTrigger(virtualPad, CController::DIGITAL_LLEFT))
+        {
+            CGameSound::PlaySE(SDCODE_SE(0x1004));
+            m_fSwitchMoveL = SWITCH_ANM;
+            nOption = Clamp(nOption - 1, 0, COUNT_OF(s_anLevels) - 1);
+        }
+        else if (CController::GetDigitalTrigger(virtualPad, CController::DIGITAL_LRIGHT))
+        {
+            CGameSound::PlaySE(SDCODE_SE(0x1004));
+            m_fSwitchMoveR = SWITCH_ANM;
+            nOption = Clamp(nOption + 1, 0, COUNT_OF(s_anLevels) - 1);
+        };
+
+        m_AnisotropyLevelSel = s_anLevels[nOption];
 
         if (m_fSwitchMoveL > 0.0f)
             m_fSwitchMoveL -= SWITCH_ANM_STEP;

@@ -1,5 +1,6 @@
 #include "DisplayOptionData.hpp"
 #include "System/Common/System2D.hpp"
+#include "Game/System/Texture/TextureManager.hpp"
 
 #ifdef TARGET_PC
 #include "System/PC/PCSpecific.hpp"
@@ -26,6 +27,8 @@ void CDisplayOptionData::Initialize(void)
     m_iVideomodeNum = CPCSpecific::GetVideomodeNum();
     m_iVideomodeCur = CPCSpecific::GetVideomodeCur();
     m_iMultiSamplingSamples = CPCSpecific::GetMultiSamplingSamples();
+    m_iAnisotropyLevel = CTextureManager::SetAnisotropyLevel(
+        CPCSpecific::GetAnisotropyLevel());
 
     m_pVideomode = new VIDEOMODE[m_iVideomodeNum];
 
@@ -70,6 +73,7 @@ void CDisplayOptionData::Terminate(void)
         m_iVideomodeNum = 0;
         m_iVideomodeCur = -1;
         m_iMultiSamplingSamples = 0;
+        m_iAnisotropyLevel = 0;
     };
 #endif /* TMNT2_FEATURE_DISPLAYRESO */
 };
@@ -82,6 +86,7 @@ void CDisplayOptionData::SetDefault(void)
     m_bHelpFlag         = true;
 #ifdef TMNT2_FEATURE_DISPLAYRESO
     m_iMultiSamplingSamples = 4;
+    m_iAnisotropyLevel = 16;
 #endif /* TMNT2_FEATURE_DISPLAYRESO */
 };
 
@@ -172,21 +177,24 @@ void CDisplayOptionData::SetVideomode(int32 No)
 };
 
 
-bool CDisplayOptionData::ApplyVideomode(void) const
+bool CDisplayOptionData::ApplyVideomode(void)
 {
     return ApplyPCGraphics(true);
 };
 
 
-bool CDisplayOptionData::ApplyPCGraphics(bool bVideomodeChanged) const
+bool CDisplayOptionData::ApplyPCGraphics(bool bVideomodeChanged)
 {
     ASSERT(m_iVideomodeCur >= 0);
     ASSERT(m_iVideomodeCur < m_iVideomodeNum);
 
     if (CPCSpecific::ApplyDisplaySettings(m_iVideomodeCur,
                                           m_iMultiSamplingSamples,
+                                          m_iAnisotropyLevel,
                                           bVideomodeChanged))
     {
+        m_iAnisotropyLevel =
+            CTextureManager::SetAnisotropyLevel(m_iAnisotropyLevel);
         CSystem2D::Reset();
         return true;
     };
@@ -230,6 +238,24 @@ void CDisplayOptionData::SetMultiSamplingSamples(int32 nSamples)
 int32 CDisplayOptionData::GetMultiSamplingSamples(void) const
 {
     return m_iMultiSamplingSamples;
+};
+
+
+void CDisplayOptionData::SetAnisotropyLevel(int32 nLevel)
+{
+    ASSERT((nLevel == 0) ||
+           (nLevel == 2) ||
+           (nLevel == 4) ||
+           (nLevel == 8) ||
+           (nLevel == 16));
+
+    m_iAnisotropyLevel = nLevel;
+};
+
+
+int32 CDisplayOptionData::GetAnisotropyLevel(void) const
+{
+    return m_iAnisotropyLevel;
 };
 
 #endif /* TMNT2_FEATURE_DISPLAYRESO */

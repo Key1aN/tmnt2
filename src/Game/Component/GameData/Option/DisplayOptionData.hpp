@@ -41,13 +41,15 @@ public:
     bool IsEnabledPlayerMarker(void) const;
 #ifdef TMNT2_FEATURE_DISPLAYRESO
     void SetVideomode(int32 No);
-    bool ApplyVideomode(void) const;
-    bool ApplyPCGraphics(bool bVideomodeChanged) const;
+    bool ApplyVideomode(void);
+    bool ApplyPCGraphics(bool bVideomodeChanged);
     int32 GetVideomodeNum(void) const;
     int32 GetVideomodeCur(void) const;
     const char* GetVideomodeName(int32 No) const;
     void SetMultiSamplingSamples(int32 nSamples);
     int32 GetMultiSamplingSamples(void) const;
+    void SetAnisotropyLevel(int32 nLevel);
+    int32 GetAnisotropyLevel(void) const;
 #endif /* TMNT2_FEATURE_DISPLAYRESO */
 
 private:
@@ -59,5 +61,6 @@ private:
     int32 m_iVideomodeNum;
     int32 m_iVideomodeCur;
     int32 m_iMultiSamplingSamples;
+    int32 m_iAnisotropyLevel;
 #endif /* TMNT2_FEATURE_DISPLAYRESO */
 };

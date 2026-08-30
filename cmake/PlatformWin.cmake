@@ -103,6 +103,7 @@ target_link_libraries(${EXEC_NAME} PRIVATE
     cri_mwsfdpcx86
 
     # rw
+    rpanisot
     rpskin
     rpmatfx
 )

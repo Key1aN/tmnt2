@@ -2,6 +2,56 @@
 
 #include "rtpitexd.h"
 
+#if defined(TARGET_PC) && defined(TMNT2_RWDRV_D3D9)
+#include "System/PC/PCCrashReporter.hpp"
+#include "System/PC/PCSetting.hpp"
+#include "rpanisot.h"
+#endif /* defined(TARGET_PC) && defined(TMNT2_RWDRV_D3D9) */
+
+
+namespace
+{
+    struct TEXTUREFILTERSTATS
+    {
+        int32 m_nTextures;
+        int32 m_nMipmappedTextures;
+        int32 m_nAnisotropicTextures;
+    };
+
+
+    static int32 s_nAnisotropyRequested = 0;
+    static int32 s_nAnisotropyMaximum = 0;
+    static int32 s_nAnisotropyActive = 0;
+    static TEXTUREFILTERSTATS s_FilterStats = {};
+    static bool s_bFirstAnisotropicTextureReported = false;
+
+
+    static int32 NormalizeAnisotropyLevel(int32 nLevel)
+    {
+        if (nLevel >= 16)
+            return 16;
+
+        if (nLevel >= 8)
+            return 8;
+
+        if (nLevel >= 4)
+            return 4;
+
+        if (nLevel >= 2)
+            return 2;
+
+        return 0;
+    };
+
+
+    static int32 SelectSupportedAnisotropy(int32 nRequestedLevel,
+                                           int32 nMaximumLevel)
+    {
+        const int32 nLimit = Min(nRequestedLevel, nMaximumLevel);
+        return NormalizeAnisotropyLevel(nLimit);
+    };
+}; /* anonymous namespace */
+
 
 #ifdef _DEBUG
 #define TEXTURE_SET_NUM (256)
@@ -19,7 +69,7 @@ private:
         static const int32 TEX_NAME_MAX = 16;
         
     public:
-        static RwTexture* SetLinearFilterCallback(RwTexture* pRwTexture, void* pData);
+        static RwTexture* ConfigureTextureFilteringCallback(RwTexture* pRwTexture, void* pData);
         static RwTexture* TexDictionaryAddTextureCallback(RwTexture* pRwTexture, void* pData);
 
         CTextureSet(void);
@@ -66,6 +116,7 @@ public:
     RwTexDictionary* GetRwTextureDictionary(const char* pszName);
     CTextureSet* FindTextureSet(const char* pszName);
     void GarbageCollection(void);
+    void ApplyTextureFiltering(void);
 
 private:
     CTextureSet m_aTextureSet[TEXTURE_SET_NUM];
@@ -77,10 +128,46 @@ private:
 };
 
 
-/*static*/ RwTexture* CTextureContainer::CTextureSet::SetLinearFilterCallback(RwTexture* pRwTexture, void* pData)
+/*static*/ RwTexture* CTextureContainer::CTextureSet::ConfigureTextureFilteringCallback(RwTexture* pRwTexture,
+                                                                                        void* pData)
 {
-    ASSERT(pRwTexture);    
+    ASSERT(pRwTexture);
+    ++s_FilterStats.m_nTextures;
+
+    RwRaster* pRaster = RwTextureGetRaster(pRwTexture);
+    const int32 nMipLevels = (pRaster ? RwRasterGetNumLevels(pRaster) : 0);
+    const bool bHasMipmaps = (nMipLevels > 1);
+
+    if (bHasMipmaps)
+        ++s_FilterStats.m_nMipmappedTextures;
+
+#if defined(TARGET_PC) && defined(TMNT2_RWDRV_D3D9)
+    if (bHasMipmaps && (s_nAnisotropyActive >= 2))
+    {
+        RwTextureSetFilterMode(pRwTexture, rwFILTERLINEARMIPLINEAR);
+        RpAnisotTextureSetMaxAnisotropy(
+            pRwTexture,
+            static_cast<RwInt8>(s_nAnisotropyActive));
+        ++s_FilterStats.m_nAnisotropicTextures;
+
+        if (!s_bFirstAnisotropicTextureReported)
+        {
+            CPCCrashReporter::Breadcrumb(
+                "AF first_texture name=%s mip_levels=%d active=%d",
+                RwTextureGetName(pRwTexture),
+                nMipLevels,
+                s_nAnisotropyActive);
+            s_bFirstAnisotropicTextureReported = true;
+        };
+    }
+    else
+    {
+        RwTextureSetFilterMode(pRwTexture, rwFILTERLINEAR);
+        RpAnisotTextureSetMaxAnisotropy(pRwTexture, 1);
+    };
+#else /* defined(TARGET_PC) && defined(TMNT2_RWDRV_D3D9) */
     RwTextureSetFilterMode(pRwTexture, rwFILTERLINEAR);
+#endif /* defined(TARGET_PC) && defined(TMNT2_RWDRV_D3D9) */
 
     return pRwTexture;
 };
@@ -140,6 +227,10 @@ void CTextureContainer::CTextureSet::Initialize(const char* pszName, RwTexDictio
     std::strcpy(m_szName, pszName);
     m_iGeneration = iGeneration;
     m_pRwTexDictionary = pTexDict;
+
+    RwTexDictionaryForAllTextures(m_pRwTexDictionary,
+                                  ConfigureTextureFilteringCallback,
+                                  nullptr);
 };
 
 
@@ -206,7 +297,11 @@ RwTexDictionary* CTextureContainer::CTextureSet::ReadRwTexDictionary(void* pBuff
             };
 
             if (pResult)
-                RwTexDictionaryForAllTextures(pResult, SetLinearFilterCallback, nullptr);
+            {
+                RwTexDictionaryForAllTextures(pResult,
+                                              ConfigureTextureFilteringCallback,
+                                              nullptr);
+            };
         };
 
         RwStreamClose(pRwStream, nullptr);
@@ -424,6 +519,17 @@ void CTextureContainer::GarbageCollection(void)
 };
 
 
+void CTextureContainer::ApplyTextureFiltering(void)
+{
+    for (CTextureSet& it : m_listUsing)
+    {
+        RwTexDictionaryForAllTextures(it.TextureDictionary(),
+                                      CTextureSet::ConfigureTextureFilteringCallback,
+                                      nullptr);
+    };
+};
+
+
 static CTextureContainer* s_pTextureContainer = nullptr;
 
 
@@ -499,3 +605,50 @@ static inline CTextureContainer& TextureContainer(void)
     TextureContainer().SetCurrentSet(pszName);
 };
 
+
+/*static*/ int32 CTextureManager::SetAnisotropyLevel(int32 nRequestedLevel)
+{
+    s_nAnisotropyRequested = NormalizeAnisotropyLevel(nRequestedLevel);
+
+#if defined(TARGET_PC) && defined(TMNT2_RWDRV_D3D9)
+    s_nAnisotropyMaximum = NormalizeAnisotropyLevel(
+        static_cast<int32>(RpAnisotGetMaxSupportedMaxAnisotropy()));
+    s_nAnisotropyActive = SelectSupportedAnisotropy(s_nAnisotropyRequested,
+                                                    s_nAnisotropyMaximum);
+    CPCSetting::SetAnisotropyLevel(s_nAnisotropyActive);
+#else /* defined(TARGET_PC) && defined(TMNT2_RWDRV_D3D9) */
+    s_nAnisotropyMaximum = 0;
+    s_nAnisotropyActive = 0;
+#endif /* defined(TARGET_PC) && defined(TMNT2_RWDRV_D3D9) */
+
+    s_FilterStats = {};
+    s_bFirstAnisotropicTextureReported = false;
+
+    if (s_pTextureContainer)
+        TextureContainer().ApplyTextureFiltering();
+
+#if defined(TARGET_PC) && defined(TMNT2_RWDRV_D3D9)
+    CPCCrashReporter::Breadcrumb(
+        "AF apply requested=%d supported=%d active=%d textures=%d mipmapped=%d anisotropic=%d",
+        s_nAnisotropyRequested,
+        s_nAnisotropyMaximum,
+        s_nAnisotropyActive,
+        s_FilterStats.m_nTextures,
+        s_FilterStats.m_nMipmappedTextures,
+        s_FilterStats.m_nAnisotropicTextures);
+#endif /* defined(TARGET_PC) && defined(TMNT2_RWDRV_D3D9) */
+
+    return s_nAnisotropyActive;
+};
+
+
+/*static*/ int32 CTextureManager::GetAnisotropyLevel(void)
+{
+    return s_nAnisotropyActive;
+};
+
+
+/*static*/ int32 CTextureManager::GetMaxSupportedAnisotropy(void)
+{
+    return s_nAnisotropyMaximum;
+};

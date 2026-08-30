@@ -425,10 +425,12 @@ static const KEYINFO* PCKeyInfo(int32 iDIKey)
 
 /*static*/ bool CPCSpecific::ApplyDisplaySettings(int32 nVideomodeNo,
                                                   int32 nMSAASamples,
+                                                  int32 nAnisotropyLevel,
                                                   bool bVideomodeChanged)
 {
     return CPCFramework::Instance().ApplyDisplaySettings(nVideomodeNo,
                                                           nMSAASamples,
+                                                          nAnisotropyLevel,
                                                           bVideomodeChanged);
 };
 
@@ -436,6 +438,12 @@ static const KEYINFO* PCKeyInfo(int32 iDIKey)
 /*static*/ int32 CPCSpecific::GetMultiSamplingSamples(void)
 {
     return CPCFramework::Instance().GetMultiSamplingSamples();
+};
+
+
+/*static*/ int32 CPCSpecific::GetAnisotropyLevel(void)
+{
+    return CPCFramework::Instance().GetAnisotropyLevel();
 };
 
 
