@@ -24,6 +24,10 @@
 #include "System/Web/WebSpecific.hpp"
 #endif /* defined(TARGET_WEB) */
 
+#if defined(TARGET_PC)
+#include "System/PC/PCCrashReporter.hpp"
+#endif /* defined(TARGET_PC) */
+
 
 #define MVPATH_OP1 (MVPATH("OP_TMNT1.sfd"))
 #define MVPATH_OP2 (MVPATH("OP_TMNT2.sfd"))
@@ -263,7 +267,13 @@ int32 CGameMainSequence::Branch(int32 iLabel)
 #ifdef _DEBUG
         return PROCLABEL_SEQ_TITLE;
 #else /* _DEBUG */
+#if defined(TARGET_PC)
+        CPCCrashReporter::Breadcrumb(
+            "INTRO_SKIP startup logos=skipped opening_movie=skipped next=title");
+        return PROCLABEL_SEQ_TITLE;
+#else /* defined(TARGET_PC) */
         return PROCLABEL_SEQ_LOGODISP;
+#endif /* defined(TARGET_PC) */
 #endif /* _DEBUG */
 
     case PROCLABEL_SEQ_LOGODISP:
