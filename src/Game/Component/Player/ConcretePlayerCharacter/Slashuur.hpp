@@ -55,6 +55,8 @@ namespace Slashuur
 
     private:
         int32 m_step;
+        int32 m_iTargetEnemyNo;
+        uint32 m_hTargetEnemy;
     };
 
     class CBossScythe : public CBossMoveStatus
