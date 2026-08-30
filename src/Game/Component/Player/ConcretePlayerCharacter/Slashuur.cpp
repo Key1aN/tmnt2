@@ -236,6 +236,29 @@ namespace Slashuur
     };
 
 
+    bool CBossTeleport::IsEnableChangeStatus(PLAYERTYPES::STATUS status)
+    {
+        if (CBossMoveStatus::IsEnableChangeStatus(status))
+            return true;
+
+        PLAYERTYPES::STATUS aStatusArray[] =
+        {
+            PLAYERTYPES::STATUS_ATTACK_A,
+            PLAYERTYPES::STATUS_ATTACK_AA,
+            PLAYERTYPES::STATUS_ATTACK_AAB,
+            PLAYERTYPES::STATUS_ATTACK_AAC,
+            PLAYERTYPES::STATUS_ATTACK_AABB,
+            PLAYERTYPES::STATUS_ATTACK_AABC,
+            PLAYERTYPES::STATUS_ATTACK_AABBB,
+            PLAYERTYPES::STATUS_ATTACK_AABBC,
+            PLAYERTYPES::STATUS_ATTACK_B,
+            PLAYERTYPES::STATUS_ATTACK_B_CHARGE,
+        };
+
+        return IsWithinStatusFromArray(status, aStatusArray, COUNT_OF(aStatusArray));
+    };
+
+
     void CBossTeleport::OnAttach(void)
     {
         SLASHUUR_TRACE("MOVE teleport attach begin");
@@ -324,7 +347,6 @@ namespace Slashuur
         m_step = 0;
         m_fPulseTime = 0.2f;
 
-        Character().SetAttribute(PLAYERTYPES::ATTRIBUTE_INVINCIBILITY);
         Character().ResetVelocity();
         Character().ResetAcceleration();
         SLASHUUR_TRACE("MOVE scythe change motion=E2 begin");
@@ -343,7 +365,6 @@ namespace Slashuur
     void CBossScythe::OnDetach(void)
     {
         SLASHUUR_TRACE("MOVE scythe detach");
-        Character().ClearAttribute(PLAYERTYPES::ATTRIBUTE_INVINCIBILITY);
         CGameSound::FadeOutSE(SDCODE_SE(4403), CGameSound::FADESPEED_NORMAL);
     };
 
