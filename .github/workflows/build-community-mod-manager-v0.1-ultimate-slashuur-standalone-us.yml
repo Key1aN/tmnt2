@@ -1,11 +1,10 @@
-name: Build playable Slashuur diagnostics
+name: Build community-mod-manager-v0.1 Ultimate_Slashuur Standalone US
 
 on:
   workflow_dispatch:
   push:
     branches:
-      - "master"
-      - "codex/playable-slashuur-boss-moves"
+      - "feature/community-mod-manager-v0.1-ultimate-slashuur-standalone-us"
 
 permissions:
   contents: read
@@ -18,6 +17,39 @@ jobs:
     steps:
       - name: Check out patched source
         uses: actions/checkout@v4
+
+      - name: Verify standalone source scope
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $base = "dabccc3e3dc02c8a01eac1638fe1aeb589e2723b"
+          $allowed = @(
+            ".github/workflows/build-community-mod-manager-v0.1-ultimate-slashuur-standalone-us.yml",
+            "SLASHUUR_CRASH_REPORTING.md",
+            "ULTIMATE_SLASHUUR_STANDALONE_US.md",
+            "cmake/PlatformWin.cmake",
+            "src/Game/Component/Effect/Magic.cpp",
+            "src/Game/Component/Player/ConcreteManipulator/ManipulatorSlashuur.cpp",
+            "src/Game/Component/Player/ConcreteManipulator/ManipulatorSlashuur.hpp",
+            "src/Game/Component/Player/ConcretePlayerCharacter/Slashuur.cpp",
+            "src/Game/Component/Player/ConcretePlayerCharacter/Slashuur.hpp",
+            "src/Game/System/Motion/MotionManager.cpp",
+            "src/System/PC/PCCrashReporter.cpp",
+            "src/System/PC/PCCrashReporter.hpp",
+            "src/System/PC/PCDebug.cpp",
+            "src/System/PC/main.cpp"
+          )
+          $changed = @(git diff --name-only "$base..HEAD")
+          $unexpected = @($changed | Where-Object { $_ -notin $allowed })
+          if ($unexpected.Count -ne 0) {
+            throw "Standalone branch contains unexpected paths: $($unexpected -join ', ')"
+          }
+
+          $addedSource = git diff --unified=0 "$base..HEAD" -- src
+          $forbidden = $addedSource | Select-String -Pattern '^\+.*(MSAA|MULTISAMPLE|INTRO_SKIP|WIDESCREEN|DIFFICULTY_EXTREME|DIFFICULTY_SOULS|COLD_BREATH|DEVELOPER_MENU)' -CaseSensitive:$false
+          if ($forbidden) {
+            throw "Standalone branch contains a forbidden unrelated feature marker."
+          }
 
       - name: Stage DirectX headers and x86 libraries
         shell: pwsh
@@ -120,11 +152,11 @@ jobs:
         shell: pwsh
         run: cmake --preset vs2022 -DOPT_EU_BUILD=OFF
 
-      - name: Build patched executable
+      - name: Build Ultimate_Slashuur standalone executable
         shell: pwsh
         run: cmake --build --preset vs2022-release --parallel
 
-      - name: Collect and verify executable
+      - name: Collect and verify unique outputs
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
@@ -160,15 +192,15 @@ jobs:
             throw "The matching Release TMNT2.map was not found."
           }
 
-          $artifactDir = Join-Path $env:GITHUB_WORKSPACE "artifact"
+          $artifactDir = Join-Path $env:GITHUB_WORKSPACE "artifact-community-mod-manager-v0.1-ultimate-slashuur-standalone-us"
           New-Item -ItemType Directory -Force -Path $artifactDir | Out-Null
-          $artifactExe = Join-Path $artifactDir "TMNT2_Playable_Slashuur_Diagnostics_US.exe"
-          $artifactPdb = Join-Path $artifactDir "TMNT2.pdb"
-          $artifactMap = Join-Path $artifactDir "TMNT2.map"
+          $artifactExe = Join-Path $artifactDir "TMNT2_Ultimate_Slashuur_Standalone_US.exe"
+          $artifactPdb = Join-Path $artifactDir "TMNT2_Ultimate_Slashuur_Standalone_US.pdb"
+          $artifactMap = Join-Path $artifactDir "TMNT2_Ultimate_Slashuur_Standalone_US.map"
           Copy-Item $exe.FullName $artifactExe -Force
           Copy-Item $pdb.FullName $artifactPdb -Force
           Copy-Item $map.FullName $artifactMap -Force
-          Copy-Item (Join-Path $env:GITHUB_WORKSPACE "SLASHUUR_CRASH_REPORTING.md") $artifactDir -Force
+          Copy-Item (Join-Path $env:GITHUB_WORKSPACE "ULTIMATE_SLASHUUR_STANDALONE_US.md") $artifactDir -Force
 
           $hash = (Get-FileHash $artifactExe -Algorithm SHA256).Hash.ToLowerInvariant()
           $pdbHash = (Get-FileHash $artifactPdb -Algorithm SHA256).Hash.ToLowerInvariant()
@@ -177,6 +209,7 @@ jobs:
           $commit = git rev-parse HEAD
 
           @(
+            "Project=community-mod-manager-v0.1/Ultimate_Slashuur",
             "Build=US/NA x86 Release",
             "SourceCommit=$commit",
             "Executable=$([System.IO.Path]::GetFileName($artifactExe))",
@@ -185,15 +218,17 @@ jobs:
             "PDB=$([System.IO.Path]::GetFileName($artifactPdb))",
             "PDBSHA256=$pdbHash",
             "MAP=$([System.IO.Path]::GetFileName($artifactMap))",
-            "MAPSHA256=$mapHash"
-          ) | Set-Content (Join-Path $artifactDir "BUILD_INFO.txt") -Encoding utf8
+            "MAPSHA256=$mapHash",
+            "Included=PlayableSlashuur;FiveBossMoves;FinalControls;DirectBone3Fix;BufferedCrashLogging;AnimationPool512;AdaptiveTeleportV2Radius25NoFlying",
+            "Excluded=MSAA;IntroSkip;Widescreen;DifficultyMods;AnisotropicFiltering;ColdBreath;DeveloperMenuBoot"
+          ) | Set-Content (Join-Path $artifactDir "BUILD_INFO_TMNT2_Ultimate_Slashuur_Standalone_US.txt") -Encoding utf8
 
-          Get-Content (Join-Path $artifactDir "BUILD_INFO.txt")
+          Get-Content (Join-Path $artifactDir "BUILD_INFO_TMNT2_Ultimate_Slashuur_Standalone_US.txt")
 
-      - name: Upload patched executable
+      - name: Upload Ultimate_Slashuur standalone artifact
         uses: actions/upload-artifact@v4
         with:
-          name: TMNT2-Playable-Slashuur-Diagnostics-US
-          path: artifact/*
+          name: TMNT2-Ultimate-Slashuur-Standalone-US-run-${{ github.run_number }}
+          path: artifact-community-mod-manager-v0.1-ultimate-slashuur-standalone-us/*
           if-no-files-found: error
-          retention-days: 7
+          retention-days: 14
