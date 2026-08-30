@@ -24,7 +24,7 @@ _tWinMain(
 )
 {
     CPCCrashReporter::Install();
-    CPCCrashReporter::Breadcrumb("BUILD TMNT2_Slashuur_Adaptive_Teleport_v1_US");
+    CPCCrashReporter::Breadcrumb("BUILD TMNT2_Slashuur_Adaptive_Teleport_v2_Radius25_NoFlying_US");
 
 #ifdef VLDCHECK    
     VLDEnable();
