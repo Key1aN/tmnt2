@@ -34,12 +34,7 @@
     RwCameraSetNearClipPlane(pNewCamera, TYPEDEF::DEFAULT_CLIP_NEAR);
     RwCameraSetFarClipPlane(pNewCamera, TYPEDEF::DEFAULT_CLIP_FAR);
 
-    RwV2d ViewWindow =
-    {
-        TYPEDEF::DEFAULT_VIEWWINDOW,
-        TYPEDEF::DEFAULT_VIEWWINDOW / TYPEDEF::DEFAULT_ASPECTRATIO
-    };
-    RwCameraSetViewWindow(pNewCamera, &ViewWindow);
+    SetAspectCorrectViewWindow(pNewCamera, TYPEDEF::DEFAULT_VIEWWINDOW);
 
     return pNewCamera;
 };
@@ -47,6 +42,8 @@
 
 /*static*/ void CCamera::FramebufferChanged(void)
 {
+    RefreshAspectRatio(m_pCameraDefault);
+
     for (int32 i = 0; i < COUNT_OF(m_aCamera); ++i)
     {
         if ((m_aCamera[i] != nullptr) &&
@@ -57,8 +54,48 @@
 
             RwCameraSetRasterMacro(m_aCamera[i], fb);
             RwCameraSetZRasterMacro(m_aCamera[i], zb);
+            RefreshAspectRatio(m_aCamera[i]);
         };
     };
+};
+
+
+/*static*/ void CCamera::SetAspectCorrectViewWindow(RwCamera* pRwCamera, float fViewSize)
+{
+    ASSERT(pRwCamera);
+
+    float fAspect = TYPEDEF::DEFAULT_ASPECTRATIO;
+    RwRaster* pRaster = RwCameraGetRaster(pRwCamera);
+    if (pRaster)
+    {
+        int32 iWidth = RwRasterGetWidth(pRaster);
+        int32 iHeight = RwRasterGetHeight(pRaster);
+        if ((iWidth > 0) && (iHeight > 0))
+            fAspect = static_cast<float>(iWidth) / static_cast<float>(iHeight);
+    };
+
+    /*
+     * Treat fViewSize as the original 4:3 horizontal view size. Keeping the
+     * corresponding vertical view size fixed gives widescreen resolutions a
+     * Hor+ field of view instead of cropping the top and bottom.
+     */
+    RwV2d ViewWindow;
+    ViewWindow.y = fViewSize / TYPEDEF::DEFAULT_ASPECTRATIO;
+    ViewWindow.x = ViewWindow.y * fAspect;
+    RwCameraSetViewWindow(pRwCamera, &ViewWindow);
+};
+
+
+/*static*/ void CCamera::RefreshAspectRatio(RwCamera* pRwCamera)
+{
+    if (!pRwCamera)
+        return;
+
+    const RwV2d* pViewWindow = RwCameraGetViewWindow(pRwCamera);
+    ASSERT(pViewWindow);
+
+    float fViewSize = pViewWindow->y * TYPEDEF::DEFAULT_ASPECTRATIO;
+    SetAspectCorrectViewWindow(pRwCamera, fViewSize);
 };
 
 

@@ -1,6 +1,7 @@
 #include "PCDebug.hpp"
 #include "PCSpecific.hpp"
 #include "PCSystem.hpp"
+#include "PCCrashReporter.hpp"
 
 #include "System/Common/SystemTime.hpp"
 #include "System/Common/Debug.hpp"
@@ -120,6 +121,8 @@ static void OutputCommon(bool ln, const char* fname, int32 fline, const char* fo
     va_start(vl, reason);
     std::vsprintf(szFatalBuffer, reason, vl);
     va_end(vl);
+
+    CPCCrashReporter::FatalMessage(szFatalBuffer);
 
     uint32 Flags = (MB_ICONERROR);
 #ifdef _DEBUG    

@@ -876,7 +876,10 @@ void CMapCamera::SetFogDistance(float fFogDist)
 
 void CMapCamera::SetViewWindow(float fViewSize)
 {
-    SetViewWindow(fViewSize, TYPEDEF::DEFAULT_ASPECTRATIO);
+    ASSERT(m_pCamera);
+    ASSERT(m_pCamera->GetRwCamera());
+
+    CCamera::SetAspectCorrectViewWindow(m_pCamera->GetRwCamera(), fViewSize);
 };
 
 
@@ -886,8 +889,8 @@ void CMapCamera::SetViewWindow(float fViewSize, float fAspect)
     ASSERT(m_pCamera->GetRwCamera());
 
     RwV2d ViewWindow;
-    ViewWindow.x = fViewSize;
-    ViewWindow.y = (fViewSize / fAspect);
+    ViewWindow.y = fViewSize / TYPEDEF::DEFAULT_ASPECTRATIO;
+    ViewWindow.x = ViewWindow.y * fAspect;
 
     RwCameraSetViewWindow(m_pCamera->GetRwCamera(), &ViewWindow);
 };
@@ -1122,4 +1125,3 @@ void CMapCamera::VibrationUpdate(void)
             VibrationDestroy();
     };
 };
-
