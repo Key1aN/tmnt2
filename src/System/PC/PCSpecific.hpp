@@ -25,6 +25,8 @@ public:
     static bool GetVideomode(int32 No, PC::VIDEOMODE& vm);
     static int32 GetVideomodeNum(void);
     static int32 GetVideomodeCur(void);
+    static bool ApplyDisplaySettings(int32 nVideomodeNo, int32 nMSAASamples, bool bVideomodeChanged);
+    static int32 GetMultiSamplingSamples(void);
     static void FrameSkipEnable(bool bEnable);
     static void DisplayCursor(bool bDispFlag);
     static void PathCorrection(std::string& str);

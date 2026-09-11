@@ -20,6 +20,7 @@ public:
     virtual bool Initialize(void) override;
     virtual void Terminate(void) override;
     virtual bool Start(void) override;
+    virtual bool RenderBegin(void) override;
     virtual void Flip(void) override;
     virtual int32 ScreenWidth(void) override;
     virtual int32 ScreenHeight(void) override;
@@ -37,10 +38,16 @@ public:
     int32 GetVideomodeCur(void) const;
     int32 GetVideomodeNum(void) const;
     bool IsFullscreen(void) const;
+    bool ApplyConfiguredMultiSampling(void);
 
 private:
     void OutputInfo(void);
     bool IsFullscreenWindow(void) const;
+    int32 GetCurrentModeMaxMultiSamplingLevels(void) const;
+    void SetMultiSamplingBeforeStart(void);
+    bool ChangeMultiSamplingAfterStart(const char* pszPhase);
+    int32 TraceActualMultiSampling(const char* pszPhase, int32 nExpectedSamples);
+    void GuardMultiSamplingFrameState(void);
 
 private:
     CPCFrameTimer* m_pFrameTimer;
@@ -48,6 +55,8 @@ private:
     int32 m_numDevices;
     int32 m_curDevice;
     int32 m_multisamplingLvl;
+    bool m_bMSAAFrameStateReported;
+    bool m_bMSAAFrameCorrectionReported;
     bool m_bFullscreen;
     bool m_bHighReso;
 };
