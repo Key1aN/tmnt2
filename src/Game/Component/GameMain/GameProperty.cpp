@@ -58,7 +58,13 @@ static inline CGamePropertyObject& GamePropertyObject(void)
     if (CGameData::Attribute().IsNexusMode())
         return GAMETYPES::DIFFICULTY_NORMAL;
     
-    return CGameData::Option().Play().GetDifficulty();
+    GAMETYPES::DIFFICULTY difficulty = CGameData::Option().Play().GetDifficulty();
+    if ((difficulty == GAMETYPES::DIFFICULTY_VERY_HARD) ||
+        (difficulty == GAMETYPES::DIFFICULTY_EXTREME) ||
+        (difficulty == GAMETYPES::DIFFICULTY_SOULS_LIKE))
+        return GAMETYPES::DIFFICULTY_HARD;
+
+    return difficulty;
 };
 
 

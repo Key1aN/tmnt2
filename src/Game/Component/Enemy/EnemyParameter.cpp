@@ -1,5 +1,7 @@
 #include "EnemyParameter.hpp"
 
+#include "Game/Component/GameData/GameData.hpp"
+#include "Game/Component/GameMain/ExtendedDifficulty.hpp"
 #include "Game/Component/GameMain/GameProperty.hpp"
 #include "Game/Component/GameMain/GameTypes.hpp"
 
@@ -67,28 +69,31 @@ static void CompensationParameter(ENEMYPARAMCONTAINER* pEnemyParam)
 
     case GAMETYPES::DIFFICULTY_HARD:
         {
-            Rate(&pEnemyParam->m_auFrequency[CEnemyParameter::FREQUENCY_ATTACK_A],          1.05f);
-            Rate(&pEnemyParam->m_auFrequency[CEnemyParameter::FREQUENCY_ATTACK_AA],         1.05f);
-            Rate(&pEnemyParam->m_auFrequency[CEnemyParameter::FREQUENCY_ATTACK_AAA],        1.05f);
-            Rate(&pEnemyParam->m_auFrequency[CEnemyParameter::FREQUENCY_ATTACK_B],          1.05f);
-            Rate(&pEnemyParam->m_auFrequency[CEnemyParameter::FREQUENCY_ATTACK_C],          1.05f);
-            Rate(&pEnemyParam->m_auFrequency[CEnemyParameter::FREQUENCY_ATTACK_RUN],        1.05f);
+            GAMETYPES::DIFFICULTY optionDifficulty = CGameData::Option().Play().GetDifficulty();
+            float fAggressionScale = EXTENDEDDIFFICULTY::GetEPBAggressionScale(optionDifficulty);
 
-            Rate(&pEnemyParam->m_auFrequency[CEnemyParameter::FREQUENCY_GUARD_A],           1.05f);
-            Rate(&pEnemyParam->m_auFrequency[CEnemyParameter::FREQUENCY_GUARD_B],           1.05f);
-            Rate(&pEnemyParam->m_auFrequency[CEnemyParameter::FREQUENCY_GUARD_SHOT],        1.05f);
-            Rate(&pEnemyParam->m_auFrequency[CEnemyParameter::FREQUENCY_GUARD_JUMP_ATTACK], 1.05f);
-            Rate(&pEnemyParam->m_auFrequency[CEnemyParameter::FREQUENCY_GUARD_RUN_ATTACK],  1.05f);
-            Rate(&pEnemyParam->m_auFrequency[CEnemyParameter::FREQUENCY_GUARD_THROW],       1.05f);
+            Rate(&pEnemyParam->m_auFrequency[CEnemyParameter::FREQUENCY_ATTACK_A],          fAggressionScale);
+            Rate(&pEnemyParam->m_auFrequency[CEnemyParameter::FREQUENCY_ATTACK_AA],         fAggressionScale);
+            Rate(&pEnemyParam->m_auFrequency[CEnemyParameter::FREQUENCY_ATTACK_AAA],        fAggressionScale);
+            Rate(&pEnemyParam->m_auFrequency[CEnemyParameter::FREQUENCY_ATTACK_B],          fAggressionScale);
+            Rate(&pEnemyParam->m_auFrequency[CEnemyParameter::FREQUENCY_ATTACK_C],          fAggressionScale);
+            Rate(&pEnemyParam->m_auFrequency[CEnemyParameter::FREQUENCY_ATTACK_RUN],        fAggressionScale);
 
-            Rate(&pEnemyParam->m_auFrequency[CEnemyParameter::FREQUENCY_FIRE_CONVERGENCE],  1.05f);
-            Rate(&pEnemyParam->m_auFrequency[CEnemyParameter::FREQUENCY_FIRE_RANGE_RATE],   1.05f);
-            Rate(&pEnemyParam->m_auFrequency[CEnemyParameter::FREQUENCY_FIRE_REPEATABLE],   1.05f);
+            Rate(&pEnemyParam->m_auFrequency[CEnemyParameter::FREQUENCY_GUARD_A],           fAggressionScale);
+            Rate(&pEnemyParam->m_auFrequency[CEnemyParameter::FREQUENCY_GUARD_B],           fAggressionScale);
+            Rate(&pEnemyParam->m_auFrequency[CEnemyParameter::FREQUENCY_GUARD_SHOT],        fAggressionScale);
+            Rate(&pEnemyParam->m_auFrequency[CEnemyParameter::FREQUENCY_GUARD_JUMP_ATTACK], fAggressionScale);
+            Rate(&pEnemyParam->m_auFrequency[CEnemyParameter::FREQUENCY_GUARD_RUN_ATTACK],  fAggressionScale);
+            Rate(&pEnemyParam->m_auFrequency[CEnemyParameter::FREQUENCY_GUARD_THROW],       fAggressionScale);
 
-            pEnemyParam->m_AICharacteristic.m_fThinkingFrequency *= 1.05f;
-            pEnemyParam->m_AICharacteristic.m_fRatioOfActivity   *= 1.05f;
-            pEnemyParam->m_AICharacteristic.m_fRatioOfFrontView  *= 1.05f;
-            pEnemyParam->m_AICharacteristic.m_fRatioOfRearView   *= 1.05f;
+            Rate(&pEnemyParam->m_auFrequency[CEnemyParameter::FREQUENCY_FIRE_CONVERGENCE],  fAggressionScale);
+            Rate(&pEnemyParam->m_auFrequency[CEnemyParameter::FREQUENCY_FIRE_RANGE_RATE],   fAggressionScale);
+            Rate(&pEnemyParam->m_auFrequency[CEnemyParameter::FREQUENCY_FIRE_REPEATABLE],   fAggressionScale);
+
+            pEnemyParam->m_AICharacteristic.m_fThinkingFrequency *= fAggressionScale;
+            pEnemyParam->m_AICharacteristic.m_fRatioOfActivity   *= fAggressionScale;
+            pEnemyParam->m_AICharacteristic.m_fRatioOfFrontView  *= fAggressionScale;
+            pEnemyParam->m_AICharacteristic.m_fRatioOfRearView   *= fAggressionScale;
         }
         break;
 

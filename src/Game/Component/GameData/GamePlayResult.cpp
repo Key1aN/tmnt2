@@ -226,6 +226,18 @@ void CGamePlayResult::InitForArea(void)
         m_baserank = GAMETYPES::CLEARRANK_C;
         break;
 
+    case GAMETYPES::DIFFICULTY_VERY_HARD:
+        m_baserank = GAMETYPES::CLEARRANK_B;
+        break;
+
+    case GAMETYPES::DIFFICULTY_EXTREME:
+        m_baserank = GAMETYPES::CLEARRANK_A;
+        break;
+
+    case GAMETYPES::DIFFICULTY_SOULS_LIKE:
+        m_baserank = GAMETYPES::CLEARRANK_S;
+        break;
+
     default:
         ASSERT(false);
         break;
@@ -848,5 +860,3 @@ void CGamePlayResult::takeOnePrize(AREAID::VALUE idArea, GAMETYPES::PRIZE prize)
         break;
     };
 };
-
-

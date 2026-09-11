@@ -6,11 +6,16 @@
 
 #include "Game/Component/Player/PlayerStatus.hpp"
 #include "Game/Component/GameData/GameData.hpp"
+#include "Game/Component/GameMain/ExtendedDifficulty.hpp"
 #include "Game/Component/GameMain/GameProperty.hpp"
 #include "Game/System/Character/CharacterAttackCalculator.hpp"
 #include "Game/System/Hit/HitAttackData.hpp"
 #include "Game/System/Hit/HitCatchData.hpp"
 #include "Game/System/GameObject/GameObjectManager.hpp"
+
+#if defined(TARGET_PC)
+#include "System/PC/PCCrashReporter.hpp"
+#endif /* defined(TARGET_PC) */
 
 
 CEnemyCharacter::CStatusSubject::CStatusSubject(CEnemyCharacter* pSubject)
@@ -259,6 +264,25 @@ bool CEnemyCharacter::Initialize(PARAMETER* pParameter, bool bReplaceParameter)
     if (m_createinfo.m_iHPMax != 0)
         m_pParameter->m_feature.m_iHPMax = m_createinfo.m_iHPMax;
 #endif /* _DEBUG */
+
+    GAMETYPES::DIFFICULTY optionDifficulty = CGameData::Option().Play().GetDifficulty();
+    float fEnemyHPScale = EXTENDEDDIFFICULTY::GetEnemyHPScale(optionDifficulty);
+    int32 iEnemyHPOriginal = m_pParameter->m_feature.m_iHPMax;
+    m_pParameter->m_feature.m_iHPMax = static_cast<int32>(
+        (static_cast<float>(m_pParameter->m_feature.m_iHPMax) * fEnemyHPScale) + 0.5f
+    );
+
+#if defined(TARGET_PC)
+    CPCCrashReporter::Breadcrumb(
+        "DIFFICULTY enemy_init id=%d raw=%d table=%d hp=%d scale=%.2f hp_scaled=%d",
+        static_cast<int32>(m_ID),
+        static_cast<int32>(optionDifficulty),
+        static_cast<int32>(CGameProperty::GetDifficulty()),
+        iEnemyHPOriginal,
+        fEnemyHPScale,
+        m_pParameter->m_feature.m_iHPMax
+    );
+#endif /* defined(TARGET_PC) */
 
     m_pParameter->m_feature.m_iHP           = m_pParameter->m_feature.m_iHPMax;
     m_pParameter->m_feature.m_vPatrolOrigin = m_createinfo.m_vPosition;

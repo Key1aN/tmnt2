@@ -2,7 +2,9 @@
 #include "Character.hpp"
 
 #include "Game/Component/GameData/GameData.hpp"
+#include "Game/Component/GameMain/ExtendedDifficulty.hpp"
 #include "Game/Component/GameMain/GameEvent.hpp"
+#include "Game/Component/GameMain/GameProperty.hpp"
 #include "Game/Component/Effect/EffectGeneric.hpp"
 #include "Game/Component/Effect/EffectManager.hpp"
 #include "Game/Component/Effect/Effect.hpp"
@@ -13,6 +15,10 @@
 #include "Game/System/GameObject/GameObjectManager.hpp"
 #include "Game/System/Hit/HitAttackData.hpp"
 #include "Game/System/Hit/HitCatchData.hpp"
+
+#if defined(TARGET_PC)
+#include "System/PC/PCCrashReporter.hpp"
+#endif /* defined(TARGET_PC) */
 
 
 namespace EFFECTNAMES
@@ -142,6 +148,9 @@ float CCharacterAttackCalculator::CalcDamage(CHARACTERTYPES::ATTACKRESULTTYPE at
 
         if (CGameData::Record().Secret().IsUnlockedSecret(SECRETID::ID_CHALLENGE_NIGHTMARE))
             fPowerRatio *= 2.0f;
+
+        GAMETYPES::DIFFICULTY optionDifficulty = CGameData::Option().Play().GetDifficulty();
+        fPowerRatio *= EXTENDEDDIFFICULTY::GetPlayerDamageReceivedScale(optionDifficulty);
     };
 
     fDamage = static_cast<float>(m_rAttack.GetPower()) * fPowerRatio;
@@ -164,6 +173,21 @@ float CCharacterAttackCalculator::CalcDamage(CHARACTERTYPES::ATTACKRESULTTYPE at
 
     if (fDamage < 1.0f)
         fDamage = 1.0f;
+
+#if defined(TARGET_PC)
+    if (m_rCharacter.GetAttackCharacterType() == CCharacter::TYPE_PLAYER)
+    {
+        GAMETYPES::DIFFICULTY optionDifficulty = CGameData::Option().Play().GetDifficulty();
+        CPCCrashReporter::Breadcrumb(
+            "DIFFICULTY player_hit raw=%d table=%d power=%d scale=%.2f final=%.2f",
+            static_cast<int32>(optionDifficulty),
+            static_cast<int32>(CGameProperty::GetDifficulty()),
+            m_rAttack.GetPower(),
+            EXTENDEDDIFFICULTY::GetPlayerDamageReceivedScale(optionDifficulty),
+            fDamage
+        );
+    };
+#endif /* defined(TARGET_PC) */
 
     return fDamage;
 };
