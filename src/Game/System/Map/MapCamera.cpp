@@ -1,4 +1,8 @@
 #include "MapCamera.hpp"
+
+#if defined(TARGET_PC)
+#include "System/PC/PCModFeatures.hpp"
+#endif /* defined(TARGET_PC) */
 #include "WorldMap.hpp"
 #include "CameraDataMan.hpp"
 
@@ -876,7 +880,10 @@ void CMapCamera::SetFogDistance(float fFogDist)
 
 void CMapCamera::SetViewWindow(float fViewSize)
 {
-    SetViewWindow(fViewSize, TYPEDEF::DEFAULT_ASPECTRATIO);
+    ASSERT(m_pCamera);
+    ASSERT(m_pCamera->GetRwCamera());
+
+    CCamera::SetAspectCorrectViewWindow(m_pCamera->GetRwCamera(), fViewSize);
 };
 
 
@@ -886,8 +893,18 @@ void CMapCamera::SetViewWindow(float fViewSize, float fAspect)
     ASSERT(m_pCamera->GetRwCamera());
 
     RwV2d ViewWindow;
-    ViewWindow.x = fViewSize;
-    ViewWindow.y = (fViewSize / fAspect);
+#if defined(TARGET_PC)
+    if (CPCModFeatures::IsWidescreenEnabled())
+    {
+        ViewWindow.y = fViewSize / TYPEDEF::DEFAULT_ASPECTRATIO;
+        ViewWindow.x = ViewWindow.y * fAspect;
+    }
+    else
+#endif /* defined(TARGET_PC) */
+    {
+        ViewWindow.x = fViewSize;
+        ViewWindow.y = fViewSize / fAspect;
+    };
 
     RwCameraSetViewWindow(m_pCamera->GetRwCamera(), &ViewWindow);
 };
@@ -1122,4 +1139,3 @@ void CMapCamera::VibrationUpdate(void)
             VibrationDestroy();
     };
 };
-

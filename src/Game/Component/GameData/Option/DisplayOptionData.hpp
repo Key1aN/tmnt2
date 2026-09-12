@@ -42,9 +42,12 @@ public:
 #ifdef TMNT2_FEATURE_DISPLAYRESO
     void SetVideomode(int32 No);
     bool ApplyVideomode(void) const;
+    bool ApplyPCGraphics(bool bVideomodeChanged) const;
     int32 GetVideomodeNum(void) const;
     int32 GetVideomodeCur(void) const;
     const char* GetVideomodeName(int32 No) const;
+    void SetMultiSamplingSamples(int32 nSamples);
+    int32 GetMultiSamplingSamples(void) const;
 #endif /* TMNT2_FEATURE_DISPLAYRESO */
 
 private:
@@ -55,5 +58,6 @@ private:
     VIDEOMODE* m_pVideomode;
     int32 m_iVideomodeNum;
     int32 m_iVideomodeCur;
+    int32 m_iMultiSamplingSamples;
 #endif /* TMNT2_FEATURE_DISPLAYRESO */
 };

@@ -2,6 +2,7 @@
 #include "System/Common/System2D.hpp"
 
 #ifdef TARGET_PC
+#include "System/PC/PCModFeatures.hpp"
 #include "System/PC/PCSpecific.hpp"
 #endif /* TARGET_PC */
 
@@ -24,7 +25,8 @@ void CDisplayOptionData::Initialize(void)
 
 #ifdef TMNT2_FEATURE_DISPLAYRESO
     m_iVideomodeNum = CPCSpecific::GetVideomodeNum();
-    m_iVideomodeCur = CPCSpecific::GetVideomodeCur();    
+    m_iVideomodeCur = CPCSpecific::GetVideomodeCur();
+    m_iMultiSamplingSamples = CPCSpecific::GetMultiSamplingSamples();
 
     m_pVideomode = new VIDEOMODE[m_iVideomodeNum];
 
@@ -32,12 +34,28 @@ void CDisplayOptionData::Initialize(void)
     {
 		PC::VIDEOMODE videomode;
 		CPCSpecific::GetVideomode(i, videomode);
+
+        float fAspect = static_cast<float>(videomode.w) /
+                        static_cast<float>(videomode.h);
+        bool bWidescreen = CPCModFeatures::IsWidescreenEnabled() &&
+                           (std::fabs(fAspect - (16.0f / 9.0f)) < 0.01f);
         
-        std::sprintf(m_pVideomode[i].m_szName,
-                     "%d x %d x %d",
-                     videomode.w,
-                     videomode.h,
-                     videomode.d);
+        if (bWidescreen)
+        {
+            std::sprintf(m_pVideomode[i].m_szName,
+                         "%d x %d x %d  [16:9]",
+                         videomode.w,
+                         videomode.h,
+                         videomode.d);
+        }
+        else
+        {
+            std::sprintf(m_pVideomode[i].m_szName,
+                         "%d x %d x %d",
+                         videomode.w,
+                         videomode.h,
+                         videomode.d);
+        };
     };
 #endif /* TMNT2_FEATURE_DISPLAYRESO */
 };
@@ -53,6 +71,7 @@ void CDisplayOptionData::Terminate(void)
 
         m_iVideomodeNum = 0;
         m_iVideomodeCur = -1;
+        m_iMultiSamplingSamples = 0;
     };
 #endif /* TMNT2_FEATURE_DISPLAYRESO */
 };
@@ -63,6 +82,10 @@ void CDisplayOptionData::SetDefault(void)
     m_bFontEffectFlag   = true;
     m_bPlayerMarkerFlag = true;
     m_bHelpFlag         = true;
+#ifdef TMNT2_FEATURE_DISPLAYRESO
+    m_iMultiSamplingSamples =
+        (CPCModFeatures::IsMSAAEnabled() ? 4 : 0);
+#endif /* TMNT2_FEATURE_DISPLAYRESO */
 };
 
 
@@ -154,10 +177,18 @@ void CDisplayOptionData::SetVideomode(int32 No)
 
 bool CDisplayOptionData::ApplyVideomode(void) const
 {
+    return ApplyPCGraphics(true);
+};
+
+
+bool CDisplayOptionData::ApplyPCGraphics(bool bVideomodeChanged) const
+{
     ASSERT(m_iVideomodeCur >= 0);
     ASSERT(m_iVideomodeCur < m_iVideomodeNum);
 
-    if (CPCSpecific::SetVideomode(m_iVideomodeCur))
+    if (CPCSpecific::ApplyDisplaySettings(m_iVideomodeCur,
+                                          m_iMultiSamplingSamples,
+                                          bVideomodeChanged))
     {
         CSystem2D::Reset();
         return true;
@@ -185,6 +216,23 @@ const char* CDisplayOptionData::GetVideomodeName(int32 No) const
     ASSERT(No < m_iVideomodeNum);
 
     return m_pVideomode[No].m_szName;
+};
+
+
+void CDisplayOptionData::SetMultiSamplingSamples(int32 nSamples)
+{
+    ASSERT((nSamples == 0) ||
+           (nSamples == 2) ||
+           (nSamples == 4) ||
+           (nSamples == 8));
+
+    m_iMultiSamplingSamples = nSamples;
+};
+
+
+int32 CDisplayOptionData::GetMultiSamplingSamples(void) const
+{
+    return m_iMultiSamplingSamples;
 };
 
 #endif /* TMNT2_FEATURE_DISPLAYRESO */

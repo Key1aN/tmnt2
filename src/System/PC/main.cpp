@@ -3,6 +3,8 @@
 #include "PCSpecific.hpp"
 #include "PCSetting.hpp"
 #include "PCFramework.hpp"
+#include "PCCrashReporter.hpp"
+#include "PCModFeatures.hpp"
 
 #include "System/Common/Configure.hpp"
 
@@ -22,6 +24,10 @@ _tWinMain(
     _In_     int32		iCmdShow
 )
 {
+    CPCCrashReporter::Install();
+    CPCCrashReporter::Breadcrumb("BUILD TMNT2_T2Mod_Composable_Core_v1_US");
+    CPCModFeatures::Initialize();
+
 #ifdef VLDCHECK    
     VLDEnable();
 #endif /* VLDCHECK */
@@ -48,5 +54,6 @@ _tWinMain(
     CPCDebug::Terminate();
 #endif
 
+    CPCCrashReporter::Uninstall();
     return (bResult ? EXIT_SUCCESS : EXIT_FAILURE);
 };

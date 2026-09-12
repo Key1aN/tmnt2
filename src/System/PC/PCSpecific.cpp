@@ -423,6 +423,22 @@ static const KEYINFO* PCKeyInfo(int32 iDIKey)
 };
 
 
+/*static*/ bool CPCSpecific::ApplyDisplaySettings(int32 nVideomodeNo,
+                                                  int32 nMSAASamples,
+                                                  bool bVideomodeChanged)
+{
+    return CPCFramework::Instance().ApplyDisplaySettings(nVideomodeNo,
+                                                          nMSAASamples,
+                                                          bVideomodeChanged);
+};
+
+
+/*static*/ int32 CPCSpecific::GetMultiSamplingSamples(void)
+{
+    return CPCFramework::Instance().GetMultiSamplingSamples();
+};
+
+
 /*static*/ void CPCSpecific::FrameSkipEnable(bool bEnable)
 {
     CPCFramework::Instance().SetSkipEnable(bEnable);

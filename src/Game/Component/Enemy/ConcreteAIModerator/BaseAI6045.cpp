@@ -5,6 +5,8 @@
 #include "Game/Component/Enemy/EnemyParameter.hpp"
 #include "Game/Component/Enemy/EnemyUtils.hpp"
 #include "Game/Component/Player/PlayerCharacter.hpp"
+#include "Game/Component/GameData/GameData.hpp"
+#include "Game/Component/GameMain/ExtendedDifficulty.hpp"
 #include "Game/Component/GameMain/GameProperty.hpp"
 
 #ifdef _DEBUG
@@ -621,7 +623,8 @@ bool CEnemyAIDecisionUnitCommonParameter::CheckSpecialFlag(BASEAI6045::SPECIAL_F
 
 void CEnemyAIDecisionUnitCommonParameter::SetAttackInterval(float fInterval)
 {
-    m_fAttackInterval = fInterval;
+    GAMETYPES::DIFFICULTY difficulty = CGameData::Option().Play().GetDifficulty();
+    m_fAttackInterval = fInterval * EXTENDEDDIFFICULTY::GetAttackIntervalScale(difficulty);
 };
 
 
