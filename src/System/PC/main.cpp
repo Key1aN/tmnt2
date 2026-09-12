@@ -25,7 +25,7 @@ _tWinMain(
 )
 {
     CPCCrashReporter::Install();
-    CPCCrashReporter::Breadcrumb("BUILD TMNT2_T2Mod_Composable_Core_v1_US");
+    CPCCrashReporter::Breadcrumb("BUILD TMNT2_T2Mod_Composable_Core_Slashuur_v1_US");
     CPCModFeatures::Initialize();
 
 #ifdef VLDCHECK    

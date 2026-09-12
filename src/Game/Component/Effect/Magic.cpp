@@ -849,6 +849,23 @@ bool CMagic::CheckAttack(void)
 		};
 
         MAGICTYPES::FEATURE featureAttack = (m_feature & MAGICTYPES::FEATURE_MASK_ATTACK_TO);
+
+        /*
+         * Slashuur's retail boss projectile is authored to hit players.  The
+         * playable boss-move port reuses the same magic but gives it a player
+         * parent, so retarget only that instance to enemies.  Enemy Slashuur
+         * keeps the original player target.
+         */
+        if ((GetID() == MAGICID::ID_SLABALL) &&
+            (featureAttack == MAGICTYPES::FEATURE_ATTACK_TO_PLAYER) &&
+            m_pParent &&
+            (m_pParent->GetType() == GAMEOBJECTTYPE::CHARACTER))
+        {
+            CCharacter* pParentCharacter = static_cast<CCharacter*>(m_pParent);
+            if (pParentCharacter->GetCharacterType() == CCharacter::TYPE_PLAYER)
+                featureAttack = MAGICTYPES::FEATURE_ATTACK_TO_ENEMY;
+        };
+
         switch (featureAttack)
         {
         case MAGICTYPES::FEATURE_ATTACK_TO_PLAYER:

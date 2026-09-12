@@ -1,0 +1,144 @@
+name: Build TMNT2 T2Mod Composable Core Slashuur v1 US
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - "codex/t2mod-composable-core-slashuur-v1-us"
+
+permissions:
+  contents: read
+
+jobs:
+  build-t2mod-composable-core-slashuur-v1-windows-x86-us:
+    runs-on: windows-2022
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out composable Slashuur core source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Verify composable Slashuur core source scope
+        shell: pwsh
+        run: |
+          $allowed = @(
+            ".github/workflows/build-t2mod-composable-core-slashuur-v1-us.yml",
+            "T2MOD_COMPOSABLE_CORE_SLASHUUR_V1_US.md",
+            "src/Game/Component/Effect/Magic.cpp",
+            "src/Game/Component/Player/ConcreteManipulator/ManipulatorSlashuur.cpp",
+            "src/Game/Component/Player/ConcreteManipulator/ManipulatorSlashuur.hpp",
+            "src/Game/Component/Player/ConcretePlayerCharacter/Slashuur.cpp",
+            "src/Game/Component/Player/ConcretePlayerCharacter/Slashuur.hpp",
+            "src/Game/System/Motion/MotionManager.cpp",
+            "src/System/PC/main.cpp"
+          )
+          $changed = @(git diff --name-only f653bdfa3a44ff0e51b282801b6e01d47a3c1776 HEAD)
+          $unexpected = @($changed | Where-Object { $_ -notin $allowed })
+          if ($unexpected.Count -ne 0) {
+            throw "Unexpected files in composable Slashuur core branch: $($unexpected -join ', ')"
+          }
+
+      - name: Stage DirectX headers and x86 libraries
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $dxsdk = Join-Path $env:RUNNER_TEMP "tmnt2-dxsdk"
+          $includeOut = Join-Path $dxsdk "Include"
+          $libOut = Join-Path $dxsdk "Lib\x86"
+          New-Item -ItemType Directory -Force -Path $includeOut, $libOut | Out-Null
+          $sdkPackageVersion = "10.0.26100.7705"
+
+          function Get-VerifiedNuGetPackage {
+            param([string]$PackageName, [string]$ExpectedHash, [string]$OutputName)
+            $packageUrl = "https://api.nuget.org/v3-flatcontainer/$PackageName/$sdkPackageVersion/$PackageName.$sdkPackageVersion.nupkg"
+            $packageZip = Join-Path $env:RUNNER_TEMP "$OutputName.zip"
+            $packageOut = Join-Path $env:RUNNER_TEMP $OutputName
+            & curl.exe --location --fail --retry 3 --retry-delay 2 --output $packageZip $packageUrl
+            if ($LASTEXITCODE -ne 0) { throw "Failed to download $PackageName $sdkPackageVersion." }
+            $actualHash = (Get-FileHash $packageZip -Algorithm SHA256).Hash.ToLowerInvariant()
+            if ($actualHash -ne $ExpectedHash) { throw "$PackageName hash mismatch: $actualHash" }
+            Expand-Archive -Path $packageZip -DestinationPath $packageOut -Force
+            return $packageOut
+          }
+
+          $x86PackageOut = Get-VerifiedNuGetPackage `
+            -PackageName "microsoft.windows.sdk.cpp.x86" `
+            -ExpectedHash "4a8504308e253842054f0c385817522a895306308bf4d6dc11f09064bb27c280" `
+            -OutputName "winsdk-x86"
+          $kitsRoot = "${env:ProgramFiles(x86)}\Windows Kits\10"
+          $d3d9Header = $null
+          if (Test-Path "$kitsRoot\Include") {
+            $d3d9Header = Get-ChildItem "$kitsRoot\Include" -Recurse -File -Filter "d3d9.h" |
+              Where-Object { $_.DirectoryName -match "\\(shared|um)$" } |
+              Sort-Object FullName -Descending | Select-Object -First 1
+          }
+          if ($d3d9Header) {
+            $headerVersionRoot = Get-Item (Split-Path $d3d9Header.DirectoryName -Parent)
+          }
+          else {
+            $headersPackageOut = Get-VerifiedNuGetPackage `
+              -PackageName "microsoft.windows.sdk.cpp" `
+              -ExpectedHash "ff455660bee071a744715a9665666fa29c07681579d3d815959a9eec5a556424" `
+              -OutputName "winsdk-headers"
+            $headerVersionRoot = Get-ChildItem "$headersPackageOut\c\Include" -Directory |
+              Where-Object {
+                (Test-Path (Join-Path $_.FullName "shared\d3d9.h")) -and
+                (Test-Path (Join-Path $_.FullName "um\dinput.h")) -and
+                (Test-Path (Join-Path $_.FullName "um\dsound.h"))
+              } | Sort-Object Name -Descending | Select-Object -First 1
+          }
+          if (-not $headerVersionRoot) { throw "Required DirectX headers were not found." }
+          Copy-Item "$($headerVersionRoot.FullName)\um\*" $includeOut -Recurse -Force
+          Copy-Item "$($headerVersionRoot.FullName)\shared\*" $includeOut -Recurse -Force
+          foreach ($library in @("d3d9.lib", "dinput8.lib", "dxguid.lib", "dsound.lib")) {
+            $source = Join-Path $x86PackageOut "c\um\x86\$library"
+            if (-not (Test-Path $source)) { throw "Required DirectX library was not found: $source" }
+            Copy-Item $source $libOut -Force
+          }
+          "DXSDK_DIR=$dxsdk" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Configure US Win32 Release build
+        shell: pwsh
+        run: cmake --preset vs2022 -DOPT_EU_BUILD=OFF
+
+      - name: Build TMNT2 T2Mod Composable Core Slashuur v1 US
+        shell: pwsh
+        run: cmake --build --preset vs2022-release --parallel
+
+      - name: Collect and verify uniquely named core outputs
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $exe = Get-ChildItem "$env:GITHUB_WORKSPACE\bin\win" -Recurse -File -Filter "TMNT2.exe" |
+            Where-Object { $_.FullName -match "\\release\\" } | Select-Object -First 1
+          if (-not $exe) { throw "The Release TMNT2.exe output was not found." }
+          $pdb = Get-ChildItem "$env:GITHUB_WORKSPACE" -Recurse -File -Filter "TMNT2.pdb" |
+            Where-Object { $_.FullName -notmatch "\\vendor\\" } |
+            Sort-Object LastWriteTimeUtc -Descending | Select-Object -First 1
+          $map = Get-ChildItem "$env:GITHUB_WORKSPACE" -Recurse -File -Filter "TMNT2.map" |
+            Where-Object { $_.FullName -notmatch "\\vendor\\" } |
+            Sort-Object LastWriteTimeUtc -Descending | Select-Object -First 1
+          if (-not $pdb -or -not $map) { throw "The matching PDB or MAP was not found." }
+
+          $artifactDir = Join-Path $env:GITHUB_WORKSPACE "artifact-t2mod-composable-core-slashuur-v1-us"
+          New-Item -ItemType Directory -Force -Path $artifactDir | Out-Null
+          $baseName = "TMNT2_T2Mod_Composable_Core_Slashuur_v1_US"
+          Copy-Item $exe.FullName (Join-Path $artifactDir "$baseName.exe") -Force
+          Copy-Item $pdb.FullName (Join-Path $artifactDir "$baseName.pdb") -Force
+          Copy-Item $map.FullName (Join-Path $artifactDir "$baseName.map") -Force
+          Copy-Item "$env:GITHUB_WORKSPACE\T2MOD_COMPOSABLE_CORE_SLASHUUR_V1_US.md" $artifactDir -Force
+          Get-ChildItem $artifactDir -File | Get-FileHash -Algorithm SHA256 |
+            ForEach-Object { "$($_.Hash.ToLowerInvariant())  $($_.Path | Split-Path -Leaf)" } |
+            Set-Content (Join-Path $artifactDir "SHA256SUMS.txt") -Encoding utf8
+
+      - name: Upload TMNT2 T2Mod Composable Core Slashuur v1 US artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: TMNT2-T2Mod-Composable-Core-Slashuur-v1-US-run-${{ github.run_number }}
+          path: artifact-t2mod-composable-core-slashuur-v1-us/*
+          if-no-files-found: error
+          retention-days: 14
+
+
