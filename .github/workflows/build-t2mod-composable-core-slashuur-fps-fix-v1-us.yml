@@ -1,40 +1,43 @@
-name: Build TMNT2 T2Mod Composable Core Slashuur v1 US
+name: Build TMNT2 T2Mod Composable Core Slashuur FPS Fix v1 US
 
 on:
   workflow_dispatch:
   push:
     branches:
-      - "codex/t2mod-composable-core-slashuur-v1-us"
+      - "codex/t2mod-composable-core-slashuur-fps-fix-v1-us"
 
 permissions:
   contents: read
 
 jobs:
-  build-t2mod-composable-core-slashuur-v1-windows-x86-us:
+  build-t2mod-composable-core-slashuur-fps-fix-v1-windows-x86-us:
     runs-on: windows-2022
     timeout-minutes: 30
 
     steps:
-      - name: Check out composable Slashuur core source
+      - name: Check out composable Slashuur FPS-fix core source
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Verify composable Slashuur core source scope
+      - name: Verify composable Slashuur FPS-fix core source scope
         shell: pwsh
         run: |
           $allowed = @(
             ".github/workflows/build-t2mod-composable-core-slashuur-v1-us.yml",
+            ".github/workflows/build-t2mod-composable-core-slashuur-fps-fix-v1-us.yml",
             "T2MOD_COMPOSABLE_CORE_SLASHUUR_V1_US.md",
+            "T2MOD_COMPOSABLE_CORE_SLASHUUR_FPS_FIX_V1_US.md",
             "src/Game/Component/Effect/Magic.cpp",
             "src/Game/Component/Player/ConcreteManipulator/ManipulatorSlashuur.cpp",
             "src/Game/Component/Player/ConcreteManipulator/ManipulatorSlashuur.hpp",
             "src/Game/Component/Player/ConcretePlayerCharacter/Slashuur.cpp",
             "src/Game/Component/Player/ConcretePlayerCharacter/Slashuur.hpp",
             "src/Game/System/Motion/MotionManager.cpp",
-            "src/System/PC/main.cpp"
+            "src/System/PC/main.cpp",
+            "src/System/PC/PCCrashReporter.cpp"
           )
-          $changed = @(git diff --name-only f653bdfa3a44ff0e51b282801b6e01d47a3c1776 HEAD)
+          $changed = @(git diff --name-only 2a3feae8e1ad62e08a233535280407af2a3c18c5 HEAD)
           $unexpected = @($changed | Where-Object { $_ -notin $allowed })
           if ($unexpected.Count -ne 0) {
             throw "Unexpected files in composable Slashuur core branch: $($unexpected -join ', ')"
@@ -103,7 +106,7 @@ jobs:
         shell: pwsh
         run: cmake --preset vs2022 -DOPT_EU_BUILD=OFF
 
-      - name: Build TMNT2 T2Mod Composable Core Slashuur v1 US
+      - name: Build TMNT2 T2Mod Composable Core Slashuur FPS Fix v1 US
         shell: pwsh
         run: cmake --build --preset vs2022-release --parallel
 
@@ -122,23 +125,21 @@ jobs:
             Sort-Object LastWriteTimeUtc -Descending | Select-Object -First 1
           if (-not $pdb -or -not $map) { throw "The matching PDB or MAP was not found." }
 
-          $artifactDir = Join-Path $env:GITHUB_WORKSPACE "artifact-t2mod-composable-core-slashuur-v1-us"
+          $artifactDir = Join-Path $env:GITHUB_WORKSPACE "artifact-t2mod-composable-core-slashuur-fps-fix-v1-us"
           New-Item -ItemType Directory -Force -Path $artifactDir | Out-Null
-          $baseName = "TMNT2_T2Mod_Composable_Core_Slashuur_v1_US"
+          $baseName = "TMNT2_T2Mod_Composable_Core_Slashuur_FPS_Fix_v1_US"
           Copy-Item $exe.FullName (Join-Path $artifactDir "$baseName.exe") -Force
           Copy-Item $pdb.FullName (Join-Path $artifactDir "$baseName.pdb") -Force
           Copy-Item $map.FullName (Join-Path $artifactDir "$baseName.map") -Force
-          Copy-Item "$env:GITHUB_WORKSPACE\T2MOD_COMPOSABLE_CORE_SLASHUUR_V1_US.md" $artifactDir -Force
+          Copy-Item "$env:GITHUB_WORKSPACE\T2MOD_COMPOSABLE_CORE_SLASHUUR_FPS_FIX_V1_US.md" $artifactDir -Force
           Get-ChildItem $artifactDir -File | Get-FileHash -Algorithm SHA256 |
             ForEach-Object { "$($_.Hash.ToLowerInvariant())  $($_.Path | Split-Path -Leaf)" } |
             Set-Content (Join-Path $artifactDir "SHA256SUMS.txt") -Encoding utf8
 
-      - name: Upload TMNT2 T2Mod Composable Core Slashuur v1 US artifact
+      - name: Upload TMNT2 T2Mod Composable Core Slashuur FPS Fix v1 US artifact
         uses: actions/upload-artifact@v4
         with:
-          name: TMNT2-T2Mod-Composable-Core-Slashuur-v1-US-run-${{ github.run_number }}
-          path: artifact-t2mod-composable-core-slashuur-v1-us/*
+          name: TMNT2-T2Mod-Composable-Core-Slashuur-FPS-Fix-v1-US-run-${{ github.run_number }}
+          path: artifact-t2mod-composable-core-slashuur-fps-fix-v1-us/*
           if-no-files-found: error
           retention-days: 14
-
-
