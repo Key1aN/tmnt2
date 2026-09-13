@@ -475,11 +475,9 @@ class LpacView:
             if item.params:                
                 hdr_size = 0
                 hdr_size_max = LpacChunkHeader.EXTRA_SIZE
-                max_param_size = 16 # char[16] TODO probably is larger than 16 bytes for TMNT3
-                min_param_size = 4  # int
-                
                 for param in item.params:
-                    if (hdr_size + min_param_size) >= max_param_size:
+                    param_size = 4 if param.isdigit() else 16
+                    if (hdr_size + param_size) > hdr_size_max:
                         break
 
                     if param.isdigit():

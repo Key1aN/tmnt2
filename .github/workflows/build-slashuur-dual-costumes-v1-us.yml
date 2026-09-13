@@ -37,6 +37,8 @@ jobs:
             "src/Game/Component/Player/ConcretePlayerCharacter/Slashuur.hpp",
             "src/Game/Sequence/Menu/CharacterSelectSequence.cpp",
             "src/Game/System/Motion/MotionManager.cpp",
+            "scripts/lpacview/build_slashuur_dual_costume_lpac.py",
+            "scripts/lpacview/lpacview.py",
             "src/System/PC/main.cpp",
             "src/System/PC/PCCrashReporter.cpp"
           )
