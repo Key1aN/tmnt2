@@ -934,6 +934,9 @@ namespace Slashuur
 CSlashuur::CSlashuur(GAMETYPES::COSTUME costume)
 : CPlayerCharacter("slashuur", PLAYERID::ID_SLA, costume)
 {
+	const bool bPrototypeCostume = (costume == GAMETYPES::COSTUME_SAMURAI);
+	const char* pszModelName = (bPrototypeCostume ? "slashuur_proto" : "slashuur");
+
 	//
 	//	Model parts:
 	//		0 - model
@@ -944,7 +947,7 @@ CSlashuur::CSlashuur(GAMETYPES::COSTUME costume)
 
     CPlayerCharacter::PARAMETER parameter = {};
     parameter.m_chrparameter.m_bToon            = true;
-    parameter.m_chrparameter.m_pszModelName     = "slashuur";
+    parameter.m_chrparameter.m_pszModelName     = pszModelName;
     parameter.m_chrparameter.m_pszMotionSetName = "slashuur";
     parameter.m_feature.m_fWalkMoveSpeed        = 2.0f;
     parameter.m_feature.m_fLiftWalkMoveSpeed    = 3.6f;
@@ -977,7 +980,9 @@ CSlashuur::CSlashuur(GAMETYPES::COSTUME costume)
                                              m_pModel,
                                              10,
                                              &Slashuur::BANDANA_OFFSET,
-                                             CBandanaModule::BANDANACOLOR_SLASHUURGREY));
+                                             (bPrototypeCostume
+                                                ? CBandanaModule::BANDANACOLOR_RED
+                                                : CBandanaModule::BANDANACOLOR_SLASHUURGREY)));
 };
 
 
