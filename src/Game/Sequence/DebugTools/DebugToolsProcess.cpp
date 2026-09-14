@@ -738,7 +738,9 @@ private:
 
         for (uint32 handle : m_aiResumeHandles)
         {
-            CGameObject* pObject = CGameObjectManager::GetObject(handle);
+            // PCSpecific pulls in the Win32 GetObject macro; parenthesizing the
+            // qualified function name prevents that macro from rewriting it.
+            CGameObject* pObject = (CGameObjectManager::GetObject)(handle);
             if (pObject && (pObject->GetType() == GAMEOBJECTTYPE::ENEMY))
                 static_cast<CEnemy*>(pObject)->StartAI();
         };
