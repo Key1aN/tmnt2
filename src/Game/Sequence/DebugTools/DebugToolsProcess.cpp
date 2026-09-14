@@ -1128,7 +1128,7 @@ private:
                     s_apszCameraMode[m_iCameraMode],
                     (m_bShowcaseCamera ? " * SHOWCASE" : "")
                 );
-            };
+            }
             else
                 std::snprintf(buffer, capacity, "Reset to default game camera");
             break;
