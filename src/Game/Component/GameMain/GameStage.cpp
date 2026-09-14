@@ -562,6 +562,15 @@ void CGameStage::SetCameraUpdater(IGameStageCameraUpdater* pCameraUpdater)
 };
 
 
+#if defined(_DEBUG) || defined(TMNT2_DEBUG_TOOLS)
+void CGameStage::DebugUpdateCamera(void)
+{
+    if (m_pCameraUpdater && m_pMapCamera)
+        m_pCameraUpdater->Update(m_pMapCamera);
+};
+#endif /* defined(_DEBUG) || defined(TMNT2_DEBUG_TOOLS) */
+
+
 void CGameStage::pause(void)
 {
     ++m_nPauseLevel;

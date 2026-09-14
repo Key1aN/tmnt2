@@ -63,6 +63,10 @@ public:
     void SetCameraMode(MODE mode);
     MODE GetCameraMode(void) const;
     void SetPathMode(PATHMODE pathmode);
+#if defined(TMNT2_DEBUG_TOOLS)
+    void DebugBeginShowcase(void);
+    void DebugResetShowcase(PATHMODE pathmode);
+#endif /* defined(TMNT2_DEBUG_TOOLS) */
     bool IsPosVisible(const RwV3d* pvPos);
     float CalcNiceZoom(RwV3d* avPos, int32 nNumPos);
     RwCamera* GetRwCamera(void) const;

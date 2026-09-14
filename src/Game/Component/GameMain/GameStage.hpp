@@ -85,6 +85,9 @@ public:
     CMapCamera* GetMapCamera(void) const;
     void SetCameraUpdater(CStageInfo::CAMERAUPDATE cameraupdtype);
     void SetCameraUpdater(IGameStageCameraUpdater* pCameraUpdater);
+#if defined(_DEBUG) || defined(TMNT2_DEBUG_TOOLS)
+    void DebugUpdateCamera(void);
+#endif /* defined(_DEBUG) || defined(TMNT2_DEBUG_TOOLS) */
     
 private:
     void pause(void);

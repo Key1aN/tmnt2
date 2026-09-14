@@ -1,4 +1,4 @@
-# TMNT2 Debug Tools F4 v1 US
+# TMNT2 Debug Tools Controller Showcase Camera v2 US
 
 Target: TMNT 2: Battle Nexus, US/NA 32-bit PC.
 
@@ -10,6 +10,7 @@ normal retail startup flow; it does not boot into the recovered developer menu.
 
 - Press `F4` during a playable stage, Home Station, a Nexus stage, a ride stage,
   or a playable demo to open or close Debug Tools.
+- Controller: press `Back/View + RT` together to open or close Debug Tools.
 - `Escape`: close the menu.
 - `Q` / `E`: previous or next page.
 - Up / Down: select an item.
@@ -18,6 +19,15 @@ normal retail startup flow; it does not boot into the recovered developer menu.
 - Enter: run the selected action.
 - Backspace: reset the selected setting.
 - Delete: reset the current page.
+
+Controller menu controls:
+
+- D-pad or left stick: select an item and adjust its value.
+- LB / RB: previous or next page.
+- A / Cross: run the selected action.
+- B / Circle: close the menu.
+- X / Square: reset the selected item.
+- Y / Triangle: reset the current page.
 
 Gameplay is paused while the menu is open. The Stage page can advance it by one
 or ten frames without requiring a separate boot-time debug selection.
@@ -60,8 +70,16 @@ One-frame and ten-frame advance, normal stage-clear A/B paths, and game over.
 
 ### Camera
 
-Gameplay camera zoom and the recovered manual, automatic, and introduction
-camera modes. Widescreen projection behavior is not changed.
+The Camera page adds a controller-first showcase orbit while gameplay is
+paused. Moving the right stick automatically enters Manual/Showcase mode and
+changes the viewing direction around the current gameplay focus. LT and RT
+move the camera farther away or closer while the menu is open. Pressing R3 at
+any time returns to the automatic game camera, restores normal zoom, and
+restores the correct single-player or multiplayer camera path.
+
+The original recovered manual, automatic, and introduction camera modes and
+keyboard zoom control remain available. Widescreen projection behavior is not
+changed.
 
 ### Hitboxes
 

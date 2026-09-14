@@ -13,9 +13,9 @@
 #include "Game/System/Misc/Gamepad.hpp"
 #include "System/Common/Camera.hpp"
 
-#ifdef _DEBUG
+#if defined(_DEBUG) || defined(TMNT2_DEBUG_TOOLS)
 #include "Game/Component/GameMain/GameStageDebug.hpp"
-#endif /* _DEBUG */
+#endif /* defined(_DEBUG) || defined(TMNT2_DEBUG_TOOLS) */
 
 
 static inline float LerpFactor(float t)
@@ -33,6 +33,26 @@ static inline float LerpFactor(float t)
     
     return t;
 };
+
+
+#if defined(TARGET_PC) && defined(TMNT2_DEBUG_TOOLS)
+static int16 GetDebugControllerAnalog(CController::ANALOG analog)
+{
+    int16 locked = CController::GetAnalog(CController::CONTROLLER_LOCKED_ON_VIRTUAL, analog);
+    int16 unlocked = CController::GetAnalog(CController::CONTROLLER_UNLOCKED_ON_VIRTUAL, analog);
+    int32 lockedMagnitude = (locked < 0 ? -static_cast<int32>(locked) : static_cast<int32>(locked));
+    int32 unlockedMagnitude = (unlocked < 0 ? -static_cast<int32>(unlocked) : static_cast<int32>(unlocked));
+    return (lockedMagnitude >= unlockedMagnitude ? locked : unlocked);
+};
+
+
+static float NormalizeDebugControllerAnalog(int16 value)
+{
+    return (value >= 0 ?
+        static_cast<float>(value) / static_cast<float>(TYPEDEF::SINT16_MAX) :
+        -static_cast<float>(value) / static_cast<float>(TYPEDEF::SINT16_MIN));
+};
+#endif /* defined(TARGET_PC) && defined(TMNT2_DEBUG_TOOLS) */
 
 
 class CMapCamera::CIntroduction
@@ -339,7 +359,18 @@ void CMapCamera::Update(const RwV3d* pvAt, float fZoom)
         digitalTrigger |= IGamepad::GetDigitalTrigger(IGamepad::CONTROLLER_UNLOCKED_ON_VIRTUAL);
         digitalTrigger |= IGamepad::GetDigitalTrigger(IGamepad::CONTROLLER_LOCKED_ON_VIRTUAL);
 
-        if (IGamepad::CheckFunction(digitalTrigger, IGamepad::FUNCTION_SWITCH_CAM))
+        bool bSuppressSwitchCamera = false;
+#if defined(TARGET_PC) && defined(TMNT2_DEBUG_TOOLS)
+        if (CPCModFeatures::IsDebugToolsEnabled() &&
+            CGameStageDebug::CAMERA_SUPPRESS_SWITCH_TRIGGER)
+        {
+            CGameStageDebug::CAMERA_SUPPRESS_SWITCH_TRIGGER = false;
+            bSuppressSwitchCamera = true;
+        };
+#endif /* defined(TARGET_PC) && defined(TMNT2_DEBUG_TOOLS) */
+
+        if (!bSuppressSwitchCamera &&
+            IGamepad::CheckFunction(digitalTrigger, IGamepad::FUNCTION_SWITCH_CAM))
             m_pathmode = static_cast<PATHMODE>((m_pathmode + 1) % PATHMODEMAX);
     };
 
@@ -563,6 +594,14 @@ void CMapCamera::UpdateManualCamera(const RwV3d* pvAt)
     float rx = static_cast<float>(IGamepad::GetAnalog(controller, IGamepad::ANALOG_RSTICK_X));
     float ry = static_cast<float>(IGamepad::GetAnalog(controller, IGamepad::ANALOG_RSTICK_Y));
 
+#if defined(TARGET_PC) && defined(TMNT2_DEBUG_TOOLS)
+    if (CPCModFeatures::IsDebugToolsEnabled())
+    {
+        rx = static_cast<float>(GetDebugControllerAnalog(CController::ANALOG_RSTICK_X));
+        ry = static_cast<float>(GetDebugControllerAnalog(CController::ANALOG_RSTICK_Y));
+    };
+#endif /* defined(TARGET_PC) && defined(TMNT2_DEBUG_TOOLS) */
+
     rx = (rx >= 0.0f ? (rx / float(TYPEDEF::SINT16_MAX)) : -(rx / float(TYPEDEF::SINT16_MIN)));
     ry = (ry >= 0.0f ? (ry / float(TYPEDEF::SINT16_MAX)) : -(ry / float(TYPEDEF::SINT16_MIN)));
 
@@ -572,6 +611,25 @@ void CMapCamera::UpdateManualCamera(const RwV3d* pvAt)
     if ((ry > DEADZONE) || (ry < -DEADZONE))
         m_fHeight += ry * (CGameProperty::GetElapsedTime() * 10.0f);
 
+#if defined(TARGET_PC) && defined(TMNT2_DEBUG_TOOLS)
+    if (CPCModFeatures::IsDebugToolsEnabled())
+        m_fHeight = Clamp(m_fHeight, 0.5f, 50.0f);
+#endif /* defined(TARGET_PC) && defined(TMNT2_DEBUG_TOOLS) */
+
+#if defined(TARGET_PC) && defined(TMNT2_DEBUG_TOOLS)
+    if (CPCModFeatures::IsDebugToolsEnabled() && CGameStageDebug::CAMERA_MENU_CONTROL)
+    {
+        float zoomOut = NormalizeDebugControllerAnalog(
+            GetDebugControllerAnalog(CController::ANALOG_L2)
+        );
+        float zoomIn = NormalizeDebugControllerAnalog(
+            GetDebugControllerAnalog(CController::ANALOG_R2)
+        );
+        m_fDist += (zoomOut - zoomIn) * (CGameProperty::GetElapsedTime() * 20.0f);
+        m_fDist = Clamp(m_fDist, 1.5f, 80.0f);
+    }
+    else
+#endif /* defined(TARGET_PC) && defined(TMNT2_DEBUG_TOOLS) */
     if (IGamepad::GetDigital(controller, IGamepad::DIGITAL_L1))
         m_fDist += (CGameProperty::GetElapsedTime() * 20.0f);
     else if (IGamepad::GetDigital(controller, IGamepad::DIGITAL_R1))
@@ -937,6 +995,28 @@ void CMapCamera::SetPathMode(PATHMODE pathmode)
 {
     m_pathmode = pathmode;
 };
+
+
+#if defined(TMNT2_DEBUG_TOOLS)
+void CMapCamera::DebugBeginShowcase(void)
+{
+    RwV3d eye = m_vEye;
+    RwV3d lookat = m_vAt;
+    m_fLookatOffsetY = 0.0f;
+    SetLookat(&eye, &lookat);
+    m_fHeight = Clamp(m_fHeight, 0.5f, 50.0f);
+    m_fDist = Clamp(m_fDist, 1.5f, 80.0f);
+    SetCameraMode(MODE_MANUAL);
+};
+
+
+void CMapCamera::DebugResetShowcase(PATHMODE pathmode)
+{
+    m_fLookatOffsetY = 0.0f;
+    SetPathMode(pathmode);
+    SetCameraMode(MODE_AUTOCHANGE);
+};
+#endif /* defined(TMNT2_DEBUG_TOOLS) */
 
 
 bool CMapCamera::IsPosVisible(const RwV3d* pvPos)

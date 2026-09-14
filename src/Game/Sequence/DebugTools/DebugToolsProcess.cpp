@@ -18,6 +18,7 @@
 #include "Game/System/Hit/HitDebug.hpp"
 #include "Game/System/Map/MapCamera.hpp"
 #include "Game/System/Misc/ControllerMisc.hpp"
+#include "Game/System/Misc/Gamepad.hpp"
 #include "System/Common/Process/ProcessMail.hpp"
 #include "System/Common/Process/Sequence.hpp"
 #include "System/Common/Screen.hpp"
@@ -150,6 +151,45 @@ namespace
     {
         return (std::find(handles.begin(), handles.end(), handle) != handles.end());
     };
+
+
+    static uint32 ControllerDigital(void)
+    {
+        return CController::GetDigital(CController::CONTROLLER_LOCKED_ON_VIRTUAL) |
+               CController::GetDigital(CController::CONTROLLER_UNLOCKED_ON_VIRTUAL);
+    };
+
+
+    static uint32 ControllerDigitalTrigger(void)
+    {
+        return CController::GetDigitalTrigger(CController::CONTROLLER_LOCKED_ON_VIRTUAL) |
+               CController::GetDigitalTrigger(CController::CONTROLLER_UNLOCKED_ON_VIRTUAL);
+    };
+
+
+    static uint32 ControllerDigitalRepeat(void)
+    {
+        return CController::GetDigitalRepeat(CController::CONTROLLER_LOCKED_ON_VIRTUAL) |
+               CController::GetDigitalRepeat(CController::CONTROLLER_UNLOCKED_ON_VIRTUAL);
+    };
+
+
+    static int16 ControllerAnalog(CController::ANALOG analog)
+    {
+        int16 locked = CController::GetAnalog(CController::CONTROLLER_LOCKED_ON_VIRTUAL, analog);
+        int16 unlocked = CController::GetAnalog(CController::CONTROLLER_UNLOCKED_ON_VIRTUAL, analog);
+        int32 lockedMagnitude = (locked < 0 ? -static_cast<int32>(locked) : static_cast<int32>(locked));
+        int32 unlockedMagnitude = (unlocked < 0 ? -static_cast<int32>(unlocked) : static_cast<int32>(unlocked));
+        return (lockedMagnitude >= unlockedMagnitude ? locked : unlocked);
+    };
+
+
+    static bool IsAnalogCameraInput(int16 value)
+    {
+        const int32 DEADZONE = static_cast<int32>(TYPEDEF::SINT16_MAX * 0.30f);
+        int32 magnitude = (value < 0 ? -static_cast<int32>(value) : static_cast<int32>(value));
+        return (magnitude > DEADZONE);
+    };
 };
 
 
@@ -163,12 +203,15 @@ public:
     , m_bEnemyAIPaused(false)
     , m_bTelemetryEnabled(false)
     , m_bSavedPosition(false)
+    , m_bControllerMenuComboDown(false)
+    , m_bShowcaseCamera(false)
     , m_page(PAGE_DIFFICULTY)
     , m_aiSelection()
     , m_iPausedLabel(PROCESSTYPES::LABEL_EOL)
     , m_iStepFrames(0)
     , m_iScreenshotDelay(0)
     , m_pGodModeStage(nullptr)
+    , m_pCameraStage(nullptr)
     , m_vSavedPosition(Math::VECTOR3_ZERO)
     , m_fSavedDirection(0.0f)
     , m_iCameraMode(CMapCamera::MODE_AUTOCHANGE)
@@ -180,6 +223,7 @@ public:
 
     ~CImpl(void)
     {
+        CGameStageDebug::CAMERA_MENU_CONTROL = false;
         SetEnemyAIPaused(false);
         SetGodMode(false);
     };
@@ -193,6 +237,14 @@ public:
 
         int32 currentLabel = CSequence::GetCurrently();
         bool bAvailable = IsGameplaySequence(currentLabel);
+        uint32 controllerDigital = ControllerDigital();
+        const uint32 controllerMenuCombo = CController::DIGITAL_SELECT |
+                                           CController::DIGITAL_R2;
+        bool bControllerMenuComboDown =
+            ((controllerDigital & controllerMenuCombo) == controllerMenuCombo);
+        bool bControllerToggle = bControllerMenuComboDown &&
+                                 !m_bControllerMenuComboDown;
+        m_bControllerMenuComboDown = bControllerMenuComboDown;
 
         if (m_bOpen && !bAvailable)
         {
@@ -200,7 +252,7 @@ public:
             return;
         };
 
-        if (CPCSpecific::IsKeyTrigger(DIK_F4))
+        if (CPCSpecific::IsKeyTrigger(DIK_F4) || bControllerToggle)
         {
             if (m_bOpen)
                 Close(owner);
@@ -208,36 +260,51 @@ public:
                 Open(owner, currentLabel);
         };
 
+        UpdateShowcaseCamera();
+
         if (!m_bOpen)
             return;
 
-        if (CPCSpecific::IsKeyTrigger(DIK_ESCAPE))
+        uint32 controllerTrigger = ControllerDigitalTrigger();
+        uint32 controllerNavigation = controllerTrigger | ControllerDigitalRepeat();
+
+        if (CPCSpecific::IsKeyTrigger(DIK_ESCAPE) ||
+            (controllerTrigger & CController::DIGITAL_RLEFT))
         {
             Close(owner);
             return;
         };
 
-        if (CPCSpecific::IsKeyTrigger(DIK_Q))
+        if (CPCSpecific::IsKeyTrigger(DIK_Q) ||
+            (controllerTrigger & CController::DIGITAL_L1))
             ChangePage(-1);
-        else if (CPCSpecific::IsKeyTrigger(DIK_E))
+        else if (CPCSpecific::IsKeyTrigger(DIK_E) ||
+                 (controllerTrigger & CController::DIGITAL_R1))
             ChangePage(1);
-        else if (CPCSpecific::IsKeyTrigger(DIK_UP))
+        else if (CPCSpecific::IsKeyTrigger(DIK_UP) ||
+                 (controllerNavigation & CController::DIGITAL_LUP))
             ChangeSelection(-1);
-        else if (CPCSpecific::IsKeyTrigger(DIK_DOWN))
+        else if (CPCSpecific::IsKeyTrigger(DIK_DOWN) ||
+                 (controllerNavigation & CController::DIGITAL_LDOWN))
             ChangeSelection(1);
-        else if (CPCSpecific::IsKeyTrigger(DIK_LEFT))
+        else if (CPCSpecific::IsKeyTrigger(DIK_LEFT) ||
+                 (controllerNavigation & CController::DIGITAL_LLEFT))
             AdjustSelected(-1, 1);
-        else if (CPCSpecific::IsKeyTrigger(DIK_RIGHT))
+        else if (CPCSpecific::IsKeyTrigger(DIK_RIGHT) ||
+                 (controllerNavigation & CController::DIGITAL_LRIGHT))
             AdjustSelected(1, 1);
         else if (CPCSpecific::IsKeyTrigger(DIK_PRIOR))
             AdjustSelected(1, 5);
         else if (CPCSpecific::IsKeyTrigger(DIK_NEXT))
             AdjustSelected(-1, 5);
-        else if (CPCSpecific::IsKeyTrigger(DIK_RETURN))
+        else if (CPCSpecific::IsKeyTrigger(DIK_RETURN) ||
+                 (controllerTrigger & CController::DIGITAL_RDOWN))
             ActivateSelected(owner);
-        else if (CPCSpecific::IsKeyTrigger(DIK_BACK))
+        else if (CPCSpecific::IsKeyTrigger(DIK_BACK) ||
+                 (controllerTrigger & CController::DIGITAL_RRIGHT))
             ResetSelected();
-        else if (CPCSpecific::IsKeyTrigger(DIK_DELETE))
+        else if (CPCSpecific::IsKeyTrigger(DIK_DELETE) ||
+                 (controllerTrigger & CController::DIGITAL_RUP))
             ResetPage();
     };
 
@@ -269,6 +336,7 @@ private:
         m_iStepFrames = 0;
         owner.Mail().Send(m_iPausedLabel, PROCESSTYPES::MAIL::TYPE_MOVE_DISABLE);
         EnableStickToDirButton(true);
+        CGameStageDebug::CAMERA_MENU_CONTROL = true;
     };
 
 
@@ -284,6 +352,7 @@ private:
         m_iPausedLabel = PROCESSTYPES::LABEL_EOL;
         m_iStepFrames = 0;
         EnableStickToDirButton(false);
+        CGameStageDebug::CAMERA_MENU_CONTROL = false;
     };
 
 
@@ -397,6 +466,7 @@ private:
                     0,
                     CMapCamera::MODEMAX - 1
                 );
+                m_bShowcaseCamera = (m_iCameraMode == CMapCamera::MODE_MANUAL);
                 ApplyCameraMode();
             };
             break;
@@ -447,6 +517,8 @@ private:
         case PAGE_CAMERA:
             if (selected == 1)
                 ApplyCameraMode();
+            else if (selected == 2)
+                ResetShowcaseCamera();
             break;
 
         case PAGE_HITBOXES:
@@ -496,11 +568,8 @@ private:
         case PAGE_CAMERA:
             if (selected == 0)
                 CGameStageDebug::CAMERA_ZOOM_SCALE = 1.00f;
-            else if (selected == 1)
-            {
-                m_iCameraMode = CMapCamera::MODE_AUTOCHANGE;
-                ApplyCameraMode();
-            };
+            else
+                ResetShowcaseCamera();
             break;
 
         case PAGE_HITBOXES:
@@ -536,9 +605,7 @@ private:
             break;
 
         case PAGE_CAMERA:
-            CGameStageDebug::CAMERA_ZOOM_SCALE = 1.00f;
-            m_iCameraMode = CMapCamera::MODE_AUTOCHANGE;
-            ApplyCameraMode();
+            ResetShowcaseCamera();
             break;
 
         case PAGE_HITBOXES:
@@ -783,7 +850,73 @@ private:
 
         CMapCamera* pCamera = pStage->GetMapCamera();
         if (pCamera)
-            pCamera->SetCameraMode(static_cast<CMapCamera::MODE>(m_iCameraMode));
+        {
+            if (m_iCameraMode == CMapCamera::MODE_MANUAL)
+                pCamera->DebugBeginShowcase();
+            else
+                pCamera->SetCameraMode(static_cast<CMapCamera::MODE>(m_iCameraMode));
+            m_pCameraStage = pStage;
+        };
+    };
+
+
+    void ResetShowcaseCamera(void)
+    {
+        m_bShowcaseCamera = false;
+        m_iCameraMode = CMapCamera::MODE_AUTOCHANGE;
+        CGameStageDebug::CAMERA_ZOOM_SCALE = 1.00f;
+        CGameStageDebug::CAMERA_SUPPRESS_SWITCH_TRIGGER = true;
+
+        CGameStage* pStage = CGameStage::GetCurrent();
+        m_pCameraStage = pStage;
+        if (!pStage)
+            return;
+
+        CMapCamera* pCamera = pStage->GetMapCamera();
+        if (!pCamera)
+            return;
+
+        pCamera->DebugResetShowcase(CGameProperty::GetPlayerNum() > 1 ?
+            CMapCamera::PATHMODE_MULTIPLAYER :
+            CMapCamera::PATHMODE_SINGLEPLAYER);
+
+        if (m_bOpen && (m_iStepFrames <= 0))
+            pStage->DebugUpdateCamera();
+    };
+
+
+    void UpdateShowcaseCamera(void)
+    {
+        CGameStage* pStage = CGameStage::GetCurrent();
+        if (pStage != m_pCameraStage)
+        {
+            m_pCameraStage = pStage;
+            m_bShowcaseCamera = false;
+            m_iCameraMode = CMapCamera::MODE_AUTOCHANGE;
+        };
+
+        if (!pStage)
+            return;
+
+        uint32 controllerTrigger = ControllerDigitalTrigger();
+        if (controllerTrigger & CController::DIGITAL_R3)
+        {
+            ResetShowcaseCamera();
+            return;
+        };
+
+        int16 rightX = ControllerAnalog(CController::ANALOG_RSTICK_X);
+        int16 rightY = ControllerAnalog(CController::ANALOG_RSTICK_Y);
+        if (m_bOpen && (m_page == PAGE_CAMERA) &&
+            (IsAnalogCameraInput(rightX) || IsAnalogCameraInput(rightY)))
+        {
+            m_bShowcaseCamera = true;
+            m_iCameraMode = CMapCamera::MODE_MANUAL;
+            ApplyCameraMode();
+        };
+
+        if (m_bOpen && m_bShowcaseCamera && (m_iStepFrames <= 0))
+            pStage->DebugUpdateCamera();
     };
 
 
@@ -837,7 +970,7 @@ private:
         case PAGE_PLAYER:     return 8;
         case PAGE_ENEMY_AI:   return 2;
         case PAGE_STAGE:      return 5;
-        case PAGE_CAMERA:     return 2;
+        case PAGE_CAMERA:     return 3;
         case PAGE_HITBOXES:   return 3;
         case PAGE_TELEMETRY:  return 2;
         default:              return 0;
@@ -850,7 +983,7 @@ private:
         m_font.Background({ 0x00, 0x00, 0x00, 0xB0 });
         m_font.Color({ 0xC0, 0xE8, 0xFF, 0xFF });
         m_font.Position(12, 10);
-        m_font.Print("F4  DEBUG TOOLS");
+        m_font.Print("F4 / BACK+RT  DEBUG TOOLS");
     };
 
 
@@ -859,7 +992,7 @@ private:
         m_font.Background({ 0x08, 0x0C, 0x12, 0xE8 });
         m_font.Color({ 0x78, 0xD8, 0xFF, 0xFF });
         m_font.Position(18, 14);
-        m_font.Print("TMNT2 DEBUG TOOLS  |  F4/Esc close  Q/E page");
+        m_font.Print("TMNT2 DEBUG TOOLS  |  F4 or Back+RT menu  |  Esc close");
 
         char tabs[256];
         tabs[0] = '\0';
@@ -908,7 +1041,11 @@ private:
         m_font.Print("%s", description);
         m_font.Color({ 0xA8, 0xB4, 0xC8, 0xFF });
         m_font.Position(18, helpY + 36);
-        m_font.Print("Arrows adjust  PgUp/PgDn x5  Enter run  Backspace reset item  Delete reset page");
+        m_font.Print("Keys: Arrows adjust  PgUp/PgDn x5  Enter run  Backspace item reset  Delete page");
+        m_font.Position(18, helpY + 54);
+        m_font.Print("Pad: D-pad/LS navigate  LB/RB page  A run  B close  X reset  Y reset page");
+        m_font.Position(18, helpY + 72);
+        m_font.Print("Camera page: Right stick orbit  LT/RT zoom  R3 default camera");
     };
 
 
@@ -981,11 +1118,19 @@ private:
             {
                 std::snprintf(buffer, capacity, "Camera zoom                   %.2fx", CGameStageDebug::CAMERA_ZOOM_SCALE);
             }
-            else
+            else if (index == 1)
             {
                 static const char* s_apszCameraMode[] = { "Manual", "Automatic", "Introduction" };
-                std::snprintf(buffer, capacity, "Camera mode                   %s", s_apszCameraMode[m_iCameraMode]);
+                std::snprintf(
+                    buffer,
+                    capacity,
+                    "Camera mode                   %s%s",
+                    s_apszCameraMode[m_iCameraMode],
+                    (m_bShowcaseCamera ? " * SHOWCASE" : "")
+                );
             };
+            else
+                std::snprintf(buffer, capacity, "Reset to default game camera");
             break;
 
         case PAGE_HITBOXES:
@@ -1059,7 +1204,9 @@ private:
             scope = "LIVE CAMERA";
             description = (index == 0 ?
                 "Scales automatic gameplay camera zoom without changing widescreen projection." :
-                "Switches between the recovered manual, automatic, and introduction camera modes.");
+                (index == 1 ?
+                    "Right stick enters showcase orbit; LT/RT zoom while this menu is open." :
+                    "Returns to automatic game camera, normal zoom, and the correct player path mode."));
             break;
 
         case PAGE_HITBOXES:
@@ -1169,12 +1316,15 @@ private:
     bool m_bEnemyAIPaused;
     bool m_bTelemetryEnabled;
     bool m_bSavedPosition;
+    bool m_bControllerMenuComboDown;
+    bool m_bShowcaseCamera;
     PAGE m_page;
     int32 m_aiSelection[PAGE_NUM];
     int32 m_iPausedLabel;
     int32 m_iStepFrames;
     int32 m_iScreenshotDelay;
     CGameStage* m_pGodModeStage;
+    CGameStage* m_pCameraStage;
     RwV3d m_vSavedPosition;
     float m_fSavedDirection;
     int32 m_iCameraMode;

@@ -1,31 +1,33 @@
-name: Build TMNT2 Debug Tools F4 v1 US
+name: Build TMNT2 Debug Tools Controller Showcase Camera v2 US
 
 on:
   workflow_dispatch:
   push:
     branches:
-      - "codex/debug-tools-f4-v1-us"
+      - "codex/debug-tools-controller-showcase-camera-v2-us"
 
 permissions:
   contents: read
 
 jobs:
-  build-debug-tools-f4-v1-windows-x86-us:
+  build-debug-tools-controller-showcase-camera-v2-windows-x86-us:
     runs-on: windows-2022
     timeout-minutes: 30
 
     steps:
-      - name: Check out Debug Tools F4 source
+      - name: Check out Debug Tools Controller Showcase Camera v2 source
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Verify Debug Tools F4 source scope
+      - name: Verify Debug Tools Controller Showcase Camera v2 source scope
         shell: pwsh
         run: |
           $allowed = @(
+            ".github/workflows/build-debug-tools-controller-showcase-camera-v2-us.yml",
             ".github/workflows/build-debug-tools-f4-v1-us.yml",
             "CMakeLists.txt",
+            "DEBUG_TOOLS_CONTROLLER_SHOWCASE_CAMERA_V2_US.md",
             "DEBUG_TOOLS_F4_V1_US.md",
             "src/Game/Component/Enemy/EnemyCharacter.cpp",
             "src/Game/Component/Enemy/EnemyCharacter.hpp",
@@ -34,6 +36,7 @@ jobs:
             "src/Game/Component/GameMain/DebugDifficulty.hpp",
             "src/Game/Component/GameMain/ExtendedDifficulty.hpp",
             "src/Game/Component/GameMain/GameStage.cpp",
+            "src/Game/Component/GameMain/GameStage.hpp",
             "src/Game/Component/GameMain/GameStageCameraUpdater.cpp",
             "src/Game/Component/GameMain/GameStageDebug.cpp",
             "src/Game/Component/GameMain/GameStageDebug.hpp",
@@ -44,6 +47,8 @@ jobs:
             "src/Game/Sequence/GameMainSequence.cpp",
             "src/Game/Sequence/Test/DebugUtils.cpp",
             "src/Game/Sequence/Test/DebugUtils.hpp",
+            "src/Game/System/Map/MapCamera.cpp",
+            "src/Game/System/Map/MapCamera.hpp",
             "src/Game/System/Character/CharacterAttackCalculator.cpp",
             "src/Game/System/Hit/BodyHitManager.cpp",
             "src/Game/System/Hit/HitAttackManager.cpp",
@@ -56,7 +61,7 @@ jobs:
           $changed = @(git diff --name-only e13afb7d1a5e838867faa149e4ffb6ed278e6199 HEAD)
           $unexpected = @($changed | Where-Object { $_ -notin $allowed })
           if ($unexpected.Count -ne 0) {
-            throw "Unexpected files in Debug Tools F4 branch: $($unexpected -join ', ')"
+            throw "Unexpected files in Debug Tools Controller Showcase Camera v2 branch: $($unexpected -join ', ')"
           }
 
       - name: Verify EXE-only feature boundaries
@@ -72,6 +77,36 @@ jobs:
           }
           if ((Get-Content "src/System/PC/PCModFeatures.cpp" -Raw) -notmatch 'feature=debug-tools-f4') {
             throw "The debug-tools-f4 runtime feature gate is missing."
+          }
+
+      - name: Verify controller showcase controls
+        shell: pwsh
+        run: |
+          $menu = Get-Content "src/Game/Sequence/DebugTools/DebugToolsProcess.cpp" -Raw
+          $camera = Get-Content "src/Game/System/Map/MapCamera.cpp" -Raw
+          foreach ($required in @(
+            "CController::DIGITAL_SELECT",
+            "CController::DIGITAL_R2",
+            "CController::DIGITAL_R3",
+            "ControllerDigitalRepeat",
+            "DebugUpdateCamera",
+            "Right stick orbit",
+            "R3 default camera"
+          )) {
+            if ($menu -notmatch [regex]::Escape($required)) {
+              throw "Missing controller-menu behavior: $required"
+            }
+          }
+          foreach ($required in @(
+            "DebugBeginShowcase",
+            "DebugResetShowcase",
+            "CAMERA_SUPPRESS_SWITCH_TRIGGER",
+            "CONTROLLER_LOCKED_ON_VIRTUAL",
+            "CONTROLLER_UNLOCKED_ON_VIRTUAL"
+          )) {
+            if ($camera -notmatch [regex]::Escape($required)) {
+              throw "Missing showcase-camera behavior: $required"
+            }
           }
 
       - name: Stage DirectX headers and x86 libraries
@@ -133,11 +168,11 @@ jobs:
           }
           "DXSDK_DIR=$dxsdk" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
-      - name: Configure US Win32 Release Debug Tools build
+      - name: Configure US Win32 Release Debug Tools Controller Showcase Camera v2 build
         shell: pwsh
         run: cmake --preset vs2022 -DOPT_EU_BUILD=OFF -DOPT_DEBUG_TOOLS=ON
 
-      - name: Build TMNT2 Debug Tools F4 v1 US
+      - name: Build TMNT2 Debug Tools Controller Showcase Camera v2 US
         shell: pwsh
         run: cmake --build --preset vs2022-release --parallel
 
@@ -156,21 +191,21 @@ jobs:
             Sort-Object LastWriteTimeUtc -Descending | Select-Object -First 1
           if (-not $pdb -or -not $map) { throw "The matching PDB or MAP was not found." }
 
-          $artifactDir = Join-Path $env:GITHUB_WORKSPACE "artifact-debug-tools-f4-v1-us"
+          $artifactDir = Join-Path $env:GITHUB_WORKSPACE "artifact-debug-tools-controller-showcase-camera-v2-us"
           New-Item -ItemType Directory -Force -Path $artifactDir | Out-Null
-          $baseName = "TMNT2_Debug_Tools_F4_v1_US"
+          $baseName = "TMNT2_Debug_Tools_Controller_Showcase_Camera_v2_US"
           Copy-Item $exe.FullName (Join-Path $artifactDir "$baseName.exe") -Force
           Copy-Item $pdb.FullName (Join-Path $artifactDir "$baseName.pdb") -Force
           Copy-Item $map.FullName (Join-Path $artifactDir "$baseName.map") -Force
-          Copy-Item "$env:GITHUB_WORKSPACE\DEBUG_TOOLS_F4_V1_US.md" $artifactDir -Force
+          Copy-Item "$env:GITHUB_WORKSPACE\DEBUG_TOOLS_CONTROLLER_SHOWCASE_CAMERA_V2_US.md" $artifactDir -Force
           Get-ChildItem $artifactDir -File | Get-FileHash -Algorithm SHA256 |
             ForEach-Object { "$($_.Hash.ToLowerInvariant())  $($_.Path | Split-Path -Leaf)" } |
             Set-Content (Join-Path $artifactDir "SHA256SUMS.txt") -Encoding utf8
 
-      - name: Upload TMNT2 Debug Tools F4 v1 US artifact
+      - name: Upload TMNT2 Debug Tools Controller Showcase Camera v2 US artifact
         uses: actions/upload-artifact@v4
         with:
-          name: TMNT2-Debug-Tools-F4-v1-US-run-${{ github.run_number }}
-          path: artifact-debug-tools-f4-v1-us/*
+          name: TMNT2-Debug-Tools-Controller-Showcase-Camera-v2-US-run-${{ github.run_number }}
+          path: artifact-debug-tools-controller-showcase-camera-v2-us/*
           if-no-files-found: error
           retention-days: 14
