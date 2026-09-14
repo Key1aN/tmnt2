@@ -619,8 +619,11 @@ void CMapCamera::UpdateManualCamera(const RwV3d* pvAt)
 #if defined(TARGET_PC) && defined(TMNT2_DEBUG_TOOLS)
     if (CPCModFeatures::IsDebugToolsEnabled() && CGameStageDebug::CAMERA_MENU_CONTROL)
     {
+        // The retail PC DirectInput table reports the physical triggers as
+        // R1 (LT) and R2 (RT). Keep this translation local to showcase mode;
+        // changing the global table would alter the game's existing controls.
         float zoomOut = NormalizeDebugControllerAnalog(
-            GetDebugControllerAnalog(CController::ANALOG_L2)
+            GetDebugControllerAnalog(CController::ANALOG_R1)
         );
         float zoomIn = NormalizeDebugControllerAnalog(
             GetDebugControllerAnalog(CController::ANALOG_R2)

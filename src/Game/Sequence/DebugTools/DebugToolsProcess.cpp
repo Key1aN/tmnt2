@@ -275,11 +275,14 @@ public:
             return;
         };
 
+        // The retail PC DirectInput table exposes the physical shoulder buttons
+        // as L1 (LB) and L2 (RB). Use those raw identities here so the labels
+        // match the buttons the player actually presses.
         if (CPCSpecific::IsKeyTrigger(DIK_Q) ||
             (controllerTrigger & CController::DIGITAL_L1))
             ChangePage(-1);
         else if (CPCSpecific::IsKeyTrigger(DIK_E) ||
-                 (controllerTrigger & CController::DIGITAL_R1))
+                 (controllerTrigger & CController::DIGITAL_L2))
             ChangePage(1);
         else if (CPCSpecific::IsKeyTrigger(DIK_UP) ||
                  (controllerNavigation & CController::DIGITAL_LUP))

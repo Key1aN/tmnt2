@@ -1,4 +1,4 @@
-# TMNT2 Debug Tools Controller Showcase Camera v2 US
+# TMNT2 Debug Tools Controller Bindings v3 US
 
 Target: TMNT 2: Battle Nexus, US/NA 32-bit PC.
 
@@ -28,6 +28,12 @@ Controller menu controls:
 - B / Circle: close the menu.
 - X / Square: reset the selected item.
 - Y / Triangle: reset the current page.
+
+The controller labels above follow the physical PC DirectInput layout verified
+in game: the Debug Menu translates the retail internal `L2` identity back to
+physical `RB`, and the internal `R1` identity back to physical `LT`. This keeps
+the corrected Debug Menu bindings local without changing normal gameplay
+controls.
 
 Gameplay is paused while the menu is open. The Stage page can advance it by one
 or ten frames without requiring a separate boot-time debug selection.
