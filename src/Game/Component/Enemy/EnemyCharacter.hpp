@@ -204,6 +204,9 @@ public:
     uint8* FrequencyParameter(void) const;
     uint8 FrequencyParameter(int32 idx) const;
     bool IsFrequencyParameterValid(void) const;
+#if defined(TMNT2_DEBUG_TOOLS)
+    void RefreshDebugDifficultyParameters(void);
+#endif /* defined(TMNT2_DEBUG_TOOLS) */
     CCharacterCompositor& Compositor(void);
     const CCharacterCompositor& Compositor(void) const;
     const ENEMYTYPES::FEATURE& Feature(void) const;
@@ -222,6 +225,12 @@ private:
     PARAMETER*                      m_pParameter;
     ENEMYTYPES::FLAG                m_eflag;
     uint8*                          m_puFrequencyParam;
+#if defined(TMNT2_DEBUG_TOOLS)
+    uint8*                          m_puDebugFrequencyBase;
+    int32                           m_iDebugFrequencyMax;
+    bool                            m_bDebugFrequencyBaseIncludesAggression;
+    ENEMYTYPES::CHARACTERISTIC      m_debugBaseAICharacteristic;
+#endif /* defined(TMNT2_DEBUG_TOOLS) */
     bool                            m_bRunning;
     bool                            m_bRunningAI;
 };

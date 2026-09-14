@@ -38,6 +38,10 @@
 #include "Game/System/Misc/SoftwareReset.hpp"
 #include "Game/System/Misc/TouchController.hpp"
 
+#if defined(TMNT2_DEBUG_TOOLS)
+#include "Game/Sequence/DebugTools/DebugToolsProcess.hpp"
+#endif /* defined(TMNT2_DEBUG_TOOLS) */
+
 #ifdef _DEBUG
 #include "Game/Sequence/Test/DebugMainSequence.hpp"
 #include "Game/Sequence/Test/TestMovieSequence.hpp"
@@ -111,6 +115,9 @@ extern const PROCESSTYPES::PROCESS g_aProcessList[] =
 #if defined(TARGET_WEB)
     { PROCLABEL_TOUCHCONTROLLER,        PROCESSTYPES::PRIORITY_NORMAL + 3,  CTouchController::Instance          },
 #endif /* defined(TARGET_WEB) */
+#if defined(TMNT2_DEBUG_TOOLS)
+    { PROCLABEL_DEBUGTOOLS,             PROCESSTYPES::PRIORITY_NORMAL + 1,  CDebugToolsProcess::Instance         },
+#endif /* defined(TMNT2_DEBUG_TOOLS) */
 
     { PROCESSTYPES::LABEL_EOL, 0, nullptr }
 };

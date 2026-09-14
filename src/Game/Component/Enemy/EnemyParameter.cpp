@@ -70,7 +70,7 @@ static void CompensationParameter(ENEMYPARAMCONTAINER* pEnemyParam)
     case GAMETYPES::DIFFICULTY_HARD:
         {
             GAMETYPES::DIFFICULTY optionDifficulty = CGameData::Option().Play().GetDifficulty();
-            float fAggressionScale = EXTENDEDDIFFICULTY::GetEPBAggressionScale(optionDifficulty);
+            float fAggressionScale = EXTENDEDDIFFICULTY::GetBaseEPBAggressionScale(optionDifficulty);
 
             Rate(&pEnemyParam->m_auFrequency[CEnemyParameter::FREQUENCY_ATTACK_A],          fAggressionScale);
             Rate(&pEnemyParam->m_auFrequency[CEnemyParameter::FREQUENCY_ATTACK_AA],         fAggressionScale);

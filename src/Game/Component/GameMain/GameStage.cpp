@@ -34,10 +34,10 @@
 #include "System/Common/Camera.hpp"
 #include "System/Common/Controller.hpp"
 
-#ifdef _DEBUG
+#if defined(_DEBUG) || defined(TMNT2_DEBUG_TOOLS)
 #include "GameStageDebug.hpp"
 #include "Game/System/Misc/DebugShape.hpp"
-#endif /* _DEBUG */
+#endif /* defined(_DEBUG) || defined(TMNT2_DEBUG_TOOLS) */
 
 #ifdef TARGET_PC
 #include "System/PC/PCSpecific.hpp"
@@ -129,18 +129,18 @@ void CGameStage::Initialize(void)
 
     m_pCurrent = this;
 
-#ifdef _DEBUG
+#if defined(_DEBUG) || defined(TMNT2_DEBUG_TOOLS)
     CDebugShape::Initialize();
     CGameStageDebug::Reset();
-#endif /* _DEBUG */
+#endif /* defined(_DEBUG) || defined(TMNT2_DEBUG_TOOLS) */
 };
 
 
 void CGameStage::Terminate(void)
 {
-#ifdef _DEBUG
+#if defined(_DEBUG) || defined(TMNT2_DEBUG_TOOLS)
     CDebugShape::Terminate();
-#endif /* _DEBUG */
+#endif /* defined(_DEBUG) || defined(TMNT2_DEBUG_TOOLS) */
     
     m_pCurrent = nullptr;
 
@@ -224,9 +224,9 @@ void CGameStage::Period(void)
 		if (m_bPlayStarted && (m_systemstate == SYSTEMSTATE_NORMAL))
             m_fTimer += dt;
 
-#ifdef _DEBUG
+#if defined(_DEBUG) || defined(TMNT2_DEBUG_TOOLS)
         CDebugShape::Period(dt);
-#endif /* _DEBUG */
+#endif /* defined(_DEBUG) || defined(TMNT2_DEBUG_TOOLS) */
         CGameProperty::Period();
         if (m_bCreatedRadar)
             CGameRadar::Update();
@@ -247,9 +247,9 @@ void CGameStage::Period(void)
 		};
     };
 
-#ifdef _DEBUG
+#if defined(_DEBUG) || defined(TMNT2_DEBUG_TOOLS)
     ++CGameStageDebug::STAGE_TICK;
-#endif /* _DEBUG */
+#endif /* defined(_DEBUG) || defined(TMNT2_DEBUG_TOOLS) */
 };
 
 
@@ -260,9 +260,9 @@ void CGameStage::Draw(void) const
 
     ASSERT(m_pMapCamera);
 
-#ifdef _DEBUG
+#if defined(_DEBUG) || defined(TMNT2_DEBUG_TOOLS)
     CDebugShape::FrameBegin();
-#endif /* _DEBUG */
+#endif /* defined(_DEBUG) || defined(TMNT2_DEBUG_TOOLS) */
 
     if (m_pMapCamera->BeginScene())
     {
@@ -275,9 +275,9 @@ void CGameStage::Draw(void) const
         CShotManager::Draw();
         CGimmickManager::Draw(CGimmickInfo::DRAWPRI_POSTALPHAMAP);
 
-#ifdef _DEBUG
+#if defined(_DEBUG) || defined(TMNT2_DEBUG_TOOLS)
         CDebugShape::Draw3D();
-#endif /* _DEBUG */
+#endif /* defined(_DEBUG) || defined(TMNT2_DEBUG_TOOLS) */
         
         CEffectManager::Draw(CCamera::CameraCurrent());        
         
@@ -290,10 +290,10 @@ void CGameStage::Draw(void) const
         m_pMapCamera->EndScene();
     };
 
-#ifdef _DEBUG
+#if defined(_DEBUG) || defined(TMNT2_DEBUG_TOOLS)
 	CDebugShape::Draw2D();
     CDebugShape::FrameEnd();
-#endif /* _DEBUG */
+#endif /* defined(_DEBUG) || defined(TMNT2_DEBUG_TOOLS) */
 
     CGaugeInformation::BossGaugeDraw(0);
     if (m_bMultipleBoss)

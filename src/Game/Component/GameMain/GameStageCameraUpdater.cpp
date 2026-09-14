@@ -2,9 +2,9 @@
 #include "GameTypes.hpp"
 #include "GameProperty.hpp"
 #include "GamePlayer.hpp"
-#ifdef _DEBUG
+#if defined(_DEBUG) || defined(TMNT2_DEBUG_TOOLS)
 #include "GameStageDebug.hpp"
-#endif /* _DEBUG */
+#endif /* defined(_DEBUG) || defined(TMNT2_DEBUG_TOOLS) */
 
 #include "Game/Component/Enemy/CharacterCompositor.hpp"
 #include "Game/System/Map/MapCamera.hpp"
@@ -47,9 +47,9 @@ void CDefaultCameraUpdater::Update(CMapCamera* pMapCamera)
     };
 
     float fZoom = pMapCamera->CalcNiceZoom(avPosition, playerNum);
-#ifdef _DEBUG
+#if defined(_DEBUG) || defined(TMNT2_DEBUG_TOOLS)
     fZoom *= CGameStageDebug::CAMERA_ZOOM_SCALE;
-#endif /* _DEBUG */
+#endif /* defined(_DEBUG) || defined(TMNT2_DEBUG_TOOLS) */
     pMapCamera->Update(&vLookat, fZoom);
 };
 

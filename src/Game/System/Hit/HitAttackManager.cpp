@@ -2,9 +2,9 @@
 #include "HitAttackData.hpp"
 #include "HitCatchData.hpp"
 #include "Intersection.hpp"
-#ifdef _DEBUG
+#if defined(_DEBUG) || defined(TMNT2_DEBUG_TOOLS)
 #include "HitDebug.hpp"
-#endif /* _DEBUG */
+#endif /* defined(_DEBUG) || defined(TMNT2_DEBUG_TOOLS) */
 
 #include "Game/System/GameObject/GameObject.hpp"
 #include "Game/System/GameObject/GameObjectType.hpp"
@@ -13,11 +13,11 @@
 #include "Game/System/Misc/DebugShape.hpp"
 
 
-#ifdef _DEBUG
+#if defined(_DEBUG) || defined(TMNT2_DEBUG_TOOLS)
 #define DATA_POOL_SIZE (128)
 #else /* _DEBUG */
 #define DATA_POOL_SIZE (128)
-#endif /* _DEBUG */
+#endif /* defined(_DEBUG) || defined(TMNT2_DEBUG_TOOLS) */
 
 
 class CHitRecordContainer;
@@ -870,7 +870,7 @@ static inline CHitAttackContainer& HitAttackContainer(void)
 
 /*static*/ void CHitAttackManager::RegistAttack(const CHitAttackData* pHitAttack)
 {
-#ifdef _DEBUG
+#if defined(_DEBUG) || defined(TMNT2_DEBUG_TOOLS)
     if (CHitDebug::SHOW_HIT_ATTACK)
     {
         RwSphere sphere = {};
@@ -892,7 +892,7 @@ static inline CHitAttackContainer& HitAttackContainer(void)
 
         CDebugShape::ShowSphere(&sphere, { 0xFF, 0xFF, 0x00, 0xFF });
     };
-#endif /* _DEBUG */
+#endif /* defined(_DEBUG) || defined(TMNT2_DEBUG_TOOLS) */
     
     HitAttackContainer().RegistAttack(pHitAttack);
 };
@@ -900,7 +900,7 @@ static inline CHitAttackContainer& HitAttackContainer(void)
 
 /*static*/ void CHitAttackManager::RegistCatch(const CHitCatchData* pHitCatch)
 {
-#ifdef _DEBUG
+#if defined(_DEBUG) || defined(TMNT2_DEBUG_TOOLS)
     if (CHitDebug::SHOW_HIT_CATCH)
     {
         RwSphere sphere = {};
@@ -932,7 +932,7 @@ static inline CHitAttackContainer& HitAttackContainer(void)
             CDebugShape::ShowLabel(&sphere.center, szTmpBuff, { 0xFF, 0xFF, 0xFF, 0xFF });
         };
     };
-#endif /* _DEBUG */
+#endif /* defined(_DEBUG) || defined(TMNT2_DEBUG_TOOLS) */
     
     HitAttackContainer().RegistCatch(pHitCatch);
 };

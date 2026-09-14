@@ -1,6 +1,6 @@
 #pragma once
 
-#ifdef _DEBUG
+#if defined(_DEBUG) || defined(TMNT2_DEBUG_TOOLS)
 
 class CHitDebug
 {
@@ -11,4 +11,4 @@ public:
     static bool SHOW_HIT_CATCH_NO;
 };
 
-#endif
+#endif /* defined(_DEBUG) || defined(TMNT2_DEBUG_TOOLS) */

@@ -1,6 +1,6 @@
 #pragma once
 
-#if defined(_DEBUG) || defined(TMNT2_TEST)
+#if defined(_DEBUG) || defined(TMNT2_TEST) || defined(TMNT2_DEBUG_TOOLS)
 
 #include "rtcharse.h"
 
@@ -253,4 +253,4 @@ private:
 };
 
 
-#endif /* defined(_DEBUG) || defined(TMNT2_TEST) */
+#endif /* defined(_DEBUG) || defined(TMNT2_TEST) || defined(TMNT2_DEBUG_TOOLS) */

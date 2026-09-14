@@ -58,4 +58,7 @@ enum
 #if defined(TARGET_WEB)
     PROCLABEL_TOUCHCONTROLLER,
 #endif /* defined(TARGET_WEB) */
+#if defined(TMNT2_DEBUG_TOOLS)
+    PROCLABEL_DEBUGTOOLS,
+#endif /* defined(TMNT2_DEBUG_TOOLS) */
 };

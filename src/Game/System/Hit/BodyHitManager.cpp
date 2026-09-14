@@ -1,9 +1,9 @@
 #include "BodyHitManager.hpp"
 #include "BodyHitData.hpp"
 #include "Intersection.hpp"
-#ifdef _DEBUG
+#if defined(_DEBUG) || defined(TMNT2_DEBUG_TOOLS)
 #include "HitDebug.hpp"
-#endif /* _DEBUG */
+#endif /* defined(_DEBUG) || defined(TMNT2_DEBUG_TOOLS) */
 
 #include "Game/System/Misc/DebugShape.hpp"
 
@@ -44,7 +44,7 @@ bool CBodyHitContainer::Check(CBodyHitData* pBodyHitData, const RwV3d* pMoveVelo
     ASSERT(pMoveVelocity);
     ASSERT(pResult);
 
-#ifdef _DEBUG
+#if defined(_DEBUG) || defined(TMNT2_DEBUG_TOOLS)
     if (CHitDebug::SHOW_HIT_BODY)
     {
         RwSphere sphere;
@@ -53,7 +53,7 @@ bool CBodyHitContainer::Check(CBodyHitData* pBodyHitData, const RwV3d* pMoveVelo
         
         CDebugShape::ShowSphere(&sphere);
     };
-#endif /* _DEBUG */
+#endif /* defined(_DEBUG) || defined(TMNT2_DEBUG_TOOLS) */
 
     if (!pBodyHitData->IsEnableState(CBodyHitData::STATE_ENABLE))
         return false;

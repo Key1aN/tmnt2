@@ -153,6 +153,12 @@ float CCharacterAttackCalculator::CalcDamage(CHARACTERTYPES::ATTACKRESULTTYPE at
         fPowerRatio *= EXTENDEDDIFFICULTY::GetPlayerDamageReceivedScale(optionDifficulty);
     };
 
+    if (m_rCharacter.GetAttackCharacterType() == CCharacter::TYPE_ENEMY)
+    {
+        GAMETYPES::DIFFICULTY optionDifficulty = CGameData::Option().Play().GetDifficulty();
+        fPowerRatio *= EXTENDEDDIFFICULTY::GetPlayerDamageDealtScale(optionDifficulty);
+    };
+
     fDamage = static_cast<float>(m_rAttack.GetPower()) * fPowerRatio;
 
     if (m_bCountered)

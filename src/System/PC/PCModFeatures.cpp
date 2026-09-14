@@ -76,6 +76,8 @@ namespace
             m_flags |= FLAG_BRUTAL_DIFFICULTIES;
         else if (std::strcmp(line, "feature=widescreen") == 0)
             m_flags |= FLAG_WIDESCREEN;
+        else if (std::strcmp(line, "feature=debug-tools-f4") == 0)
+            m_flags |= FLAG_DEBUG_TOOLS;
     }
     std::fclose(stream);
 
@@ -104,4 +106,10 @@ namespace
 /*static*/ bool CPCModFeatures::IsWidescreenEnabled(void)
 {
     return ((m_flags & FLAG_WIDESCREEN) != 0);
+};
+
+
+/*static*/ bool CPCModFeatures::IsDebugToolsEnabled(void)
+{
+    return ((m_flags & FLAG_DEBUG_TOOLS) != 0);
 };

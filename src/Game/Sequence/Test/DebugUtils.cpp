@@ -1,6 +1,6 @@
 #include "DebugUtils.hpp"
 
-#if defined(_DEBUG) || defined(TMNT2_TEST)
+#if defined(_DEBUG) || defined(TMNT2_TEST) || defined(TMNT2_DEBUG_TOOLS)
 
 #include "Game/System/Misc/Gamepad.hpp"
 #include "System/Common/Process/Sequence.hpp"
@@ -931,4 +931,4 @@ CDebugSequenceCheckObj& CDebugSequenceCheckObj::Check(int32 iTargetSeqLbl)
     return *this;
 };
 
-#endif /* defined(_DEBUG) || defined(TMNT2_TEST) */
+#endif /* defined(_DEBUG) || defined(TMNT2_TEST) || defined(TMNT2_DEBUG_TOOLS) */

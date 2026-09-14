@@ -29,6 +29,10 @@
 #include "System/PC/PCModFeatures.hpp"
 #endif /* defined(TARGET_PC) */
 
+#if defined(TMNT2_DEBUG_TOOLS)
+#include "Game/Sequence/DebugTools/DebugToolsProcess.hpp"
+#endif /* defined(TMNT2_DEBUG_TOOLS) */
+
 
 #define MVPATH_OP1 (MVPATH("OP_TMNT1.sfd"))
 #define MVPATH_OP2 (MVPATH("OP_TMNT2.sfd"))
@@ -96,6 +100,11 @@ bool CGameMainSequence::OnAttach(const void* pParam)
 #ifdef _DEBUG
     CSoftwareResetProcess::Initialize(this, CSoftwareResetProcess::MODE_DEBUGMENU);
 #endif /* _DEBUG */
+
+#if defined(TMNT2_DEBUG_TOOLS)
+    if (CPCModFeatures::IsDebugToolsEnabled())
+        CDebugToolsProcess::Initialize(this);
+#endif /* defined(TMNT2_DEBUG_TOOLS) */
     
     m_fTime = 0.0f;
     m_movieId = MVPATH_OP2;
@@ -107,6 +116,11 @@ bool CGameMainSequence::OnAttach(const void* pParam)
 
 void CGameMainSequence::OnDetach(void)
 {
+#if defined(TMNT2_DEBUG_TOOLS)
+    if (CPCModFeatures::IsDebugToolsEnabled())
+        CDebugToolsProcess::Terminate(this);
+#endif /* defined(TMNT2_DEBUG_TOOLS) */
+
 #ifdef _DEBUG
     CSoftwareResetProcess::Terminate(this);
 #endif /* _DEBUG */

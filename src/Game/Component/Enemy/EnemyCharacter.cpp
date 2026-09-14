@@ -7,6 +7,9 @@
 #include "Game/Component/Player/PlayerStatus.hpp"
 #include "Game/Component/GameData/GameData.hpp"
 #include "Game/Component/GameMain/ExtendedDifficulty.hpp"
+#if defined(TMNT2_DEBUG_TOOLS)
+#include "Game/Component/GameMain/DebugDifficulty.hpp"
+#endif /* defined(TMNT2_DEBUG_TOOLS) */
 #include "Game/Component/GameMain/GameProperty.hpp"
 #include "Game/System/Character/CharacterAttackCalculator.hpp"
 #include "Game/System/Hit/HitAttackData.hpp"
@@ -179,6 +182,12 @@ CEnemyCharacter::CEnemyCharacter(ENEMYID::VALUE idEnemy)
 , m_pParameter(nullptr)
 , m_eflag(ENEMYTYPES::FLAG_DEFAULT)
 , m_puFrequencyParam(nullptr)
+#if defined(TMNT2_DEBUG_TOOLS)
+, m_puDebugFrequencyBase(nullptr)
+, m_iDebugFrequencyMax(0)
+, m_bDebugFrequencyBaseIncludesAggression(false)
+, m_debugBaseAICharacteristic()
+#endif /* defined(TMNT2_DEBUG_TOOLS) */
 , m_bRunning(false)
 , m_bRunningAI(false)
 {
@@ -219,6 +228,7 @@ bool CEnemyCharacter::Initialize(PARAMETER* pParameter, bool bReplaceParameter)
     std::memcpy(m_pParameter, pParameter, sizeof(*m_pParameter));
     m_pParameter->m_feature.m_iPattern = m_createinfo.m_iPattern;
 
+    int32 iDebugFrequencyMax = 0;
     int32 idx = CEnemyParameter::Search(m_ID, m_pParameter->m_feature.m_iPattern);
     if ((idx >= 0) && bReplaceParameter)
     {
@@ -230,6 +240,7 @@ bool CEnemyCharacter::Initialize(PARAMETER* pParameter, bool bReplaceParameter)
         int32 iFreqMax = CEnemyParameter::GetFrequencyMax(idx);
         if (iFreqMax > 0)
         {
+            iDebugFrequencyMax = iFreqMax;
             m_puFrequencyParam = new uint8[GAMETYPES::DIFFICULTY_NUM * iFreqMax];
             std::memset(m_puFrequencyParam, 0x00, (GAMETYPES::DIFFICULTY_NUM * iFreqMax));
 
@@ -245,6 +256,7 @@ bool CEnemyCharacter::Initialize(PARAMETER* pParameter, bool bReplaceParameter)
         int32 iFreqMax = m_pParameter->m_iFrequencyMax;
         if (iFreqMax > 0)
         {
+            iDebugFrequencyMax = iFreqMax;
             m_puFrequencyParam = new uint8[GAMETYPES::DIFFICULTY_NUM * iFreqMax];
             std::memset(m_puFrequencyParam, 0x00, (GAMETYPES::DIFFICULTY_NUM * iFreqMax));
 
@@ -258,6 +270,25 @@ bool CEnemyCharacter::Initialize(PARAMETER* pParameter, bool bReplaceParameter)
             };
         };
     };
+
+#if defined(TMNT2_DEBUG_TOOLS)
+    m_iDebugFrequencyMax = iDebugFrequencyMax;
+    m_bDebugFrequencyBaseIncludesAggression = ((idx >= 0) && bReplaceParameter);
+    std::memcpy(
+        &m_debugBaseAICharacteristic,
+        &m_pParameter->m_AICharacteristic,
+        sizeof(m_debugBaseAICharacteristic)
+    );
+
+    if (m_iDebugFrequencyMax > 0)
+    {
+        size_t frequencyBytes = static_cast<size_t>(GAMETYPES::DIFFICULTY_NUM * m_iDebugFrequencyMax);
+        m_puDebugFrequencyBase = new uint8[frequencyBytes];
+        std::memcpy(m_puDebugFrequencyBase, m_puFrequencyParam, frequencyBytes);
+    };
+
+    RefreshDebugDifficultyParameters();
+#endif /* defined(TMNT2_DEBUG_TOOLS) */
 
 #ifdef _DEBUG
     /* for enemy tests */
@@ -396,7 +427,16 @@ void CEnemyCharacter::Delete(void)
 
     if (m_pParameter)
     {
-        if (m_pParameter->m_iFrequencyMax)
+#if defined(TMNT2_DEBUG_TOOLS)
+        if (m_puDebugFrequencyBase)
+        {
+            delete[] m_puDebugFrequencyBase;
+            m_puDebugFrequencyBase = nullptr;
+            m_iDebugFrequencyMax = 0;
+        };
+#endif /* defined(TMNT2_DEBUG_TOOLS) */
+
+        if (m_puFrequencyParam)
         {
             delete[] m_puFrequencyParam;
             m_puFrequencyParam = nullptr;
@@ -1343,6 +1383,62 @@ bool CEnemyCharacter::IsFrequencyParameterValid(void) const
 {
     return (m_pParameter->m_iFrequencyMax > 0);
 };
+
+
+#if defined(TMNT2_DEBUG_TOOLS)
+void CEnemyCharacter::RefreshDebugDifficultyParameters(void)
+{
+    ASSERT(m_pParameter);
+
+    std::memcpy(
+        &m_pParameter->m_AICharacteristic,
+        &m_debugBaseAICharacteristic,
+        sizeof(m_pParameter->m_AICharacteristic)
+    );
+
+    if (m_puDebugFrequencyBase && m_puFrequencyParam && (m_iDebugFrequencyMax > 0))
+    {
+        size_t frequencyBytes = static_cast<size_t>(GAMETYPES::DIFFICULTY_NUM * m_iDebugFrequencyMax);
+        std::memcpy(m_puFrequencyParam, m_puDebugFrequencyBase, frequencyBytes);
+    };
+
+    if (!CDebugDifficulty::IsOverrideEnabled())
+        return;
+
+    GAMETYPES::DIFFICULTY optionDifficulty = CGameData::Option().Play().GetDifficulty();
+    float baseAggression = (m_bDebugFrequencyBaseIncludesAggression ?
+        EXTENDEDDIFFICULTY::GetBaseEPBAggressionScale(optionDifficulty) : 1.00f);
+    if (baseAggression <= 0.0f)
+        baseAggression = 1.00f;
+
+    ENEMYTYPES::CHARACTERISTIC& characteristic = m_pParameter->m_AICharacteristic;
+    characteristic.m_fThinkingFrequency *=
+        (CDebugDifficulty::GetValue(CDebugDifficulty::SETTING_AI_THINKING, optionDifficulty) / baseAggression);
+    characteristic.m_fRatioOfActivity *=
+        (CDebugDifficulty::GetValue(CDebugDifficulty::SETTING_AI_ACTIVITY, optionDifficulty) / baseAggression);
+    characteristic.m_fRatioOfFrontView *=
+        (CDebugDifficulty::GetValue(CDebugDifficulty::SETTING_AI_AWARENESS, optionDifficulty) / baseAggression);
+    characteristic.m_fRatioOfRearView *=
+        (CDebugDifficulty::GetValue(CDebugDifficulty::SETTING_AI_AWARENESS, optionDifficulty) / baseAggression);
+
+    if (m_puFrequencyParam && (m_iDebugFrequencyMax > 0))
+    {
+        GAMETYPES::DIFFICULTY tableDifficulty = CGameProperty::GetDifficulty();
+        uint8* pFrequencyNode =
+            &m_puFrequencyParam[tableDifficulty * m_iDebugFrequencyMax];
+
+        for (int32 i = 0; i < m_iDebugFrequencyMax; ++i)
+        {
+            pFrequencyNode[i] = CDebugDifficulty::ScaleFrequency(
+                i,
+                pFrequencyNode[i],
+                m_bDebugFrequencyBaseIncludesAggression,
+                optionDifficulty
+            );
+        };
+    };
+};
+#endif /* defined(TMNT2_DEBUG_TOOLS) */
 
 
 CCharacterCompositor& CEnemyCharacter::Compositor(void)

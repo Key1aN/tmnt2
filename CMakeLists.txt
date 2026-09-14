@@ -51,6 +51,10 @@ option(OPT_TEST
     "Enable diag features mostly for release build like FPS & MEM counter" OFF
 )
 
+option(OPT_DEBUG_TOOLS
+    "Build the release-safe F4 Debug Tools overlay" OFF
+)
+
 # TODO
 #option(OPT_IDFSYST 
 #    "Enables file access by ids instead file names" OFF
@@ -135,6 +139,20 @@ endif()
 
 if(OPT_TEST)
     target_compile_definitions(${EXEC_NAME} PRIVATE ${EXEC_NAME}_TEST)
+endif()
+
+if(OPT_DEBUG_TOOLS)
+    target_compile_definitions(${EXEC_NAME} PRIVATE TMNT2_DEBUG_TOOLS)
+
+    # The new release-safe overlay reuses only the recovered debug font helper.
+    # All boot menus and test sequences remain excluded from Release builds.
+    set_source_files_properties(
+        "${DIR_SRC}/Game/Sequence/Test/DebugUtils.cpp"
+        PROPERTIES
+            EXCLUDE_FROM_DEFAULT_BUILD_RELEASE        FALSE
+            EXCLUDE_FROM_DEFAULT_BUILD_RELWITHDEBINFO FALSE
+            EXCLUDE_FROM_DEFAULT_BUILD_MINSIZEREL     FALSE
+    )
 endif()
 
 if(OPT_IDFSYST)

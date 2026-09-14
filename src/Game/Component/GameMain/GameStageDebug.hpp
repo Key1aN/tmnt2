@@ -1,6 +1,6 @@
 #pragma once
 
-#ifdef _DEBUG
+#if defined(_DEBUG) || defined(TMNT2_DEBUG_TOOLS)
 
 class CGameStageDebug
 {
@@ -14,4 +14,4 @@ public:
     static void Reset(void);
 };
 
-#endif /* _DEBUG */
+#endif /* defined(_DEBUG) || defined(TMNT2_DEBUG_TOOLS) */

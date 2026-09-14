@@ -1,6 +1,6 @@
 #include "GameStageDebug.hpp"
 
-#ifdef _DEBUG
+#if defined(_DEBUG) || defined(TMNT2_DEBUG_TOOLS)
 
 /*static*/ bool CGameStageDebug::GODMODE = false;
 /*static*/ float CGameStageDebug::CAMERA_ZOOM_SCALE = 1.0f;
@@ -18,4 +18,4 @@
     COUNTER = 0;
 };
 
-#endif /* _DEBUG */
+#endif /* defined(_DEBUG) || defined(TMNT2_DEBUG_TOOLS) */
