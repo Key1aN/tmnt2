@@ -299,7 +299,7 @@ bool CPCGraphicsDevice::Start(void)
 
     RwImageSetGamma(1.2f);
 
-    if (!CPCModFeatures::IsMSAAEnabled())
+    if (!CPCModFeatures::IsMSAARuntimeAvailable())
         return true;
 
     const int32 nExpectedSamples = m_multisamplingLvl;
@@ -748,7 +748,7 @@ bool CPCGraphicsDevice::SetVideomode(const PC::VIDEOMODE& vm)
 
         if (m_bFullscreen)
         {
-            if (CPCModFeatures::IsMSAAEnabled() &&
+            if (CPCModFeatures::IsMSAARuntimeAvailable() &&
                 !ChangeMultiSamplingAfterStart("mode_change"))
                 bMultiSamplingReady = false;
 
@@ -778,7 +778,7 @@ bool CPCGraphicsDevice::SetVideomode(const PC::VIDEOMODE& vm)
     if (bVideomodeChangedFlag)
         RwDrvChangeVideoMode(Videomode());
 
-    if (m_bFullscreen && CPCModFeatures::IsMSAAEnabled())
+    if (m_bFullscreen && CPCModFeatures::IsMSAARuntimeAvailable())
         ChangeMultiSamplingAfterStart("mode_change_rollback");
 
     if (!m_bFullscreen)
@@ -849,7 +849,7 @@ bool CPCGraphicsDevice::IsFullscreen(void) const
 
 bool CPCGraphicsDevice::ApplyConfiguredMultiSampling(void)
 {
-    if (!CPCModFeatures::IsMSAAEnabled())
+    if (!CPCModFeatures::IsMSAARuntimeAvailable())
         return true;
 
     if (!m_bFullscreen)
@@ -908,7 +908,7 @@ void CPCGraphicsDevice::SetMultiSamplingBeforeStart(void)
     m_multisamplingLvl = 0;
     m_pDeviceInfo[m_curDevice].m_numMultisamplingLvls = 0;
 
-    if (!CPCModFeatures::IsMSAAEnabled())
+    if (!CPCModFeatures::IsMSAARuntimeAvailable())
         return;
 
     if (!m_bFullscreen)
@@ -942,7 +942,7 @@ bool CPCGraphicsDevice::ChangeMultiSamplingAfterStart(const char* pszPhase)
 {
     ASSERT(m_bFullscreen);
 
-    if (!CPCModFeatures::IsMSAAEnabled())
+    if (!CPCModFeatures::IsMSAARuntimeAvailable())
         return true;
 
     const int32 nMaxSamples = GetCurrentModeMaxMultiSamplingLevels();
@@ -1103,7 +1103,7 @@ int32 CPCGraphicsDevice::TraceActualMultiSampling(const char* pszPhase,
 
 void CPCGraphicsDevice::GuardMultiSamplingFrameState(void)
 {
-    if (!CPCModFeatures::IsMSAAEnabled())
+    if (!CPCModFeatures::IsMSAARuntimeAvailable())
         return;
 
 #if defined(TMNT2_RWDRV_D3D9)

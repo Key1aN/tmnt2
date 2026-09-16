@@ -97,6 +97,12 @@ namespace
 };
 
 
+/*static*/ bool CPCModFeatures::IsMSAARuntimeAvailable(void)
+{
+    return IsMSAAEnabled() || IsDebugToolsEnabled();
+};
+
+
 /*static*/ bool CPCModFeatures::IsBrutalDifficultiesEnabled(void)
 {
     return ((m_flags & FLAG_BRUTAL_DIFFICULTIES) != 0);

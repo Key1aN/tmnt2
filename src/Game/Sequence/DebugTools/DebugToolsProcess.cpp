@@ -45,6 +45,7 @@ namespace
         PAGE_ENEMY_AI,
         PAGE_STAGE,
         PAGE_CAMERA,
+        PAGE_GRAPHICS,
         PAGE_HITBOXES,
         PAGE_TELEMETRY,
 
@@ -59,6 +60,7 @@ namespace
         "Enemy/AI",
         "Stage",
         "Camera",
+        "Graphics",
         "Hitboxes",
         "Telemetry",
     };
@@ -153,13 +155,6 @@ namespace
     };
 
 
-    static uint32 ControllerDigital(void)
-    {
-        return CController::GetDigital(CController::CONTROLLER_LOCKED_ON_VIRTUAL) |
-               CController::GetDigital(CController::CONTROLLER_UNLOCKED_ON_VIRTUAL);
-    };
-
-
     static uint32 ControllerDigitalTrigger(void)
     {
         return CController::GetDigitalTrigger(CController::CONTROLLER_LOCKED_ON_VIRTUAL) |
@@ -190,6 +185,28 @@ namespace
         int32 magnitude = (value < 0 ? -static_cast<int32>(value) : static_cast<int32>(value));
         return (magnitude > DEADZONE);
     };
+
+
+    static const int32 s_anMSAASamples[] = { 0, 2, 4, 8 };
+
+
+    static int32 GetMSAAIndex(int32 samples)
+    {
+        if (samples >= 8)
+            return 3;
+        if (samples >= 4)
+            return 2;
+        if (samples >= 2)
+            return 1;
+        return 0;
+    };
+
+
+    static const char* GetMSAALabel(int32 samples)
+    {
+        static const char* s_apszMSAALabel[] = { "Off", "2X", "4X", "8X" };
+        return s_apszMSAALabel[GetMSAAIndex(samples)];
+    };
 };
 
 
@@ -203,8 +220,9 @@ public:
     , m_bEnemyAIPaused(false)
     , m_bTelemetryEnabled(false)
     , m_bSavedPosition(false)
-    , m_bControllerMenuComboDown(false)
     , m_bShowcaseCamera(false)
+    , m_bMSAAApplyAttempted(false)
+    , m_bMSAAApplySucceeded(false)
     , m_page(PAGE_DIFFICULTY)
     , m_aiSelection()
     , m_iPausedLabel(PROCESSTYPES::LABEL_EOL)
@@ -237,14 +255,9 @@ public:
 
         int32 currentLabel = CSequence::GetCurrently();
         bool bAvailable = IsGameplaySequence(currentLabel);
-        uint32 controllerDigital = ControllerDigital();
-        const uint32 controllerMenuCombo = CController::DIGITAL_SELECT |
-                                           CController::DIGITAL_R2;
-        bool bControllerMenuComboDown =
-            ((controllerDigital & controllerMenuCombo) == controllerMenuCombo);
-        bool bControllerToggle = bControllerMenuComboDown &&
-                                 !m_bControllerMenuComboDown;
-        m_bControllerMenuComboDown = bControllerMenuComboDown;
+        uint32 controllerTrigger = ControllerDigitalTrigger();
+        bool bControllerToggle =
+            ((controllerTrigger & CController::DIGITAL_SELECT) != 0);
 
         if (m_bOpen && !bAvailable)
         {
@@ -265,8 +278,16 @@ public:
         if (!m_bOpen)
             return;
 
-        uint32 controllerTrigger = ControllerDigitalTrigger();
         uint32 controllerNavigation = controllerTrigger | ControllerDigitalRepeat();
+
+        if (controllerTrigger & CController::DIGITAL_START)
+        {
+            Close(owner);
+            CGameStage* pStage = CGameStage::GetCurrent();
+            if (pStage && !pStage->IsPaused())
+                pStage->StartPause(CGameStage::PAUSETYPE_MENU, nullptr);
+            return;
+        };
 
         if (CPCSpecific::IsKeyTrigger(DIK_ESCAPE) ||
             (controllerTrigger & CController::DIGITAL_RLEFT))
@@ -321,7 +342,7 @@ public:
         if (m_bOpen)
         {
             DrawMenu();
-            DrawTelemetry(356, 80);
+            DrawTelemetryCompact(12, 416);
         }
         else
         {
@@ -474,6 +495,18 @@ private:
             };
             break;
 
+        case PAGE_GRAPHICS:
+            {
+                int32 currentIndex = GetMSAAIndex(CPCSpecific::GetMultiSamplingSamples());
+                int32 nextIndex = Clamp(
+                    currentIndex + direction * multiplier,
+                    0,
+                    COUNT_OF(s_anMSAASamples) - 1
+                );
+                ApplyMSAA(s_anMSAASamples[nextIndex]);
+            };
+            break;
+
         case PAGE_HITBOXES:
             ToggleHitbox(selected);
             break;
@@ -522,6 +555,10 @@ private:
                 ApplyCameraMode();
             else if (selected == 2)
                 ResetShowcaseCamera();
+            break;
+
+        case PAGE_GRAPHICS:
+            ApplyMSAA(CPCSpecific::GetMultiSamplingSamples());
             break;
 
         case PAGE_HITBOXES:
@@ -575,6 +612,10 @@ private:
                 ResetShowcaseCamera();
             break;
 
+        case PAGE_GRAPHICS:
+            ApplyMSAA(0);
+            break;
+
         case PAGE_HITBOXES:
             SetHitbox(selected, false);
             break;
@@ -609,6 +650,10 @@ private:
 
         case PAGE_CAMERA:
             ResetShowcaseCamera();
+            break;
+
+        case PAGE_GRAPHICS:
+            ApplyMSAA(0);
             break;
 
         case PAGE_HITBOXES:
@@ -888,6 +933,17 @@ private:
     };
 
 
+    void ApplyMSAA(int32 samples)
+    {
+        m_bMSAAApplyAttempted = true;
+        m_bMSAAApplySucceeded = CPCSpecific::ApplyDisplaySettings(
+            CPCSpecific::GetVideomodeCur(),
+            samples,
+            false
+        );
+    };
+
+
     void UpdateShowcaseCamera(void)
     {
         CGameStage* pStage = CGameStage::GetCurrent();
@@ -974,6 +1030,7 @@ private:
         case PAGE_ENEMY_AI:   return 2;
         case PAGE_STAGE:      return 5;
         case PAGE_CAMERA:     return 3;
+        case PAGE_GRAPHICS:   return 1;
         case PAGE_HITBOXES:   return 3;
         case PAGE_TELEMETRY:  return 2;
         default:              return 0;
@@ -986,7 +1043,7 @@ private:
         m_font.Background({ 0x00, 0x00, 0x00, 0xB0 });
         m_font.Color({ 0xC0, 0xE8, 0xFF, 0xFF });
         m_font.Position(12, 10);
-        m_font.Print("F4 / BACK+RT  DEBUG TOOLS");
+        m_font.Print("F4 / BACK  DEBUG TOOLS  |  START  PAUSE");
     };
 
 
@@ -995,7 +1052,7 @@ private:
         m_font.Background({ 0x08, 0x0C, 0x12, 0xE8 });
         m_font.Color({ 0x78, 0xD8, 0xFF, 0xFF });
         m_font.Position(18, 14);
-        m_font.Print("TMNT2 DEBUG TOOLS  |  F4 or Back+RT menu  |  Esc close");
+        m_font.Print("TMNT2 DEBUG TOOLS  |  F4 or Back menu  |  Start game pause  |  Esc close");
 
         char tabs[256];
         tabs[0] = '\0';
@@ -1048,7 +1105,7 @@ private:
         m_font.Position(18, helpY + 54);
         m_font.Print("Pad: D-pad/LS navigate  LB/RB page  A run  B close  X reset  Y reset page");
         m_font.Position(18, helpY + 72);
-        m_font.Print("Camera page: Right stick orbit  LT/RT zoom  R3 default camera");
+        m_font.Print("Camera: RS orbit  LT/RT distance  R3 reset  |  Back menu  Start game pause");
     };
 
 
@@ -1136,6 +1193,17 @@ private:
                 std::snprintf(buffer, capacity, "Reset to default game camera");
             break;
 
+        case PAGE_GRAPHICS:
+            std::snprintf(
+                buffer,
+                capacity,
+                "MSAA (fullscreen)              %s%s",
+                GetMSAALabel(CPCSpecific::GetMultiSamplingSamples()),
+                (m_bMSAAApplyAttempted ?
+                    (m_bMSAAApplySucceeded ? "  APPLIED" : "  FAILED") : "")
+            );
+            break;
+
         case PAGE_HITBOXES:
             if (index == 0)
                 std::snprintf(buffer, capacity, "Attack hitboxes               %s", CHitDebug::SHOW_HIT_ATTACK ? "ON" : "OFF");
@@ -1212,6 +1280,11 @@ private:
                     "Returns to automatic game camera, normal zoom, and the correct player path mode."));
             break;
 
+        case PAGE_GRAPHICS:
+            scope = "LIVE GRAPHICS DEVICE";
+            description = "Changes MSAA Off/2X/4X/8X immediately; fullscreen and driver support are required.";
+            break;
+
         case PAGE_HITBOXES:
             scope = "LIVE VISUALIZATION";
             description = "Uses the recovered RenderWare debug-shape renderer; no collision data is modified.";
@@ -1227,6 +1300,113 @@ private:
         default:
             break;
         };
+    };
+
+
+    void DrawTelemetryCompact(int32 x, int32 y) const
+    {
+        m_font.Background({ 0x00, 0x00, 0x00, 0xD8 });
+        m_font.Color({ 0xD8, 0xF0, 0xFF, 0xFF });
+        m_font.Position(x, y);
+        m_font.SetAutoStep(0, 16);
+
+        GAMETYPES::DIFFICULTY difficulty = CGameData::Option().Play().GetDifficulty();
+        m_font.Print(
+            "LIVE  FPS %.1f %.2fms  Diff %s  Preset %s  MSAA %s",
+            CScreen::Framerate(),
+            CScreen::TimerStride() * 1000.0f,
+            DifficultyName(difficulty),
+            CDebugDifficulty::GetPresetName(),
+            GetMSAALabel(CPCSpecific::GetMultiSamplingSamples())
+        );
+
+        int32 enemyCount = 0;
+        int32 enemyMax = CGameProperty::GetEnemyMax();
+        for (int32 i = 0; i < enemyMax; ++i)
+        {
+            if (CGameProperty::GetEnemy(i))
+                ++enemyCount;
+        };
+
+        IGamePlayer* pPlayer = nullptr;
+        if (CGameProperty::GetPlayerNum() > 0)
+            pPlayer = CGameProperty::Player(0);
+
+        if (!pPlayer || !pPlayer->IsAlive())
+        {
+            m_font.Print(
+                "Seq %d  Tick %d  Enemies %d  P1 unavailable",
+                CSequence::GetCurrently(),
+                CGameStageDebug::STAGE_TICK,
+                enemyCount
+            );
+            m_font.SetAutoStep(0, 0);
+            return;
+        };
+
+        m_font.Print(
+            "Seq %d  Tick %d  Enemies %d  P1 HP %d/%d",
+            CSequence::GetCurrently(),
+            CGameStageDebug::STAGE_TICK,
+            enemyCount,
+            pPlayer->GetHP(),
+            pPlayer->GetHPMax()
+        );
+
+        RwV3d playerPosition = Math::VECTOR3_ZERO;
+        pPlayer->GetPosition(&playerPosition);
+        m_font.Print(
+            "P1 XYZ %.1f %.1f %.1f  Rot %.2f  Status %d  Char %d",
+            playerPosition.x,
+            playerPosition.y,
+            playerPosition.z,
+            pPlayer->GetRotY(),
+            static_cast<int32>(pPlayer->GetStatus()),
+            static_cast<int32>(pPlayer->GetCurrentCharacterID())
+        );
+
+        const char* pszMotionName = "<none>";
+        CPlayerCharacter* pCharacter = pPlayer->GetCurrentCharacter();
+        if (pCharacter && pCharacter->GetMotionName())
+            pszMotionName = pCharacter->GetMotionName();
+
+        CEnemy* pNearest = nullptr;
+        float nearestDistanceSq = FLT_MAX;
+        for (int32 i = 0; i < enemyMax; ++i)
+        {
+            CEnemy* pEnemy = CGameProperty::GetEnemy(i);
+            if (!pEnemy)
+                continue;
+
+            RwV3d enemyPosition = Math::VECTOR3_ZERO;
+            pEnemy->GetPosition(&enemyPosition);
+            RwV3d delta;
+            Math::Vec3_Sub(&delta, &enemyPosition, &playerPosition);
+            float distanceSq = Math::Vec3_Dot(&delta, &delta);
+            if (distanceSq < nearestDistanceSq)
+            {
+                nearestDistanceSq = distanceSq;
+                pNearest = pEnemy;
+            };
+        };
+
+        if (pNearest)
+        {
+            m_font.Print(
+                "Motion %.20s  Near %d HP %d/%d Dist %.1f",
+                pszMotionName,
+                static_cast<int32>(pNearest->GetID()),
+                pNearest->GetHP(),
+                pNearest->GetHPMax(),
+                Math::Sqrt(nearestDistanceSq)
+            );
+        }
+        else
+        {
+            m_font.Print("Motion %.20s  Near none", pszMotionName);
+        };
+
+        m_font.SetAutoStep(0, 0);
     };
 
 
@@ -1319,8 +1499,9 @@ private:
     bool m_bEnemyAIPaused;
     bool m_bTelemetryEnabled;
     bool m_bSavedPosition;
-    bool m_bControllerMenuComboDown;
     bool m_bShowcaseCamera;
+    bool m_bMSAAApplyAttempted;
+    bool m_bMSAAApplySucceeded;
     PAGE m_page;
     int32 m_aiSelection[PAGE_NUM];
     int32 m_iPausedLabel;

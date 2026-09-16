@@ -105,7 +105,7 @@ namespace
 
 /*static*/ void CPCSetting::SetMSAASamples(int32 nSamples)
 {
-    m_nMSAASamples = (CPCModFeatures::IsMSAAEnabled() ?
+    m_nMSAASamples = (CPCModFeatures::IsMSAARuntimeAvailable() ?
                       NormalizeMSAASamples(nSamples) : 0);
 };
 

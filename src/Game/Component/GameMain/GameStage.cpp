@@ -40,6 +40,7 @@
 #endif /* defined(_DEBUG) || defined(TMNT2_DEBUG_TOOLS) */
 
 #ifdef TARGET_PC
+#include "System/PC/PCModFeatures.hpp"
 #include "System/PC/PCSpecific.hpp"
 #include "System/PC/PCPhysicalControllerKey.hpp"
 #endif /* TARGET_PC */
@@ -383,7 +384,16 @@ void CGameStage::StartPlay(void)
 bool CGameStage::CheckPauseMenu(void) const
 {
 #if defined(TARGET_PC)
-    return CPCSpecific::IsKeyTrigger(DIK_ESCAPE);
+    if (CPCSpecific::IsKeyTrigger(DIK_ESCAPE))
+        return true;
+
+    if (!CPCModFeatures::IsDebugToolsEnabled())
+        return false;
+
+    uint32 trigger =
+        CController::GetDigitalTrigger(CController::CONTROLLER_LOCKED_ON_VIRTUAL) |
+        CController::GetDigitalTrigger(CController::CONTROLLER_UNLOCKED_ON_VIRTUAL);
+    return ((trigger & CController::DIGITAL_START) != 0);
 #elif defined(TARGET_WEB)
     if (CWebSpecific::IsMobilePlatform())
         return CController::GetDigitalTrigger(CController::CONTROLLER_LOCKED_ON_VIRTUAL, CController::DIGITAL_START);

@@ -1,33 +1,33 @@
-name: Build TMNT2 Debug Tools Controller Bindings v3 US
+name: Build TMNT2 Debug Tools Graphics Camera v4 US
 
 on:
   workflow_dispatch:
   push:
     branches:
-      - "codex/debug-tools-controller-bindings-v3-us"
+      - "codex/debug-tools-graphics-camera-v4-us"
 
 permissions:
   contents: read
 
 jobs:
-  build-debug-tools-controller-bindings-v3-windows-x86-us:
+  build-debug-tools-graphics-camera-v4-windows-x86-us:
     runs-on: windows-2022
     timeout-minutes: 30
 
     steps:
-      - name: Check out Debug Tools Controller Bindings v3 source
+      - name: Check out Debug Tools Graphics Camera v4 source
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Verify Debug Tools Controller Bindings v3 source scope
+      - name: Verify Debug Tools Graphics Camera v4 source scope
         shell: pwsh
         run: |
           $allowed = @(
-            ".github/workflows/build-debug-tools-controller-bindings-v3-us.yml",
+            ".github/workflows/build-debug-tools-graphics-camera-v4-us.yml",
             ".github/workflows/build-debug-tools-f4-v1-us.yml",
             "CMakeLists.txt",
-            "DEBUG_TOOLS_CONTROLLER_BINDINGS_V3_US.md",
+            "DEBUG_TOOLS_GRAPHICS_CAMERA_V4_US.md",
             "DEBUG_TOOLS_F4_V1_US.md",
             "src/Game/Component/Enemy/EnemyCharacter.cpp",
             "src/Game/Component/Enemy/EnemyCharacter.hpp",
@@ -56,12 +56,14 @@ jobs:
             "src/Game/System/Hit/HitDebug.hpp",
             "src/System/PC/PCModFeatures.cpp",
             "src/System/PC/PCModFeatures.hpp",
+            "src/System/PC/PCGraphicsDevice.cpp",
+            "src/System/PC/PCSetting.cpp",
             "src/System/PC/main.cpp"
           )
           $changed = @(git diff --name-only e13afb7d1a5e838867faa149e4ffb6ed278e6199 HEAD)
           $unexpected = @($changed | Where-Object { $_ -notin $allowed })
           if ($unexpected.Count -ne 0) {
-            throw "Unexpected files in Debug Tools Controller Bindings v3 branch: $($unexpected -join ', ')"
+            throw "Unexpected files in Debug Tools Graphics Camera v4 branch: $($unexpected -join ', ')"
           }
 
       - name: Verify EXE-only feature boundaries
@@ -79,30 +81,46 @@ jobs:
             throw "The debug-tools-f4 runtime feature gate is missing."
           }
 
-      - name: Verify controller showcase controls
+      - name: Verify controller showcase, telemetry, and graphics controls
         shell: pwsh
         run: |
           $menu = Get-Content "src/Game/Sequence/DebugTools/DebugToolsProcess.cpp" -Raw
           $camera = Get-Content "src/Game/System/Map/MapCamera.cpp" -Raw
+          $stage = Get-Content "src/Game/Component/GameMain/GameStage.cpp" -Raw
+          $features = Get-Content "src/System/PC/PCModFeatures.cpp" -Raw
           foreach ($required in @(
             "CController::DIGITAL_SELECT",
-            "CController::DIGITAL_R2",
+            "CController::DIGITAL_START",
             "CController::DIGITAL_R3",
             "CController::DIGITAL_L1",
             "CController::DIGITAL_L2",
             "ControllerDigitalRepeat",
             "DebugUpdateCamera",
-            "Right stick orbit",
-            "R3 default camera"
+            "DrawTelemetryCompact",
+            "PAGE_GRAPHICS",
+            "ApplyDisplaySettings",
+            "MSAA (fullscreen)",
+            "RS orbit",
+            "R3 reset"
           )) {
             if ($menu -notmatch [regex]::Escape($required)) {
               throw "Missing controller-menu behavior: $required"
             }
           }
+          if ($menu -match "controllerMenuCombo") {
+            throw "The obsolete Back/View + RT menu combo is still present."
+          }
+          if ($stage -notmatch [regex]::Escape("CController::DIGITAL_START")) {
+            throw "The controller Start pause path is missing."
+          }
+          if ($features -notmatch [regex]::Escape("IsMSAARuntimeAvailable")) {
+            throw "The Debug Tools runtime MSAA gate is missing."
+          }
           foreach ($required in @(
             "DebugBeginShowcase",
             "DebugResetShowcase",
             "CAMERA_SUPPRESS_SWITCH_TRIGGER",
+            "m_fRotY -= rx",
             "CController::ANALOG_R1",
             "CController::ANALOG_R2",
             "CONTROLLER_LOCKED_ON_VIRTUAL",
@@ -172,11 +190,11 @@ jobs:
           }
           "DXSDK_DIR=$dxsdk" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
-      - name: Configure US Win32 Release Debug Tools Controller Bindings v3 build
+      - name: Configure US Win32 Release Debug Tools Graphics Camera v4 build
         shell: pwsh
         run: cmake --preset vs2022 -DOPT_EU_BUILD=OFF -DOPT_DEBUG_TOOLS=ON
 
-      - name: Build TMNT2 Debug Tools Controller Bindings v3 US
+      - name: Build TMNT2 Debug Tools Graphics Camera v4 US
         shell: pwsh
         run: cmake --build --preset vs2022-release --parallel
 
@@ -195,21 +213,21 @@ jobs:
             Sort-Object LastWriteTimeUtc -Descending | Select-Object -First 1
           if (-not $pdb -or -not $map) { throw "The matching PDB or MAP was not found." }
 
-          $artifactDir = Join-Path $env:GITHUB_WORKSPACE "artifact-debug-tools-controller-bindings-v3-us"
+          $artifactDir = Join-Path $env:GITHUB_WORKSPACE "artifact-debug-tools-graphics-camera-v4-us"
           New-Item -ItemType Directory -Force -Path $artifactDir | Out-Null
-          $baseName = "TMNT2_Debug_Tools_Controller_Bindings_v3_US"
+          $baseName = "TMNT2_Debug_Tools_Graphics_Camera_v4_US"
           Copy-Item $exe.FullName (Join-Path $artifactDir "$baseName.exe") -Force
           Copy-Item $pdb.FullName (Join-Path $artifactDir "$baseName.pdb") -Force
           Copy-Item $map.FullName (Join-Path $artifactDir "$baseName.map") -Force
-          Copy-Item "$env:GITHUB_WORKSPACE\DEBUG_TOOLS_CONTROLLER_BINDINGS_V3_US.md" $artifactDir -Force
+          Copy-Item "$env:GITHUB_WORKSPACE\DEBUG_TOOLS_GRAPHICS_CAMERA_V4_US.md" $artifactDir -Force
           Get-ChildItem $artifactDir -File | Get-FileHash -Algorithm SHA256 |
             ForEach-Object { "$($_.Hash.ToLowerInvariant())  $($_.Path | Split-Path -Leaf)" } |
             Set-Content (Join-Path $artifactDir "SHA256SUMS.txt") -Encoding utf8
 
-      - name: Upload TMNT2 Debug Tools Controller Bindings v3 US artifact
+      - name: Upload TMNT2 Debug Tools Graphics Camera v4 US artifact
         uses: actions/upload-artifact@v4
         with:
-          name: TMNT2-Debug-Tools-Controller-Bindings-v3-US-run-${{ github.run_number }}
-          path: artifact-debug-tools-controller-bindings-v3-us/*
+          name: TMNT2-Debug-Tools-Graphics-Camera-v4-US-run-${{ github.run_number }}
+          path: artifact-debug-tools-graphics-camera-v4-us/*
           if-no-files-found: error
           retention-days: 14

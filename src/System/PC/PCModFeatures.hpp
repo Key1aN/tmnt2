@@ -7,6 +7,7 @@ public:
     static void Initialize(void);
     static bool IsIntroSkipEnabled(void);
     static bool IsMSAAEnabled(void);
+    static bool IsMSAARuntimeAvailable(void);
     static bool IsBrutalDifficultiesEnabled(void);
     static bool IsWidescreenEnabled(void);
     static bool IsDebugToolsEnabled(void);

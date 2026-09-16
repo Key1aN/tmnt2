@@ -606,7 +606,19 @@ void CMapCamera::UpdateManualCamera(const RwV3d* pvAt)
     ry = (ry >= 0.0f ? (ry / float(TYPEDEF::SINT16_MAX)) : -(ry / float(TYPEDEF::SINT16_MIN)));
 
     if ((rx > DEADZONE) || (rx < -DEADZONE))
-        m_fRotY += rx * (CGameProperty::GetElapsedTime() * 6.0f);
+    {
+#if defined(TARGET_PC) && defined(TMNT2_DEBUG_TOOLS)
+        if (CPCModFeatures::IsDebugToolsEnabled())
+        {
+            // Positive physical stick X means orbit the eye to screen-right.
+            m_fRotY -= rx * (CGameProperty::GetElapsedTime() * 6.0f);
+        }
+        else
+#endif /* defined(TARGET_PC) && defined(TMNT2_DEBUG_TOOLS) */
+        {
+            m_fRotY += rx * (CGameProperty::GetElapsedTime() * 6.0f);
+        };
+    };
 
     if ((ry > DEADZONE) || (ry < -DEADZONE))
         m_fHeight += ry * (CGameProperty::GetElapsedTime() * 10.0f);
