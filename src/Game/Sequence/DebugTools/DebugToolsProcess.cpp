@@ -22,6 +22,7 @@
 #include "System/Common/Process/ProcessMail.hpp"
 #include "System/Common/Process/Sequence.hpp"
 #include "System/Common/Screen.hpp"
+#include "System/PC/PCDebugController.hpp"
 #include "System/PC/PCPhysicalControllerKey.hpp"
 #include "System/PC/PCSpecific.hpp"
 
@@ -45,6 +46,7 @@ namespace
         PAGE_ENEMY_AI,
         PAGE_STAGE,
         PAGE_CAMERA,
+        PAGE_CONTROLLER,
         PAGE_GRAPHICS,
         PAGE_HITBOXES,
         PAGE_TELEMETRY,
@@ -60,6 +62,7 @@ namespace
         "Enemy/AI",
         "Stage",
         "Camera",
+        "Input",
         "Graphics",
         "Hitboxes",
         "Telemetry",
@@ -249,6 +252,7 @@ public:
 
     void Move(CDebugToolsProcess& owner)
     {
+        CPCDebugController::Update();
         UpdateStep(owner);
         UpdatePersistentTools();
         UpdateScreenshot();
@@ -292,18 +296,23 @@ public:
         if (CPCSpecific::IsKeyTrigger(DIK_ESCAPE) ||
             (controllerTrigger & CController::DIGITAL_RLEFT))
         {
+            if (CPCDebugController::IsCalibrationActive())
+            {
+                CPCDebugController::CancelCalibration();
+                return;
+            };
+
             Close(owner);
             return;
         };
 
-        // The retail PC DirectInput table exposes the physical shoulder buttons
-        // as L1 (LB) and L2 (RB). Use those raw identities here so the labels
-        // match the buttons the player actually presses.
+        // Keep the verified physical translation local to Debug Tools:
+        // L1=LB and R1=LT change pages; L2=RB and R2=RT control camera distance.
         if (CPCSpecific::IsKeyTrigger(DIK_Q) ||
             (controllerTrigger & CController::DIGITAL_L1))
             ChangePage(-1);
         else if (CPCSpecific::IsKeyTrigger(DIK_E) ||
-                 (controllerTrigger & CController::DIGITAL_L2))
+                 (controllerTrigger & CController::DIGITAL_R1))
             ChangePage(1);
         else if (CPCSpecific::IsKeyTrigger(DIK_UP) ||
                  (controllerNavigation & CController::DIGITAL_LUP))
@@ -342,7 +351,7 @@ public:
         if (m_bOpen)
         {
             DrawMenu();
-            DrawTelemetryCompact(12, 416);
+            DrawTelemetryCompact(12, 430);
         }
         else
         {
@@ -495,6 +504,9 @@ private:
             };
             break;
 
+        case PAGE_CONTROLLER:
+            break;
+
         case PAGE_GRAPHICS:
             {
                 int32 currentIndex = GetMSAAIndex(CPCSpecific::GetMultiSamplingSamples());
@@ -557,6 +569,10 @@ private:
                 ResetShowcaseCamera();
             break;
 
+        case PAGE_CONTROLLER:
+            CPCDebugController::AdvanceCalibration();
+            break;
+
         case PAGE_GRAPHICS:
             ApplyMSAA(CPCSpecific::GetMultiSamplingSamples());
             break;
@@ -612,6 +628,10 @@ private:
                 ResetShowcaseCamera();
             break;
 
+        case PAGE_CONTROLLER:
+            CPCDebugController::ResetCalibration();
+            break;
+
         case PAGE_GRAPHICS:
             ApplyMSAA(0);
             break;
@@ -650,6 +670,10 @@ private:
 
         case PAGE_CAMERA:
             ResetShowcaseCamera();
+            break;
+
+        case PAGE_CONTROLLER:
+            CPCDebugController::ResetCalibration();
             break;
 
         case PAGE_GRAPHICS:
@@ -964,14 +988,23 @@ private:
             return;
         };
 
-        int16 rightX = ControllerAnalog(CController::ANALOG_RSTICK_X);
-        int16 rightY = ControllerAnalog(CController::ANALOG_RSTICK_Y);
-        if (m_bOpen && (m_page == PAGE_CAMERA) &&
+        int16 rightX = 0;
+        int16 rightY = 0;
+        if (!CPCDebugController::GetRightStick(&rightX, &rightY))
+        {
+            rightX = ControllerAnalog(CController::ANALOG_RSTICK_X);
+            rightY = ControllerAnalog(CController::ANALOG_RSTICK_Y);
+        };
+
+        if (!CPCDebugController::IsCalibrationActive() &&
             (IsAnalogCameraInput(rightX) || IsAnalogCameraInput(rightY)))
         {
-            m_bShowcaseCamera = true;
-            m_iCameraMode = CMapCamera::MODE_MANUAL;
-            ApplyCameraMode();
+            if (!m_bShowcaseCamera)
+            {
+                m_bShowcaseCamera = true;
+                m_iCameraMode = CMapCamera::MODE_MANUAL;
+                ApplyCameraMode();
+            };
         };
 
         if (m_bOpen && m_bShowcaseCamera && (m_iStepFrames <= 0))
@@ -1030,6 +1063,7 @@ private:
         case PAGE_ENEMY_AI:   return 2;
         case PAGE_STAGE:      return 5;
         case PAGE_CAMERA:     return 3;
+        case PAGE_CONTROLLER: return 1;
         case PAGE_GRAPHICS:   return 1;
         case PAGE_HITBOXES:   return 3;
         case PAGE_TELEMETRY:  return 2;
@@ -1099,13 +1133,47 @@ private:
         m_font.Color({ 0xD8, 0xE0, 0xEC, 0xFF });
         m_font.Position(18, helpY + 18);
         m_font.Print("%s", description);
+
+        if (m_page == PAGE_CONTROLLER)
+            DrawControllerDiagnostics(helpY + 42);
+
         m_font.Color({ 0xA8, 0xB4, 0xC8, 0xFF });
-        m_font.Position(18, helpY + 36);
-        m_font.Print("Keys: Arrows adjust  PgUp/PgDn x5  Enter run  Backspace item reset  Delete page");
-        m_font.Position(18, helpY + 54);
-        m_font.Print("Pad: D-pad/LS navigate  LB/RB page  A run  B close  X reset  Y reset page");
-        m_font.Position(18, helpY + 72);
-        m_font.Print("Camera: RS orbit  LT/RT distance  R3 reset  |  Back menu  Start game pause");
+        m_font.Position(18, 366);
+        m_font.Print("Keys: Arrows adjust  PgUp/PgDn x5  Enter execute  Backspace item reset  Delete page reset");
+        m_font.Position(18, 384);
+        m_font.Print("Pad: D-pad/LS navigate  LB/LT page  A execute  B back  X item reset  Y page reset");
+        m_font.Position(18, 402);
+        m_font.Print("Camera: RS orbit anytime  RB/RT distance  R3 reset  |  Back menu  Start game pause");
+    };
+
+
+    void DrawControllerDiagnostics(int32 y) const
+    {
+        m_font.Color({ 0xB8, 0xD8, 0xF0, 0xFF });
+        m_font.Position(18, y);
+        m_font.Print("Device: %s", CPCDebugController::GetDeviceLabel());
+        m_font.Position(18, y + 18);
+        m_font.Print("Profile: %s", CPCDebugController::GetProfileLabel());
+        m_font.Position(18, y + 36);
+        m_font.Print(
+            "Raw: X %d  Y %d  Z %d  Rx %d  Ry %d  Rz %d",
+            CPCDebugController::GetRawAxis(CPCPhysicalController::DEBUGAXIS_X),
+            CPCDebugController::GetRawAxis(CPCPhysicalController::DEBUGAXIS_Y),
+            CPCDebugController::GetRawAxis(CPCPhysicalController::DEBUGAXIS_Z),
+            CPCDebugController::GetRawAxis(CPCPhysicalController::DEBUGAXIS_RX),
+            CPCDebugController::GetRawAxis(CPCPhysicalController::DEBUGAXIS_RY),
+            CPCDebugController::GetRawAxis(CPCPhysicalController::DEBUGAXIS_RZ)
+        );
+        m_font.Position(18, y + 54);
+        m_font.Print(
+            "Raw sliders: S0 %d  S1 %d",
+            CPCDebugController::GetRawAxis(CPCPhysicalController::DEBUGAXIS_SLIDER0),
+            CPCDebugController::GetRawAxis(CPCPhysicalController::DEBUGAXIS_SLIDER1)
+        );
+        m_font.Position(18, y + 72);
+        m_font.Print("%s", CPCDebugController::GetCalibrationStatus());
+        m_font.Position(18, y + 90);
+        m_font.Print("%s", CPCDebugController::GetCalibrationPrompt());
     };
 
 
@@ -1193,6 +1261,15 @@ private:
                 std::snprintf(buffer, capacity, "Reset to default game camera");
             break;
 
+        case PAGE_CONTROLLER:
+            std::snprintf(
+                buffer,
+                capacity,
+                "Right-stick calibration        %s",
+                (CPCDebugController::IsProfileValid() ? "READY" : "REQUIRED")
+            );
+            break;
+
         case PAGE_GRAPHICS:
             std::snprintf(
                 buffer,
@@ -1276,8 +1353,13 @@ private:
             description = (index == 0 ?
                 "Scales automatic gameplay camera zoom without changing widescreen projection." :
                 (index == 1 ?
-                    "Right stick enters showcase orbit; LT/RT zoom while this menu is open." :
+                    "Right stick enters spherical showcase orbit; RB/RT change distance while this menu is open." :
                     "Returns to automatic game camera, normal zoom, and the correct player path mode."));
+            break;
+
+        case PAGE_CONTROLLER:
+            scope = "PER-CONTROLLER CALIBRATION";
+            description = "Captures the real right-stick axes and signs; the profile is saved beside the game.";
             break;
 
         case PAGE_GRAPHICS:
@@ -1332,7 +1414,19 @@ private:
         if (CGameProperty::GetPlayerNum() > 0)
             pPlayer = CGameProperty::Player(0);
 
-        if (!pPlayer || !pPlayer->IsAlive())
+        if (pPlayer && pPlayer->IsAlive())
+        {
+            m_font.Print(
+                "Seq %d  Tick %d  Enemies %d  P1 HP %d/%d  Status %d",
+                CSequence::GetCurrently(),
+                CGameStageDebug::STAGE_TICK,
+                enemyCount,
+                pPlayer->GetHP(),
+                pPlayer->GetHPMax(),
+                static_cast<int32>(pPlayer->GetStatus())
+            );
+        }
+        else
         {
             m_font.Print(
                 "Seq %d  Tick %d  Enemies %d  P1 unavailable",
@@ -1340,70 +1434,6 @@ private:
                 CGameStageDebug::STAGE_TICK,
                 enemyCount
             );
-            m_font.SetAutoStep(0, 0);
-            return;
-        };
-
-        m_font.Print(
-            "Seq %d  Tick %d  Enemies %d  P1 HP %d/%d",
-            CSequence::GetCurrently(),
-            CGameStageDebug::STAGE_TICK,
-            enemyCount,
-            pPlayer->GetHP(),
-            pPlayer->GetHPMax()
-        );
-
-        RwV3d playerPosition = Math::VECTOR3_ZERO;
-        pPlayer->GetPosition(&playerPosition);
-        m_font.Print(
-            "P1 XYZ %.1f %.1f %.1f  Rot %.2f  Status %d  Char %d",
-            playerPosition.x,
-            playerPosition.y,
-            playerPosition.z,
-            pPlayer->GetRotY(),
-            static_cast<int32>(pPlayer->GetStatus()),
-            static_cast<int32>(pPlayer->GetCurrentCharacterID())
-        );
-
-        const char* pszMotionName = "<none>";
-        CPlayerCharacter* pCharacter = pPlayer->GetCurrentCharacter();
-        if (pCharacter && pCharacter->GetMotionName())
-            pszMotionName = pCharacter->GetMotionName();
-
-        CEnemy* pNearest = nullptr;
-        float nearestDistanceSq = FLT_MAX;
-        for (int32 i = 0; i < enemyMax; ++i)
-        {
-            CEnemy* pEnemy = CGameProperty::GetEnemy(i);
-            if (!pEnemy)
-                continue;
-
-            RwV3d enemyPosition = Math::VECTOR3_ZERO;
-            pEnemy->GetPosition(&enemyPosition);
-            RwV3d delta;
-            Math::Vec3_Sub(&delta, &enemyPosition, &playerPosition);
-            float distanceSq = Math::Vec3_Dot(&delta, &delta);
-            if (distanceSq < nearestDistanceSq)
-            {
-                nearestDistanceSq = distanceSq;
-                pNearest = pEnemy;
-            };
-        };
-
-        if (pNearest)
-        {
-            m_font.Print(
-                "Motion %.20s  Near %d HP %d/%d Dist %.1f",
-                pszMotionName,
-                static_cast<int32>(pNearest->GetID()),
-                pNearest->GetHP(),
-                pNearest->GetHPMax(),
-                Math::Sqrt(nearestDistanceSq)
-            );
-        }
-        else
-        {
-            m_font.Print("Motion %.20s  Near none", pszMotionName);
         };
 
         m_font.SetAutoStep(0, 0);

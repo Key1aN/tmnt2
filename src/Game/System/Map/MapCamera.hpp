@@ -100,6 +100,10 @@ private:
     float m_fRotY;
     float m_fHeight;
     float m_fLookatOffsetY;
+#if defined(TMNT2_DEBUG_TOOLS)
+    float m_fShowcaseRadius;
+    float m_fShowcasePitch;
+#endif /* defined(TMNT2_DEBUG_TOOLS) */
     float m_fPathTime;
     float m_fPrePathTime;
     float m_fLookatViewAreaRadius;

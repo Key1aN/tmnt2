@@ -12,9 +12,7 @@
 struct JOYSTICKSTATE
 {
     GUID                 m_guid;
-#ifdef _DEBUG
     GUID                 m_guidprod;
-#endif /* _DEBUG */
     IDirectInputDevice8* m_pDevice;
     DIDEVCAPS            m_deviceCaps;
     bool                 m_bVibrationFeature;
@@ -34,6 +32,44 @@ struct JOYSTICKINFO
 static JOYSTICKINFO s_JoystickInfo;
 static IDirectInput8* s_pDirectInput8 = nullptr;
 static class CPCKeyboardController* s_pPCKeyboardController = nullptr;
+
+#if defined(TMNT2_DEBUG_TOOLS)
+static CPCPhysicalController::DEBUGGAMEPADSTATE s_aDebugGamepadState[32];
+
+
+static void SetDebugGamepadDisconnected(int32 iPhysicalPort)
+{
+    if ((iPhysicalPort < 0) || (iPhysicalPort >= COUNT_OF(s_aDebugGamepadState)))
+        return;
+
+    CPCPhysicalController::DEBUGGAMEPADSTATE& state = s_aDebugGamepadState[iPhysicalPort];
+    state.m_bConnected = false;
+    state.m_iPhysicalPort = iPhysicalPort;
+};
+
+
+static void SetDebugGamepadState(int32 iPhysicalPort, const DIJOYSTATE2& joystickState, const GUID& productGuid)
+{
+    if ((iPhysicalPort < 0) || (iPhysicalPort >= COUNT_OF(s_aDebugGamepadState)))
+        return;
+
+    CPCPhysicalController::DEBUGGAMEPADSTATE& state = s_aDebugGamepadState[iPhysicalPort];
+    state.m_bConnected = true;
+    state.m_iPhysicalPort = iPhysicalPort;
+    state.m_aAxis[CPCPhysicalController::DEBUGAXIS_X] = joystickState.lX;
+    state.m_aAxis[CPCPhysicalController::DEBUGAXIS_Y] = joystickState.lY;
+    state.m_aAxis[CPCPhysicalController::DEBUGAXIS_Z] = joystickState.lZ;
+    state.m_aAxis[CPCPhysicalController::DEBUGAXIS_RX] = joystickState.lRx;
+    state.m_aAxis[CPCPhysicalController::DEBUGAXIS_RY] = joystickState.lRy;
+    state.m_aAxis[CPCPhysicalController::DEBUGAXIS_RZ] = joystickState.lRz;
+    state.m_aAxis[CPCPhysicalController::DEBUGAXIS_SLIDER0] = joystickState.rglSlider[0];
+    state.m_aAxis[CPCPhysicalController::DEBUGAXIS_SLIDER1] = joystickState.rglSlider[1];
+    state.m_uProductData1 = productGuid.Data1;
+    state.m_uProductData2 = productGuid.Data2;
+    state.m_uProductData3 = productGuid.Data3;
+    std::memcpy(state.m_auProductData4, productGuid.Data4, sizeof(state.m_auProductData4));
+};
+#endif /* defined(TMNT2_DEBUG_TOOLS) */
 
 
 static inline CPCKeyboardController& KeyboardController(void)
@@ -422,9 +458,12 @@ void CPCGamepadController::Update(void)
 
     JOYSTICKSTATE* pJoystickState = s_JoystickInfo.m_apJoystickState[m_iPort];
     
-    IDirectInputDevice8* pDevice = pJoystickState->m_pDevice;
+    IDirectInputDevice8* pDevice = (pJoystickState ? pJoystickState->m_pDevice : nullptr);
     if (!pJoystickState || !pDevice)
     {
+#if defined(TMNT2_DEBUG_TOOLS)
+        SetDebugGamepadDisconnected(m_iPort);
+#endif /* defined(TMNT2_DEBUG_TOOLS) */
         m_info.m_eState = CController::STATE_UNCONNECT;
         IPhysicalController::Update();
         return;
@@ -434,6 +473,9 @@ void CPCGamepadController::Update(void)
     {
         if (!AcquireDevice(pDevice))
         {
+#if defined(TMNT2_DEBUG_TOOLS)
+            SetDebugGamepadDisconnected(m_iPort);
+#endif /* defined(TMNT2_DEBUG_TOOLS) */
             m_info.m_eState = CController::STATE_UNCONNECT;
             IPhysicalController::Update();
             return;
@@ -445,9 +487,16 @@ void CPCGamepadController::Update(void)
     std::memset(&m_joystate, 0x00, sizeof(m_joystate));
     if (FAILED(pDevice->GetDeviceState(sizeof(DIJOYSTATE2), &m_joystate)))
     {
+#if defined(TMNT2_DEBUG_TOOLS)
+        SetDebugGamepadDisconnected(m_iPort);
+#endif /* defined(TMNT2_DEBUG_TOOLS) */
         IPhysicalController::Update();
         return;
     };
+
+#if defined(TMNT2_DEBUG_TOOLS)
+    SetDebugGamepadState(m_iPort, m_joystate, pJoystickState->m_guidprod);
+#endif /* defined(TMNT2_DEBUG_TOOLS) */
 
     uint32 digital = 0;
 
@@ -640,9 +689,7 @@ static BOOL FAR PASCAL EnumDeviceCallback(LPCDIDEVICEINSTANCE lpDevice, LPVOID l
 
     _tcscpy(pJoystickState->m_tszName, lpDevice->tszProductName);
     pJoystickState->m_guid = lpDevice->guidInstance;	
-#ifdef _DEBUG
     pJoystickState->m_guidprod = lpDevice->guidProduct;
-#endif /* _DEBUG */
 
     if (FAILED(s_pDirectInput8->CreateDevice(pJoystickState->m_guid, &pJoystickState->m_pDevice, NULL)))
         goto label_failure;
@@ -739,6 +786,12 @@ label_failure:
 
 /*static*/ bool CPCPhysicalController::Initialize(void)
 {
+#if defined(TMNT2_DEBUG_TOOLS)
+    std::memset(s_aDebugGamepadState, 0x00, sizeof(s_aDebugGamepadState));
+    for (int32 i = 0; i < COUNT_OF(s_aDebugGamepadState); ++i)
+        s_aDebugGamepadState[i].m_iPhysicalPort = i;
+#endif /* defined(TMNT2_DEBUG_TOOLS) */
+
     HRESULT hr = DirectInput8Create(GetModuleHandle(NULL),
                                     DIRECTINPUT_VERSION,
                                     IID_IDirectInput8,
@@ -812,6 +865,10 @@ label_failure:
         s_pDirectInput8->Release();
         s_pDirectInput8 = nullptr;
     };
+
+#if defined(TMNT2_DEBUG_TOOLS)
+    std::memset(s_aDebugGamepadState, 0x00, sizeof(s_aDebugGamepadState));
+#endif /* defined(TMNT2_DEBUG_TOOLS) */
 };
 
 
@@ -893,3 +950,23 @@ label_failure:
     
     return CController::Max();
 };
+
+
+#if defined(TMNT2_DEBUG_TOOLS)
+/*static*/ bool CPCPhysicalController::GetDebugGamepadState(int32 iPhysicalPort, DEBUGGAMEPADSTATE* pState)
+{
+    if (!pState ||
+        (iPhysicalPort < 0) ||
+        (iPhysicalPort >= COUNT_OF(s_aDebugGamepadState)))
+        return false;
+
+    *pState = s_aDebugGamepadState[iPhysicalPort];
+    return pState->m_bConnected;
+};
+
+
+/*static*/ int32 CPCPhysicalController::GetDebugGamepadCapacity(void)
+{
+    return COUNT_OF(s_aDebugGamepadState);
+};
+#endif /* defined(TMNT2_DEBUG_TOOLS) */

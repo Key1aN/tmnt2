@@ -3,6 +3,9 @@
 #if defined(TARGET_PC)
 #include "System/PC/PCModFeatures.hpp"
 #endif /* defined(TARGET_PC) */
+#if defined(TARGET_PC) && defined(TMNT2_DEBUG_TOOLS)
+#include "System/PC/PCDebugController.hpp"
+#endif /* defined(TARGET_PC) && defined(TMNT2_DEBUG_TOOLS) */
 #include "WorldMap.hpp"
 #include "CameraDataMan.hpp"
 
@@ -251,6 +254,10 @@ CMapCamera::CMapCamera(void)
 , m_fRotY(0.0f)
 , m_fHeight(0.0f)
 , m_fLookatOffsetY(0.0f)
+#if defined(TMNT2_DEBUG_TOOLS)
+, m_fShowcaseRadius(5.0f)
+, m_fShowcasePitch(0.0f)
+#endif /* defined(TMNT2_DEBUG_TOOLS) */
 , m_fPathTime(0.0f)
 , m_fPrePathTime(0.0f)
 , m_fLookatViewAreaRadius(0.0f)
@@ -597,59 +604,86 @@ void CMapCamera::UpdateManualCamera(const RwV3d* pvAt)
 #if defined(TARGET_PC) && defined(TMNT2_DEBUG_TOOLS)
     if (CPCModFeatures::IsDebugToolsEnabled())
     {
-        rx = static_cast<float>(GetDebugControllerAnalog(CController::ANALOG_RSTICK_X));
-        ry = static_cast<float>(GetDebugControllerAnalog(CController::ANALOG_RSTICK_Y));
+        int16 calibratedX = 0;
+        int16 calibratedY = 0;
+        if (CPCDebugController::GetRightStick(&calibratedX, &calibratedY))
+        {
+            rx = static_cast<float>(calibratedX);
+            ry = static_cast<float>(calibratedY);
+        }
+        else
+        {
+            rx = static_cast<float>(GetDebugControllerAnalog(CController::ANALOG_RSTICK_X));
+            ry = static_cast<float>(GetDebugControllerAnalog(CController::ANALOG_RSTICK_Y));
+        };
     };
 #endif /* defined(TARGET_PC) && defined(TMNT2_DEBUG_TOOLS) */
 
     rx = (rx >= 0.0f ? (rx / float(TYPEDEF::SINT16_MAX)) : -(rx / float(TYPEDEF::SINT16_MIN)));
     ry = (ry >= 0.0f ? (ry / float(TYPEDEF::SINT16_MAX)) : -(ry / float(TYPEDEF::SINT16_MIN)));
 
-    if ((rx > DEADZONE) || (rx < -DEADZONE))
-    {
 #if defined(TARGET_PC) && defined(TMNT2_DEBUG_TOOLS)
-        if (CPCModFeatures::IsDebugToolsEnabled())
+    if (CPCModFeatures::IsDebugToolsEnabled())
+    {
+        if ((rx > DEADZONE) || (rx < -DEADZONE))
         {
-            // Positive physical stick X means orbit the eye to screen-right.
-            m_fRotY -= rx * (CGameProperty::GetElapsedTime() * 6.0f);
-        }
-        else
-#endif /* defined(TARGET_PC) && defined(TMNT2_DEBUG_TOOLS) */
-        {
-            m_fRotY += rx * (CGameProperty::GetElapsedTime() * 6.0f);
+            // Calibrated positive X is a physical move to the right.
+            m_fRotY -= rx * (CGameProperty::GetElapsedTime() * 4.0f);
         };
+
+        if ((ry > DEADZONE) || (ry < -DEADZONE))
+        {
+            // Calibrated positive Y is a physical move upward.
+            m_fShowcasePitch += ry * (CGameProperty::GetElapsedTime() * 2.5f);
+            m_fShowcasePitch = Clamp(m_fShowcasePitch, -1.3962634f, 1.3962634f);
+        };
+
+        if (CGameStageDebug::CAMERA_MENU_CONTROL)
+        {
+            // Verified physical layout: internal L2 is RB and internal R2 is RT.
+            // Keep this translation local so normal gameplay bindings are unchanged.
+            float zoomOut = NormalizeDebugControllerAnalog(
+                GetDebugControllerAnalog(CController::ANALOG_L2)
+            );
+            float zoomIn = NormalizeDebugControllerAnalog(
+                GetDebugControllerAnalog(CController::ANALOG_R2)
+            );
+            m_fShowcaseRadius += (zoomOut - zoomIn) * (CGameProperty::GetElapsedTime() * 20.0f);
+            m_fShowcaseRadius = Clamp(m_fShowcaseRadius, 1.5f, 80.0f);
+        };
+
+        m_vAt = *pvAt;
+        m_vAt.y += m_fLookatOffsetY;
+
+        RwMatrix matRotY;
+        RwMatrixSetIdentity(&matRotY);
+        Math::Matrix_RotateY(&matRotY, m_fRotY);
+
+        RwV3d vecFront = Math::VECTOR3_ZERO;
+        RwV3dTransformVector(&vecFront, &Math::VECTOR3_AXIS_Z, &matRotY);
+        Math::Vec3_Normalize(&vecFront, &vecFront);
+
+        float fHorizontalRadius = Math::Cos(m_fShowcasePitch) * m_fShowcaseRadius;
+        Math::Vec3_Scale(&vecFront, &vecFront, fHorizontalRadius);
+        Math::Vec3_Sub(&m_vEye, &m_vAt, &vecFront);
+        m_vEye.y += Math::Sin(m_fShowcasePitch) * m_fShowcaseRadius;
+
+        UpdateLookat();
+        return;
     };
+#endif /* defined(TARGET_PC) && defined(TMNT2_DEBUG_TOOLS) */
+
+    if ((rx > DEADZONE) || (rx < -DEADZONE))
+        m_fRotY += rx * (CGameProperty::GetElapsedTime() * 6.0f);
 
     if ((ry > DEADZONE) || (ry < -DEADZONE))
         m_fHeight += ry * (CGameProperty::GetElapsedTime() * 10.0f);
 
-#if defined(TARGET_PC) && defined(TMNT2_DEBUG_TOOLS)
-    if (CPCModFeatures::IsDebugToolsEnabled())
-        m_fHeight = Clamp(m_fHeight, 0.5f, 50.0f);
-#endif /* defined(TARGET_PC) && defined(TMNT2_DEBUG_TOOLS) */
-
-#if defined(TARGET_PC) && defined(TMNT2_DEBUG_TOOLS)
-    if (CPCModFeatures::IsDebugToolsEnabled() && CGameStageDebug::CAMERA_MENU_CONTROL)
-    {
-        // The retail PC DirectInput table reports the physical triggers as
-        // R1 (LT) and R2 (RT). Keep this translation local to showcase mode;
-        // changing the global table would alter the game's existing controls.
-        float zoomOut = NormalizeDebugControllerAnalog(
-            GetDebugControllerAnalog(CController::ANALOG_R1)
-        );
-        float zoomIn = NormalizeDebugControllerAnalog(
-            GetDebugControllerAnalog(CController::ANALOG_R2)
-        );
-        m_fDist += (zoomOut - zoomIn) * (CGameProperty::GetElapsedTime() * 20.0f);
-        m_fDist = Clamp(m_fDist, 1.5f, 80.0f);
-    }
-    else
-#endif /* defined(TARGET_PC) && defined(TMNT2_DEBUG_TOOLS) */
     if (IGamepad::GetDigital(controller, IGamepad::DIGITAL_L1))
         m_fDist += (CGameProperty::GetElapsedTime() * 20.0f);
     else if (IGamepad::GetDigital(controller, IGamepad::DIGITAL_R1))
         m_fDist -= (CGameProperty::GetElapsedTime() * 20.0f);
-    
+
     if (IGamepad::GetDigital(controller, IGamepad::DIGITAL_LUP))
         m_fLookatOffsetY += (CGameProperty::GetElapsedTime() * 20.0f);
     else if (IGamepad::GetDigital(controller, IGamepad::DIGITAL_LDOWN))
@@ -1019,8 +1053,12 @@ void CMapCamera::DebugBeginShowcase(void)
     RwV3d lookat = m_vAt;
     m_fLookatOffsetY = 0.0f;
     SetLookat(&eye, &lookat);
-    m_fHeight = Clamp(m_fHeight, 0.5f, 50.0f);
-    m_fDist = Clamp(m_fDist, 1.5f, 80.0f);
+
+    RwV3d offset = Math::VECTOR3_ZERO;
+    Math::Vec3_Sub(&offset, &eye, &lookat);
+    m_fShowcaseRadius = Clamp(Math::Vec3_Length(&offset), 1.5f, 80.0f);
+    m_fShowcasePitch = Math::ASin(offset.y / m_fShowcaseRadius);
+    m_fShowcasePitch = Clamp(m_fShowcasePitch, -1.3962634f, 1.3962634f);
     SetCameraMode(MODE_MANUAL);
 };
 
@@ -1028,6 +1066,8 @@ void CMapCamera::DebugBeginShowcase(void)
 void CMapCamera::DebugResetShowcase(PATHMODE pathmode)
 {
     m_fLookatOffsetY = 0.0f;
+    m_fShowcaseRadius = 5.0f;
+    m_fShowcasePitch = 0.0f;
     SetPathMode(pathmode);
     SetCameraMode(MODE_AUTOCHANGE);
 };
