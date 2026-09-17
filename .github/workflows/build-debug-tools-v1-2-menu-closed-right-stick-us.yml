@@ -52,8 +52,12 @@ jobs:
             "m_fShowcaseRadius",
             "m_fShowcasePitch"
           )) {
-            if ((Get-ChildItem src -Recurse -File | Select-String -SimpleMatch $forbidden -Quiet)) {
+            & git grep --quiet --fixed-strings -- $forbidden -- src
+            if ($LASTEXITCODE -eq 0) {
               throw "Rolled-back v1.3 behavior is still present: $forbidden"
+            }
+            if ($LASTEXITCODE -ne 1) {
+              throw "git grep failed while checking rolled-back token: $forbidden"
             }
           }
 
