@@ -966,8 +966,7 @@ private:
 
         int16 rightX = ControllerAnalog(CController::ANALOG_RSTICK_X);
         int16 rightY = ControllerAnalog(CController::ANALOG_RSTICK_Y);
-        if (m_bOpen && (m_page == PAGE_CAMERA) &&
-            (IsAnalogCameraInput(rightX) || IsAnalogCameraInput(rightY)))
+        if (IsAnalogCameraInput(rightX) || IsAnalogCameraInput(rightY))
         {
             m_bShowcaseCamera = true;
             m_iCameraMode = CMapCamera::MODE_MANUAL;
