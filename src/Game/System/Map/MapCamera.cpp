@@ -629,7 +629,7 @@ void CMapCamera::UpdateManualCamera(const RwV3d* pvAt)
 #endif /* defined(TARGET_PC) && defined(TMNT2_DEBUG_TOOLS) */
 
 #if defined(TARGET_PC) && defined(TMNT2_DEBUG_TOOLS)
-    if (CPCModFeatures::IsDebugToolsEnabled() && CGameStageDebug::CAMERA_MENU_CONTROL)
+    if (CPCModFeatures::IsDebugToolsEnabled())
     {
         // The retail PC DirectInput table reports the physical triggers as
         // R1 (LT) and R2 (RT). Keep this translation local to showcase mode;
@@ -640,8 +640,32 @@ void CMapCamera::UpdateManualCamera(const RwV3d* pvAt)
         float zoomIn = NormalizeDebugControllerAnalog(
             GetDebugControllerAnalog(CController::ANALOG_R2)
         );
-        m_fDist += (zoomOut - zoomIn) * (CGameProperty::GetElapsedTime() * 20.0f);
-        m_fDist = Clamp(m_fDist, 1.5f, 80.0f);
+        float radiusDelta = (zoomOut - zoomIn) * (CGameProperty::GetElapsedTime() * 20.0f);
+        if (radiusDelta != 0.0f)
+        {
+            float radius = Math::Sqrt((m_fDist * m_fDist) + (m_fHeight * m_fHeight));
+            if (radius > 0.001f)
+            {
+                // Scale both camera components by the same factor. This changes
+                // only eye-to-target radius and preserves the current yaw/pitch.
+                float radiusMin = 1.5f;
+                float radiusMax = 80.0f;
+                if (m_fHeight > 0.001f)
+                {
+                    float heightSafeMin = radius * (0.5f / m_fHeight);
+                    float heightSafeMax = radius * (50.0f / m_fHeight);
+                    if (heightSafeMin > radiusMin)
+                        radiusMin = heightSafeMin;
+                    if (heightSafeMax < radiusMax)
+                        radiusMax = heightSafeMax;
+                };
+
+                float nextRadius = Clamp(radius + radiusDelta, radiusMin, radiusMax);
+                float radiusScale = nextRadius / radius;
+                m_fDist *= radiusScale;
+                m_fHeight *= radiusScale;
+            };
+        };
     }
     else
 #endif /* defined(TARGET_PC) && defined(TMNT2_DEBUG_TOOLS) */
