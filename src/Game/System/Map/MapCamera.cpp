@@ -597,8 +597,11 @@ void CMapCamera::UpdateManualCamera(const RwV3d* pvAt)
 #if defined(TARGET_PC) && defined(TMNT2_DEBUG_TOOLS)
     if (CPCModFeatures::IsDebugToolsEnabled())
     {
-        rx = static_cast<float>(GetDebugControllerAnalog(CController::ANALOG_RSTICK_X));
-        ry = static_cast<float>(GetDebugControllerAnalog(CController::ANALOG_RSTICK_Y));
+        // Verified physical mapping for the user's PC controller: the retail
+        // right-stick X/Y identities are crossed. Keep the correction local to
+        // Debug Camera so normal gameplay controls remain unchanged.
+        rx =  static_cast<float>(GetDebugControllerAnalog(CController::ANALOG_RSTICK_Y));
+        ry = -static_cast<float>(GetDebugControllerAnalog(CController::ANALOG_RSTICK_X));
     };
 #endif /* defined(TARGET_PC) && defined(TMNT2_DEBUG_TOOLS) */
 
