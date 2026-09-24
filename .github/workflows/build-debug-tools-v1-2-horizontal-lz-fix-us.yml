@@ -49,7 +49,8 @@ jobs:
           foreach ($required in @(
             "GetDebugRightStickHorizontal",
             "ClampValue(-1 - m_joystate.lZ, DEADZONE)",
-            "ANALOG_RSTICK_Y] = static_cast<int16>(ClampValue(-1 - m_joystate.rglSlider[0], DEADZONE))"
+            "ANALOG_RSTICK_Y]",
+            "ClampValue(-1 - m_joystate.rglSlider[0], DEADZONE)"
           )) {
             if (($physicalCpp + $physicalHpp) -notmatch [regex]::Escape($required)) {
               throw "Missing controller requirement: $required"
