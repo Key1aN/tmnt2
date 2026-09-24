@@ -22,6 +22,7 @@
 #include "System/Common/Process/ProcessMail.hpp"
 #include "System/Common/Process/Sequence.hpp"
 #include "System/Common/Screen.hpp"
+#include "System/PC/PCPhysicalController.hpp"
 #include "System/PC/PCPhysicalControllerKey.hpp"
 #include "System/PC/PCSpecific.hpp"
 
@@ -964,8 +965,8 @@ private:
             return;
         };
 
-        int16 rightX = ControllerAnalog(CController::ANALOG_RSTICK_X);
-        int16 rightY = ControllerAnalog(CController::ANALOG_RSTICK_Y);
+        int16 rightX = CPCPhysicalController::GetDebugRightStickHorizontal();
+        int16 rightY = ControllerAnalog(CController::ANALOG_RSTICK_X);
         if (IsAnalogCameraInput(rightX) || IsAnalogCameraInput(rightY))
         {
             m_bShowcaseCamera = true;

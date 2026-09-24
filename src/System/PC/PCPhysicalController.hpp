@@ -20,4 +20,7 @@ public:
     static bool IsKeyNotFixed(int32 iDIKey);
     static int32 GetDownKey(void);
     static int32 GetPort(void);
+#if defined(TMNT2_DEBUG_TOOLS)
+    static int16 GetDebugRightStickHorizontal(void);
+#endif /* defined(TMNT2_DEBUG_TOOLS) */
 };

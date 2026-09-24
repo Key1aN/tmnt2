@@ -34,6 +34,9 @@ struct JOYSTICKINFO
 static JOYSTICKINFO s_JoystickInfo;
 static IDirectInput8* s_pDirectInput8 = nullptr;
 static class CPCKeyboardController* s_pPCKeyboardController = nullptr;
+#if defined(TMNT2_DEBUG_TOOLS)
+static int16 s_aDebugRightStickHorizontal[32];
+#endif /* defined(TMNT2_DEBUG_TOOLS) */
 
 
 static inline CPCKeyboardController& KeyboardController(void)
@@ -420,6 +423,11 @@ void CPCGamepadController::Update(void)
 {
     Clear();
 
+#if defined(TMNT2_DEBUG_TOOLS)
+    if ((m_iPort >= 0) && (m_iPort < COUNT_OF(s_aDebugRightStickHorizontal)))
+        s_aDebugRightStickHorizontal[m_iPort] = 0;
+#endif /* defined(TMNT2_DEBUG_TOOLS) */
+
     JOYSTICKSTATE* pJoystickState = s_JoystickInfo.m_apJoystickState[m_iPort];
     
     IDirectInputDevice8* pDevice = pJoystickState->m_pDevice;
@@ -515,6 +523,17 @@ void CPCGamepadController::Update(void)
 #endif /* _DEBUG */	
 
     const LONG DEADZONE = static_cast<LONG>( (static_cast<float>(TYPEDEF::SINT16_MAX) * 0.25f) );
+
+#if defined(TMNT2_DEBUG_TOOLS)
+    if ((m_iPort >= 0) && (m_iPort < COUNT_OF(s_aDebugRightStickHorizontal)))
+    {
+        // The recovered padfix identifies lZ as the physical horizontal
+        // right-stick axis. Preserve the retail table and expose lZ only to
+        // Debug Camera.
+        s_aDebugRightStickHorizontal[m_iPort] =
+            static_cast<int16>(ClampValue(-1 - m_joystate.lZ, DEADZONE));
+    };
+#endif /* defined(TMNT2_DEBUG_TOOLS) */
 
     m_info.m_aAnalog[CController::ANALOG_LSTICK_X] 	= static_cast<int16>(ClampValue(m_joystate.lX, DEADZONE));
     m_info.m_aAnalog[CController::ANALOG_LSTICK_Y] 	= static_cast<int16>(ClampValue(-1 - m_joystate.lY, DEADZONE));
@@ -739,6 +758,10 @@ label_failure:
 
 /*static*/ bool CPCPhysicalController::Initialize(void)
 {
+#if defined(TMNT2_DEBUG_TOOLS)
+    std::memset(s_aDebugRightStickHorizontal, 0x00, sizeof(s_aDebugRightStickHorizontal));
+#endif /* defined(TMNT2_DEBUG_TOOLS) */
+
     HRESULT hr = DirectInput8Create(GetModuleHandle(NULL),
                                     DIRECTINPUT_VERSION,
                                     IID_IDirectInput8,
@@ -775,6 +798,10 @@ label_failure:
 
 /*static*/ void CPCPhysicalController::Terminate(void)
 {
+#if defined(TMNT2_DEBUG_TOOLS)
+    std::memset(s_aDebugRightStickHorizontal, 0x00, sizeof(s_aDebugRightStickHorizontal));
+#endif /* defined(TMNT2_DEBUG_TOOLS) */
+
     for (int32 i = 0; i < s_JoystickInfo.m_nJoystickCnt; ++i)
     {
         JOYSTICKSTATE* pJoystickState = s_JoystickInfo.m_apJoystickState[i];
@@ -893,3 +920,24 @@ label_failure:
     
     return CController::Max();
 };
+
+
+#if defined(TMNT2_DEBUG_TOOLS)
+/*static*/ int16 CPCPhysicalController::GetDebugRightStickHorizontal(void)
+{
+    int16 result = 0;
+    int32 resultMagnitude = 0;
+    for (int32 i = 0; i < COUNT_OF(s_aDebugRightStickHorizontal); ++i)
+    {
+        int16 value = s_aDebugRightStickHorizontal[i];
+        int32 magnitude = (value < 0 ? -static_cast<int32>(value) : static_cast<int32>(value));
+        if (magnitude > resultMagnitude)
+        {
+            result = value;
+            resultMagnitude = magnitude;
+        };
+    };
+
+    return result;
+};
+#endif /* defined(TMNT2_DEBUG_TOOLS) */

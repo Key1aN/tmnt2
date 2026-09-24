@@ -2,6 +2,7 @@
 
 #if defined(TARGET_PC)
 #include "System/PC/PCModFeatures.hpp"
+#include "System/PC/PCPhysicalController.hpp"
 #endif /* defined(TARGET_PC) */
 #include "WorldMap.hpp"
 #include "CameraDataMan.hpp"
@@ -600,7 +601,7 @@ void CMapCamera::UpdateManualCamera(const RwV3d* pvAt)
         // Verified physical mapping for the user's PC controller: the retail
         // right-stick X/Y identities are crossed. Keep the correction local to
         // Debug Camera so normal gameplay controls remain unchanged.
-        rx =  static_cast<float>(GetDebugControllerAnalog(CController::ANALOG_RSTICK_Y));
+        rx =  static_cast<float>(CPCPhysicalController::GetDebugRightStickHorizontal());
         ry = -static_cast<float>(GetDebugControllerAnalog(CController::ANALOG_RSTICK_X));
     };
 #endif /* defined(TARGET_PC) && defined(TMNT2_DEBUG_TOOLS) */
