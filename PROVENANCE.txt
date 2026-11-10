@@ -1,0 +1,7 @@
+Source: Key1aN/tmnt2 branch claude/debug-tools-v1-2-5-perf-telemetry-us, commit 062488293e142bcb14cf8482b21ff31cfe1b27f8
+CI: workflow build-debug-tools-v1-2-5-perf-telemetry-us.yml, run 42845860218 (run #2)
+EXE/PDB/MAP/MD fetched from branch build-drops/debug-tools-v1-2-5-perf-telemetry-us and verified against the CI SHA256SUMS
+(MAP/MD line endings restored to CRLF after git normalization; hashes then matched exactly).
+.t2mod built in the Claude workspace with a Python port of the T2 Mod Packager format (DATA-only T2DELTA1, Brotli),
+verified: manifest shape/identity equal to v1.2.4 package, payload hash/size, delta rebuilds the exact EXE hash.
+No retail EXE or DAT content is contained in the package.
