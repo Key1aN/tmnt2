@@ -1,21 +1,21 @@
-name: Build TMNT2 Karai Boss Variant v1 US
+name: Build TMNT2 Karai Boss Variant v2 US
 
 on:
   workflow_dispatch:
   push:
     branches:
-      - "claude/karai-boss-variant-v1-us"
+      - "claude/karai-boss-variant-v2-us"
 
 permissions:
   contents: write
 
 jobs:
-  build-karai-boss-variant-v1-windows-x86-us:
+  build-karai-boss-variant-v2-windows-x86-us:
     runs-on: windows-2022
     timeout-minutes: 30
 
     steps:
-      - name: Check out Karai boss variant v1 source
+      - name: Check out Karai boss variant v2 source
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
@@ -24,10 +24,14 @@ jobs:
         shell: pwsh
         run: |
           $expected = @(
-            ".github/workflows/build-karai-boss-variant-v1-us.yml",
-            "KARAI_BOSS_VARIANT_V1_US.md",
+            ".github/workflows/build-karai-boss-variant-v2-us.yml",
+            "KARAI_BOSS_VARIANT_V2_US.md",
             "scripts/lpacview/build_karai_boss_variant_lpac.py",
             "src/Game/Component/Player/ConcretePlayerCharacter/Karai.cpp",
+            "src/Game/Component/Player/ConcretePlayerCharacter/Karai.hpp",
+            "src/Game/Component/Player/ConcreteManipulator/ManipulatorKarai.cpp",
+            "src/Game/Component/Player/ConcreteManipulator/ManipulatorKarai.hpp",
+            "src/Game/Component/Player/ConcretePlayerStatus/PlayerStatusDamage.cpp",
             "src/Game/Sequence/Menu/CharacterSelectSequence.cpp",
             "src/Game/System/Character/Character.cpp",
             "src/Game/System/Character/Character.hpp",
@@ -139,6 +143,14 @@ jobs:
           }
           if ($chr -notmatch [regex]::Escape("pszMotionName = ResolveMotionName(pszMotionName);")) { throw "Motion fallback hook missing." }
           if ($chr -notmatch [regex]::Escape("if (m_bRemapEnemyAttackData)")) { throw "Enemy attack data remap missing." }
+          $man = Get-Content "src/Game/Component/Player/ConcreteManipulator/ManipulatorKarai.cpp" -Raw
+          foreach ($required in @("STATUS_BOSS_THUNDER", "STATUS_BOSS_WIND_PRESS", "STATUS_BOSS_DASH_STRIKE", "STATUS_BOSS_KUNAI_RAIN", "STATUS_BOSS_COUNTER_SLASH", "STATUS_BOSS_BACK_AWAY", "THUNDER_COOLDOWN", "IsBossVariant()")) {
+            if ($man -notmatch [regex]::Escape($required)) { throw "Karai boss move input missing: $required" }
+          }
+          foreach ($required in @("class CBossThunder", "class CBossWindPress", "class CBossAttackB", "STATUS_BOSS_MAX")) {
+            if ((Get-Content "src/Game/Component/Player/ConcretePlayerCharacter/Karai.hpp" -Raw) -notmatch [regex]::Escape($required)) { throw "Karai boss move status missing: $required" }
+          }
+          if ((Get-Content "src/Game/Component/Player/ConcretePlayerStatus/PlayerStatusDamage.cpp" -Raw) -notmatch [regex]::Escape("(Character().GetID() == PLAYERID::ID_KAR)")) { throw "Karai-only damage interrupt rule missing." }
           if ($sel -notmatch [regex]::Escape("case PLAYERID::ID_KAR:")) { throw "Karai R1 selection missing." }
           if ($feat -notmatch [regex]::Escape("feature=karai-boss-variant")) { throw "karai-boss-variant feature gate missing." }
 
@@ -220,7 +232,7 @@ jobs:
         shell: pwsh
         run: cmake --preset vs2022 -DOPT_EU_BUILD=OFF -DOPT_DEBUG_TOOLS=ON
 
-      - name: Build TMNT2 Karai Boss Variant v1 US
+      - name: Build TMNT2 Karai Boss Variant v2 US
         shell: pwsh
         run: cmake --build --preset vs2022-release --parallel
 
@@ -239,13 +251,13 @@ jobs:
             Sort-Object LastWriteTimeUtc -Descending | Select-Object -First 1
           if (-not $pdb -or -not $map) { throw "The matching PDB or MAP was not found." }
 
-          $artifactDir = Join-Path $env:GITHUB_WORKSPACE "artifact-karai-boss-variant-v1-us"
+          $artifactDir = Join-Path $env:GITHUB_WORKSPACE "artifact-karai-boss-variant-v2-us"
           New-Item -ItemType Directory -Force -Path $artifactDir | Out-Null
-          $baseName = "TMNT2_Karai_Boss_Variant_v1_US"
+          $baseName = "TMNT2_Karai_Boss_Variant_v2_US"
           Copy-Item $exe.FullName (Join-Path $artifactDir "$baseName.exe") -Force
           Copy-Item $pdb.FullName (Join-Path $artifactDir "$baseName.pdb") -Force
           Copy-Item $map.FullName (Join-Path $artifactDir "$baseName.map") -Force
-          Copy-Item "$env:GITHUB_WORKSPACE\KARAI_BOSS_VARIANT_V1_US.md" $artifactDir -Force
+          Copy-Item "$env:GITHUB_WORKSPACE\KARAI_BOSS_VARIANT_V2_US.md" $artifactDir -Force
           Get-ChildItem $artifactDir -File | Get-FileHash -Algorithm SHA256 |
             ForEach-Object { "$($_.Hash.ToLowerInvariant())  $($_.Path | Split-Path -Leaf)" } |
             Set-Content (Join-Path $artifactDir "SHA256SUMS.txt") -Encoding utf8
@@ -258,7 +270,7 @@ jobs:
           $ErrorActionPreference = "Stop"
           $drop = Join-Path $env:RUNNER_TEMP "drop"
           New-Item -ItemType Directory -Force -Path $drop | Out-Null
-          Copy-Item "$env:GITHUB_WORKSPACE\artifact-karai-boss-variant-v1-us\*" $drop -Force
+          Copy-Item "$env:GITHUB_WORKSPACE\artifact-karai-boss-variant-v2-us\*" $drop -Force
           Set-Location $drop
           git init -q
           git config core.autocrlf false
@@ -266,12 +278,12 @@ jobs:
           git checkout -q -b drop
           git add -A
           git -c user.name="github-actions" -c user.email="github-actions@users.noreply.github.com" commit -q -m "Build outputs for $env:GITHUB_SHA (run $env:GITHUB_RUN_NUMBER)"
-          git push -q -f "https://x-access-token:$env:GH_TOKEN@github.com/$env:GITHUB_REPOSITORY.git" drop:refs/heads/build-drops/karai-boss-variant-v1-us
+          git push -q -f "https://x-access-token:$env:GH_TOKEN@github.com/$env:GITHUB_REPOSITORY.git" drop:refs/heads/build-drops/karai-boss-variant-v2-us
 
-      - name: Upload TMNT2 Karai Boss Variant v1 US artifact
+      - name: Upload TMNT2 Karai Boss Variant v2 US artifact
         uses: actions/upload-artifact@v4
         with:
-          name: TMNT2-Karai-Boss-Variant-v1-US-run-${{ github.run_number }}
-          path: artifact-karai-boss-variant-v1-us/*
+          name: TMNT2-Karai-Boss-Variant-v2-US-run-${{ github.run_number }}
+          path: artifact-karai-boss-variant-v2-us/*
           if-no-files-found: error
           retention-days: 14

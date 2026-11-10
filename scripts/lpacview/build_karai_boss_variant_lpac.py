@@ -12,6 +12,10 @@ All 49 original player Karai chunks are kept byte-for-byte in place. Appended:
   MOTION_SET         karai_boss   (enemy084 motion-set header, parent unchanged)
   MOTION x39                      (all enemy084 motions, unchanged)
   MOTION_PARAMETER   karai_boss   (enemy084 motion parameters, unchanged payload)
+  v2: ADD_TEXTURE_DICTIONARY common_ef + EFFECT wind_press, and
+      ADD_TEXTURE_DICTIONARY common_ef + EFFECT shrd_elec (unchanged, original names)
+      so the boss moves' Wind Press magic and electric effects load on every stage.
+      Duplicate effect names are skipped by CEffectManager::Read on the boss stage.
 Only chunk names (and the model's texture-set reference) differ from the sources.
 """
 
@@ -42,6 +46,9 @@ TYPE_MOTION_SET = 2
 TYPE_MOTION = 3
 TYPE_MOTION_PARAMETER = 4
 TYPE_TEXTURE_DICTIONARY = 7
+TYPE_EFFECT = 10
+TYPE_ADD_TEXTURE_DICTIONARY = 16
+EFFECT_NAMES = ("wind_press", "shrd_elec")
 
 
 def align(value: int) -> int:
@@ -146,7 +153,21 @@ def boss_records(chunks: list[Chunk]) -> list[Chunk]:
     )
 
 
-def build(player_data: bytes, boss_data: bytes) -> tuple[bytes, dict]:
+def effect_records(chunks: list[Chunk]) -> list[Chunk]:
+    records: list[Chunk] = []
+    for name in EFFECT_NAMES:
+        hits = [i for i, c in enumerate(chunks) if c.type == TYPE_EFFECT and c.name == name]
+        if len(hits) != 1:
+            raise ValueError(f"Expected one EFFECT {name}, found {len(hits)}")
+        i = hits[0]
+        textures = chunks[i - 1]
+        if textures.type != TYPE_ADD_TEXTURE_DICTIONARY or textures.name != "common_ef":
+            raise ValueError(f"EFFECT {name} is not preceded by its common_ef textures")
+        records += [textures, chunks[i]]
+    return records
+
+
+def build(player_data: bytes, boss_data: bytes, with_effects: bool = True) -> tuple[bytes, dict]:
     player_header, player_chunks = parse_lpac(player_data)
     _, boss_chunks = parse_lpac(boss_data)
     if len(player_chunks) != PLAYER_CHUNKS:
@@ -155,6 +176,8 @@ def build(player_data: bytes, boss_data: bytes) -> tuple[bytes, dict]:
         raise ValueError("Player LPAC already contains karai_boss records")
 
     added = boss_records(boss_chunks)
+    if with_effects:
+        added += effect_records(boss_chunks)
     output_chunks = player_chunks + added
     header = bytearray(player_header)
     struct.pack_into("<I", header, 4, len(output_chunks))
@@ -192,6 +215,7 @@ def main() -> None:
     parser.add_argument("--dat", required=True, type=Path, help="Untouched US retail TMNT.DAT (read only)")
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--report", type=Path)
+    parser.add_argument("--no-effects", action="store_true", help="Build the v1 layout (no effect records)")
     args = parser.parse_args()
     if args.dat.stat().st_size != DAT_SIZE:
         raise ValueError("TMNT.DAT is not the US retail size")
@@ -199,7 +223,7 @@ def main() -> None:
         raise FileExistsError(f"Refusing to overwrite {args.output}")
     player = read_afs_entry(args.dat, PLAYER_ENTRY, PLAYER_SIZE, PLAYER_SHA256)
     boss = read_afs_entry(args.dat, BOSS_ENTRY, BOSS_SIZE, BOSS_SHA256)
-    output, report = build(player, boss)
+    output, report = build(player, boss, with_effects=not args.no_effects)
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_bytes(output)
     if args.report:

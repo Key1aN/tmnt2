@@ -629,6 +629,11 @@ namespace PlayerStatus
         if (GetID() == status)
             return false;
 
+        // Karai boss variant moves (custom statuses past NORMALMAX) can be interrupted
+        // by damage: no super armor. Slashuur's custom statuses keep retail-mod behavior.
+        if ((status >= PLAYERTYPES::NORMALMAX) && (Character().GetID() == PLAYERID::ID_KAR))
+            return true;
+
         return IsWithinStatusFromArray(status, aStatusArray, COUNT_OF(aStatusArray));
     };
 
