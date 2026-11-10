@@ -4,6 +4,7 @@
 #include "Game/Component/GameMain/GamePlayer.hpp"
 #include "Game/Component/Player/PlayerStateMachine.hpp"
 #include "Game/Component/Player/PlayerStatus.hpp"
+#include "Game/Component/Player/ConcretePlayerStatus/PlayerStatusJump.hpp"
 #include "Game/Component/Gimmick/GimmickManager.hpp"
 #include "Game/Component/Shot/ShotManager.hpp"
 #include "Game/Component/Module/ModuleManager.hpp"
@@ -124,6 +125,44 @@ namespace KaraiBoss
     };
 
 
+    // Boss Karai's jump attack is JAttack1 (ground wind-up) -> JAttack2 (airborne)
+    // -> JAttack3 (landing strike). The player jump attack starts in the air, so the
+    // variant plays JAttack2 while diving and JAttack3 on landing.
+    static const char* MOTION_JUMP_ATTACK_AIR = "JAttack2";
+    static const char* MOTION_JUMP_ATTACK_LAND = "JAttack3";
+    static const float JUMP_ATTACK_DIVE_SPEED = -9.0f;
+
+
+    class CBossAttackJump : public Karai::CAttackJump
+    {
+    public:
+        virtual void OnAttach(void) override
+        {
+            Character().ChangeMotion(MOTION_JUMP_ATTACK_AIR, true);
+
+            RwV3d vVelocity = Math::VECTOR3_ZERO;
+            Character().GetVelocity(&vVelocity);
+            vVelocity.y = JUMP_ATTACK_DIVE_SPEED;
+            Character().SetVelocity(&vVelocity);
+
+            CGameSound::PlayAttackSE(m_pPlayerChr);
+        };
+    };
+
+
+    class CBossTouchdown : public PlayerStatus::CTouchdown
+    {
+    public:
+        virtual void OnAttach(void) override
+        {
+            PlayerStatus::CTouchdown::OnAttach();
+
+            if (StateMachine().PrevStatus() == PLAYERTYPES::STATUS_ATTACK_JUMP)
+                Character().ChangeMotion(MOTION_JUMP_ATTACK_LAND, true);
+        };
+    };
+
+
     static bool IsRequested(GAMETYPES::COSTUME costume)
     {
 #if defined(TARGET_PC)
@@ -178,7 +217,15 @@ CKarai::CKarai(GAMETYPES::COSTUME costume)
 
     CStatus::RegistDefaultForStateMachine(*parameter.m_pStateMachine);
 
-    parameter.m_pStateMachine->RegistStatus(PLAYERTYPES::STATUS_ATTACK_JUMP,    new Karai::CAttackJump);
+    if (bBossVariant)
+    {
+        parameter.m_pStateMachine->RegistStatus(PLAYERTYPES::STATUS_ATTACK_JUMP, new KaraiBoss::CBossAttackJump);
+        parameter.m_pStateMachine->RegistStatus(PLAYERTYPES::STATUS_TOUCHDOWN,   new KaraiBoss::CBossTouchdown);
+    }
+    else
+    {
+        parameter.m_pStateMachine->RegistStatus(PLAYERTYPES::STATUS_ATTACK_JUMP, new Karai::CAttackJump);
+    };
     parameter.m_pStateMachine->RegistStatus(PLAYERTYPES::STATUS_ATTACK_AABBC,   new Karai::CAttackAABBC);
     parameter.m_pStateMachine->RegistStatus(PLAYERTYPES::STATUS_ATTACK_B,       new Karai::CAttackB);
 
