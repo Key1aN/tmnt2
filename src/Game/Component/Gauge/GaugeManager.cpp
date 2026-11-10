@@ -7,6 +7,10 @@
 #include "Game/Component/GameData/GameData.hpp"
 #include "System/Common/RenderState.hpp"
 
+#if defined(TARGET_PC)
+#include "Game/Component/Player/ConcretePlayerCharacter/Karai.hpp"
+#endif /* defined(TARGET_PC) */
+
 
 /*static*/ void CGaugeManager::Initialize(void)
 {
@@ -69,6 +73,11 @@
         CGaugeMeter::Draw();
         CGaugeResult::Draw();
     };
+
+#if defined(TARGET_PC)
+    // Karai boss variant: Thunder Special countdown above her head.
+    CKarai::DrawBossHud();
+#endif /* defined(TARGET_PC) */
 };
 
 

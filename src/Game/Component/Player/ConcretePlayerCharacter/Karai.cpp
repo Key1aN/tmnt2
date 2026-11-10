@@ -22,6 +22,11 @@
 #include "Game/System/Model/ModelManager.hpp"
 #include "Game/System/MotionParameter/MotionParameterManager.hpp"
 #include "Game/System/Sound/GameSound.hpp"
+#include "Game/System/2d/GameFont.hpp"
+#include "System/Common/Sprite.hpp"
+#include "System/Common/System2D.hpp"
+
+#include <cstdio>
 
 #include <algorithm>
 
@@ -107,7 +112,13 @@ namespace Karai
 namespace KaraiBoss
 {
     static const char* MODEL_NAME = "karai_boss";
-    static const float ATTACK_POWER_SCALE = 0.6f;
+    static const float ATTACK_POWER_SCALE       = 0.6f;    // base and warning phases
+    static const float ATTACK_POWER_SCALE_FINAL = 0.8f;    // final phase (<= 35% HP)
+    static const float PHASE_WARNING_HP_RATIO   = 0.70f;
+    static const float PHASE_FINAL_HP_RATIO     = 0.35f;
+
+    // Live boss-variant instances, for the HUD countdown.
+    static CKarai* s_apBossKarai[GAMETYPES::PLAYERS_MAX] = {};
 
     // Shared player motions that the boss Karai motion set does not contain.
     // Every name the player code can request maps to a boss motion of similar
@@ -202,6 +213,12 @@ CKarai::CKarai(GAMETYPES::COSTUME costume)
 , m_bThunderChargeReady(false)
 , m_bThunderFromCharge(false)
 , m_fThunderReadyTime(0.0f)
+, m_phase(KaraiBoss::PHASE_BASE)
+, m_bAuraShown(false)
+, m_hAuraWarning(0)
+, m_hAuraFinal(0)
+, m_bCounterWindow(false)
+, m_bCounterHit(false)
 {
     // Holding R1 at character confirm selects COSTUME_SAMURAI, which runs Karai on
     // the boss Karai model, skeleton, and motion set (unique "karai_boss" records
@@ -251,6 +268,8 @@ CKarai::CKarai(GAMETYPES::COSTUME costume)
         parameter.m_pStateMachine->RegistStatus(static_cast<PLAYERTYPES::STATUS>(STATUS_BOSS_COUNTER_SLASH), new CBossCounterSlash);
         parameter.m_pStateMachine->RegistStatus(static_cast<PLAYERTYPES::STATUS>(STATUS_BOSS_BACK_AWAY),     new CBossBackAway);
         parameter.m_pStateMachine->RegistStatus(static_cast<PLAYERTYPES::STATUS>(STATUS_BOSS_AAA),           new CBossAttackAAA);
+        parameter.m_pStateMachine->RegistStatus(static_cast<PLAYERTYPES::STATUS>(STATUS_BOSS_KUNAI_FAN),     new CBossKunaiFan);
+        parameter.m_pStateMachine->RegistStatus(static_cast<PLAYERTYPES::STATUS>(STATUS_BOSS_COUNTER_STANCE),new CBossCounterStance);
         parameter.m_pStateMachine->RegistStatus(PLAYERTYPES::STATUS_ATTACK_AA,                              new CBossAttackAA);
     }
     else
@@ -279,12 +298,157 @@ CKarai::CKarai(GAMETYPES::COSTUME costume)
     };
 
     m_pModuleMan->Include(CCircleShadowModule::New(this, 1.5f, 1.5f, false));
+
+    if (bBossVariant)
+    {
+        for (int32 i = 0; i < COUNT_OF(KaraiBoss::s_apBossKarai); ++i)
+        {
+            if (!KaraiBoss::s_apBossKarai[i])
+            {
+                KaraiBoss::s_apBossKarai[i] = this;
+                break;
+            };
+        };
+    };
 };
 
 
 CKarai::~CKarai(void)
 {
-    ;
+    FinishPhaseAura();
+
+    for (int32 i = 0; i < COUNT_OF(KaraiBoss::s_apBossKarai); ++i)
+    {
+        if (KaraiBoss::s_apBossKarai[i] == this)
+            KaraiBoss::s_apBossKarai[i] = nullptr;
+    };
+};
+
+
+void CKarai::Run(void)
+{
+    CPlayerCharacter::Run();
+
+    if (m_bBossVariant)
+        UpdateBossPhase();
+};
+
+
+CHARACTERTYPES::ATTACKRESULTTYPE CKarai::OnDamage(CCharacterAttackCalculator& calculator)
+{
+    if (m_bBossVariant && m_bCounterWindow && !TestAttribute(PLAYERTYPES::ATTRIBUTE_INVINCIBILITY))
+    {
+        // Counter Stance: the hit is nullified; the stance answers it.
+        m_bCounterWindow = false;
+        m_bCounterHit = true;
+
+        RwV3d vBody = Math::VECTOR3_ZERO;
+        GetBodyPosition(&vBody);
+        uint32 hEffect = CEffectManager::Play(EFFECTID::ID_ALL_GUARD2, &vBody);
+        if (hEffect)
+            CEffectManager::SetScale(hEffect, 1.25f);
+        CGameSound::PlayObjectSE(this, SDCODE_SE(4122));
+
+#if defined(TARGET_PC)
+        CPCCrashReporter::Breadcrumb("KARAI_BOSS counter hit phase=%d", static_cast<int32>(m_phase));
+#endif /* defined(TARGET_PC) */
+        return CHARACTERTYPES::ATTACKRESULTTYPE_INEFFECTIVE;
+    };
+
+    return CPlayerCharacter::OnDamage(calculator);
+};
+
+
+float CKarai::GetBossAttackScale(void) const
+{
+    return ((m_phase == KaraiBoss::PHASE_FINAL) ? KaraiBoss::ATTACK_POWER_SCALE_FINAL : KaraiBoss::ATTACK_POWER_SCALE);
+};
+
+
+int32 CKarai::GetKunaiRainNum(void) const
+{
+    return ((m_phase == KaraiBoss::PHASE_BASE) ? 12 : 18);
+};
+
+
+void CKarai::UpdateBossPhase(void)
+{
+    IGamePlayer* pGamePlayer = CGameProperty::Player(GetPlayerNo());
+    if (!pGamePlayer)
+        return;
+
+    int32 hpMax = pGamePlayer->GetHPMax();
+    float fRatio = ((hpMax > 0) ? (static_cast<float>(pGamePlayer->GetHP()) / static_cast<float>(hpMax)) : 1.0f);
+
+    KaraiBoss::PHASE phase = KaraiBoss::PHASE_BASE;
+    if (fRatio <= KaraiBoss::PHASE_FINAL_HP_RATIO)
+        phase = KaraiBoss::PHASE_FINAL;
+    else if (fRatio <= KaraiBoss::PHASE_WARNING_HP_RATIO)
+        phase = KaraiBoss::PHASE_WARNING;
+
+    bool bShow = (IsActive() && (pGamePlayer->GetHP() > 0));
+
+    if ((phase != m_phase) || (bShow != m_bAuraShown))
+    {
+        bool bFlash = bShow && m_bAuraShown && (phase > m_phase);
+        m_phase = phase;
+        SetEnemyAttackDataRemap(true, GetBossAttackScale());
+
+        FinishPhaseAura();
+        if (bShow)
+            SetPhaseAura(phase);
+        m_bAuraShown = bShow;
+
+        if (bFlash)
+        {
+            RwV3d vBody = Math::VECTOR3_ZERO;
+            GetBodyPosition(&vBody);
+            uint32 hFlash = CEffectManager::Play(EFFECTID::ID_ALL_TAME_FLASH, &vBody);
+            if (hFlash)
+                CEffectManager::SetScale(hFlash, 2.0f);
+        };
+
+#if defined(TARGET_PC)
+        CPCCrashReporter::Breadcrumb("KARAI_BOSS phase=%d hp_pct=%d", static_cast<int32>(phase),
+                                     static_cast<int32>(fRatio * 100.0f));
+#endif /* defined(TARGET_PC) */
+    };
+};
+
+
+void CKarai::SetPhaseAura(KaraiBoss::PHASE phase)
+{
+    // Same effects, offsets, and scales as boss Karai's warning and final modes.
+    if (phase == KaraiBoss::PHASE_WARNING)
+    {
+        RwV3d vOffset = { 0.0f, 0.3f, 0.0f };
+        m_hAuraWarning = CEffectManager::PlayTrace(EFFECTID::ID_I_CRYSHINE_R, new CPlayerTracer(this), &vOffset);
+        if (m_hAuraWarning)
+            CEffectManager::SetScale(m_hAuraWarning, 1.125f);
+    }
+    else if (phase == KaraiBoss::PHASE_FINAL)
+    {
+        RwV3d vOffset = { 0.0f, -0.9f, 0.0f };
+        m_hAuraFinal = CEffectManager::PlayTrace(EFFECTID::ID_SETUP_ATTACK, new CPlayerTracer(this), &vOffset);
+        if (m_hAuraFinal)
+            CEffectManager::SetScale(m_hAuraFinal, 1.0f);
+    };
+};
+
+
+void CKarai::FinishPhaseAura(void)
+{
+    if (m_hAuraWarning)
+    {
+        CEffectManager::Finish(m_hAuraWarning);
+        m_hAuraWarning = 0;
+    };
+
+    if (m_hAuraFinal)
+    {
+        CEffectManager::Finish(m_hAuraFinal);
+        m_hAuraFinal = 0;
+    };
 };
 
 
@@ -300,9 +464,22 @@ bool CKarai::IsThunderReady(void) const
 };
 
 
+float CKarai::GetThunderRemaining(void) const
+{
+    float fRemaining = m_fThunderReadyTime - CGameProperty::GetTotalElapsedTime();
+    return ((fRemaining > 0.0f) ? fRemaining : 0.0f);
+};
+
+
 void CKarai::StartThunderCooldown(void)
 {
-    m_fThunderReadyTime = CGameProperty::GetTotalElapsedTime() + KaraiBoss::THUNDER_COOLDOWN;
+    float fCooldown = KaraiBoss::THUNDER_COOLDOWN_BASE;
+    if (m_phase == KaraiBoss::PHASE_WARNING)
+        fCooldown = KaraiBoss::THUNDER_COOLDOWN_WARNING;
+    else if (m_phase == KaraiBoss::PHASE_FINAL)
+        fCooldown = KaraiBoss::THUNDER_COOLDOWN_FINAL;
+
+    m_fThunderReadyTime = CGameProperty::GetTotalElapsedTime() + fCooldown;
 };
 
 
@@ -373,6 +550,9 @@ namespace KaraiBoss
         static const char* COUNTER          = "D";
         static const char* BACK_AWAY        = "BackAway";
         static const char* ATTACK_AAA       = "AAA";
+        static const char* GUARD_START      = "G1";
+        static const char* GUARD_HOLD       = "G2";
+        static const char* GUARD_END        = "G3";
 
         static const float DASH_SPEED          = 17.0f;
         static const float DASH_DISTANCE       = 5.0f;
@@ -380,10 +560,15 @@ namespace KaraiBoss
         static const float THUNDER_DASH_SPEED  = 24.0f;
         static const float THUNDER_RANGE       = 12.0f;
         static const float KUNAI_JUMP_SPEED    = 9.0f;
-        static const int32 KUNAI_NUM           = 12;
+        static const int32 KUNAI_NUM_MAX       = 18;
+        static const int32 KUNAI_FAN_NUM       = 6;
+        static const float KUNAI_FAN_ARC       = MATH_PI * 0.9f;
+        static const float KUNAI_FAN_JUMP      = 6.0f;
+        static const float KUNAI_FAN_PITCH     = MATH_DEG2RAD(12.0f);
+        static const float COUNTER_WINDOW      = 0.4f;
         static const float KUNAI_PITCH         = MATH_DEG2RAD(22.0f);
         static const float BACK_AWAY_SPEED     = 3.0f;
-        static const int32 WIND_PRESS_POWER    = 6;    // boss 10 x 0.6
+        static const int32 WIND_PRESS_BOSS_POWER = 10; // scaled by the phase power scale
     };
 
 
@@ -516,6 +701,7 @@ namespace KaraiBoss
             PLAYERTYPES::STATUS_RUN,
             PLAYERTYPES::STATUS_GUARD_READY,
             PLAYERTYPES::STATUS_GUARD,
+            static_cast<PLAYERTYPES::STATUS>(STATUS_BOSS_COUNTER_STANCE), // counter answers
         };
 
         return IsWithinStatusFromArray(status, aStatusArray, COUNT_OF(aStatusArray));
@@ -660,7 +846,8 @@ namespace KaraiBoss
                 {
                     CMagicManager::SetChangeStatus(hMagic, CHitAttackData::STATUS_KNOCK);
                     CMagicManager::SetStatusTime(hMagic, 0.0f);
-                    CMagicManager::SetDamage(hMagic, MOVE::WIND_PRESS_POWER);
+                    float fScale = static_cast<CKarai&>(Character()).GetBossAttackScale();
+                    CMagicManager::SetDamage(hMagic, static_cast<int32>((static_cast<float>(MOVE::WIND_PRESS_BOSS_POWER) * fScale) + 0.5f));
                 };
                 m_bMagic = true;
             };
@@ -712,7 +899,7 @@ namespace KaraiBoss
         Character().ResetAcceleration();
         FaceNearestEnemy(Character(), MOVE::THUNDER_RANGE, nullptr);
         BossTrace("KARAI_BOSS thunder from_charge=%d cooldown_ms=%d", (bFromCharge ? 1 : 0),
-                  static_cast<int32>(THUNDER_COOLDOWN * 1000.0f));
+                  static_cast<int32>(karai.GetThunderRemaining() * 1000.0f));
 
         if (bFromCharge)
         {
@@ -873,8 +1060,9 @@ namespace KaraiBoss
                 {
                     RwV3d vBody = Math::VECTOR3_ZERO;
                     Character().GetBodyPosition(&vBody);
-                    float fStep = MATH_PI2 / static_cast<float>(MOVE::KUNAI_NUM);
-                    for (int32 i = 0; i < MOVE::KUNAI_NUM; ++i)
+                    int32 kunaiNum = std::min(static_cast<CKarai&>(Character()).GetKunaiRainNum(), MOVE::KUNAI_NUM_MAX);
+                    float fStep = MATH_PI2 / static_cast<float>(kunaiNum);
+                    for (int32 i = 0; i < kunaiNum; ++i)
                     {
                         RwMatrix matRot;
                         RwMatrixSetIdentity(&matRot);
@@ -901,6 +1089,175 @@ namespace KaraiBoss
                     ++m_step;
                 };
             }
+            break;
+
+        default:
+            if (Character().IsMotionEnd())
+                StateMachine().ChangeStatus(PLAYERTYPES::STATUS_IDLE);
+            break;
+        };
+    };
+
+
+    // ---- Guard + B: Kunai Fan (J1 -> hop with 6 aimed kunai -> J3) ----
+
+    void CBossKunaiFan::OnAttach(void)
+    {
+        m_step = 0;
+        m_fTimer = 0.0f;
+        m_bShot = false;
+
+        ClearDirectionLocks(Character());
+        Character().ResetVelocity();
+        Character().ResetAcceleration();
+        FaceNearestEnemy(Character(), MOVE::THUNDER_RANGE, nullptr);
+        Character().ChangeMotion(MOVE::KUNAI_READY, true);
+    };
+
+
+    void CBossKunaiFan::OnDetach(void)
+    {
+        Character().ClearPlayerFlag(PLAYERTYPES::FLAG_AERIAL_STATUS);
+    };
+
+
+    void CBossKunaiFan::OnRun(void)
+    {
+        switch (m_step)
+        {
+        case 0:
+            if (Character().IsMotionEnd())
+            {
+                Character().ChangeMotion(MOVE::KUNAI_SPIN, true);
+                RwV3d vVelocity = Math::VECTOR3_ZERO;
+                vVelocity.y = MOVE::KUNAI_FAN_JUMP;
+                Character().SetVelocity(&vVelocity);
+                Character().SetPlayerFlag(PLAYERTYPES::FLAG_AERIAL_STATUS);
+                CGameSound::PlayAttackSE(m_pPlayerChr);
+                ++m_step;
+            };
+            break;
+
+        case 1:
+            {
+                m_fTimer += CGameProperty::GetElapsedTime();
+
+                RwV3d vVelocity = Math::VECTOR3_ZERO;
+                Character().GetVelocity(&vVelocity);
+                if (!m_bShot && (vVelocity.y <= 1.5f))
+                {
+                    FaceNearestEnemy(Character(), MOVE::THUNDER_RANGE, nullptr);
+
+                    RwV3d vBody = Math::VECTOR3_ZERO;
+                    Character().GetBodyPosition(&vBody);
+                    float fFirst = Character().GetDirection() - (MOVE::KUNAI_FAN_ARC * 0.5f);
+                    float fStep = MOVE::KUNAI_FAN_ARC / static_cast<float>(MOVE::KUNAI_FAN_NUM - 1);
+                    for (int32 i = 0; i < MOVE::KUNAI_FAN_NUM; ++i)
+                    {
+                        RwMatrix matRot;
+                        RwMatrixSetIdentity(&matRot);
+                        Math::Matrix_RotationYawPitchRoll(&matRot,
+                                                          fFirst + (fStep * static_cast<float>(i)),
+                                                          MOVE::KUNAI_FAN_PITCH,
+                                                          0.0f);
+                        RwV3d vDir = Math::VECTOR3_AXIS_Z;
+                        RwV3dTransformVector(&vDir, &vDir, &matRot);
+                        CShotManager::Shot(SHOTID::ID_KUNAI_PLAYER, &vBody, &vDir, m_pPlayerChr, MATH_DEG2RAD(15.0f), 5.0f);
+                    };
+                    CGameSound::PlayObjectSE(m_pPlayerChr, SDCODE_SE(0x1020));
+                    m_bShot = true;
+                };
+
+                if ((m_fTimer > 0.15f) && IsLanded(Character()))
+                {
+                    Character().ResetVelocity();
+                    Character().ResetAcceleration();
+                    Character().ClearPlayerFlag(PLAYERTYPES::FLAG_AERIAL_STATUS);
+                    Character().ChangeMotion(MOVE::KUNAI_LAND, true);
+                    ++m_step;
+                };
+            }
+            break;
+
+        default:
+            if (Character().IsMotionEnd())
+                StateMachine().ChangeStatus(PLAYERTYPES::STATUS_IDLE);
+            break;
+        };
+    };
+
+
+    // ---- Guard + A: Counter Stance (G1 -> G2 window -> G3) ----
+
+    void CBossCounterStance::OnAttach(void)
+    {
+        m_step = 0;
+        m_fTimer = 0.0f;
+
+        ClearDirectionLocks(Character());
+        Character().ResetVelocity();
+        Character().ResetAcceleration();
+        Character().ChangeMotion(MOVE::GUARD_START, true);
+        static_cast<CKarai&>(Character()).SetCounterWindow(true);
+
+        RwV3d vBody = Math::VECTOR3_ZERO;
+        Character().GetBodyPosition(&vBody);
+        uint32 hEffect = CEffectManager::Play(EFFECTID::ID_ALL_GUARD1, &vBody);
+        if (hEffect)
+            CEffectManager::SetScale(hEffect, 1.0f);
+    };
+
+
+    void CBossCounterStance::OnDetach(void)
+    {
+        static_cast<CKarai&>(Character()).SetCounterWindow(false);
+    };
+
+
+    void CBossCounterStance::OnRun(void)
+    {
+        CKarai& karai = static_cast<CKarai&>(Character());
+
+        if (karai.TestCounterHit())
+        {
+            karai.ClearCounterHit();
+            karai.SetCounterWindow(false);
+
+            if (karai.GetBossPhase() == PHASE_FINAL)
+            {
+                // Final phase: answer with the Thunder Special, like the boss.
+                karai.SetThunderFromCharge(true);
+                StateMachine().ChangeStatus(static_cast<PLAYERTYPES::STATUS>(STATUS_BOSS_THUNDER));
+                if (StateMachine().CurrentStatus() == static_cast<PLAYERTYPES::STATUS>(STATUS_BOSS_THUNDER))
+                    return;
+                karai.SetThunderFromCharge(false);
+            };
+
+            StateMachine().ChangeStatus(static_cast<PLAYERTYPES::STATUS>(STATUS_BOSS_COUNTER_SLASH));
+            return;
+        };
+
+        m_fTimer += CGameProperty::GetElapsedTime();
+
+        switch (m_step)
+        {
+        case 0:
+            if (Character().IsMotionEnd())
+            {
+                Character().ChangeMotion(MOVE::GUARD_HOLD, true);
+                ++m_step;
+            };
+            if (m_fTimer < MOVE::COUNTER_WINDOW)
+                break;
+            /* fall through */
+
+        case 1:
+            if (m_fTimer >= MOVE::COUNTER_WINDOW)
+            {
+                karai.SetCounterWindow(false);
+                Character().ChangeMotion(MOVE::GUARD_END, true);
+                m_step = 2;
+            };
             break;
 
         default:
@@ -1005,7 +1362,8 @@ namespace KaraiBoss
     };
 
 
-    static const float THUNDER_HOLD_LIMIT = 1.5f;
+    static const float THUNDER_HOLD_START = 0.25f; // B held this long starts the Thunder charge
+    static const float THUNDER_HOLD_LIMIT = 1.5f;  // charge time after which it fires by itself
 
 
     void CBossAttackBCharge::OnAttach(void)
@@ -1014,6 +1372,8 @@ namespace KaraiBoss
         karai.SetThunderChargeReady(false);
 
         m_bPlainB = !karai.IsThunderReady();
+        m_bThunder = false;
+        m_fThunderStart = 0.0f;
         m_bHold = false;
         m_glow = 0;
         m_hEffectCharge = 0;
@@ -1024,18 +1384,10 @@ namespace KaraiBoss
         Character().ResetAcceleration();
         HideRetailChargeGlow(Character());
 
-        if (m_bPlainB)
-        {
-            Character().ChangeMotion(MOVE::WIND_PRESS_START, true);
-            return;
-        };
-
-        Character().ChangeMotion(MOVE::THUNDER_CHARGE, true);
-
-        // The C1 crouch reaches its end when the charge is ready, then holds.
-        float fEnd = Character().GetMotionEndTime();
+        // Like retail: hold the B windup until release (a tap is a plain B).
+        Character().ChangeMotion(MOVE::WIND_PRESS_START, true);
         Character().SetCharacterFlag(CHARACTERTYPES::FLAG_MOTION_SPEED_CTRL);
-        Character().SetMotionSpeed((fEnd > 0.0f) ? (fEnd / MOVE::THUNDER_CHARGE_TIME) : 1.0f);
+        Character().SetMotionSpeed(0.05f);
     };
 
 
@@ -1059,7 +1411,22 @@ namespace KaraiBoss
             return;
         };
 
-        float fDuration = StateMachine().GetStatusDuration();
+        float fHeld = StateMachine().GetStatusDuration();
+
+        if (!m_bThunder)
+        {
+            if (fHeld < THUNDER_HOLD_START)
+                return;
+
+            // Still held: start the Thunder charge (C1 crouch reaches its end when ready).
+            m_bThunder = true;
+            m_fThunderStart = fHeld;
+            Character().ChangeMotion(MOVE::THUNDER_CHARGE, true);
+            float fEnd = Character().GetMotionEndTime();
+            Character().SetMotionSpeed((fEnd > 0.0f) ? (fEnd / MOVE::THUNDER_CHARGE_TIME) : 1.0f);
+        };
+
+        float fDuration = fHeld - m_fThunderStart;
 
         if (!m_bHold && Character().IsMotionEnd())
         {
@@ -1099,14 +1466,14 @@ namespace KaraiBoss
     {
         CKarai& karai = static_cast<CKarai&>(Character());
 
+        // Start the B slash before the base attach: the attack swing sound is
+        // chosen from the current motion name (the charge pose had none).
+        Character().ChangeMotion(MOVE::WIND_PRESS_START, true);
+
         Karai::CAttackB::OnAttach();
         HideRetailChargeGlow(Character());
         karai.ClearWindPressFollowup();
         karai.SetThunderChargeReady(false);
-
-        // The Hold B charge pose is C1, so B restarts the boss B slash.
-        if (StateMachine().PrevStatus() == PLAYERTYPES::STATUS_ATTACK_B_CHARGE)
-            Character().ChangeMotion(MOVE::WIND_PRESS_START, true);
     };
 
 
@@ -1246,3 +1613,109 @@ namespace KaraiBoss
             StateMachine().ChangeStatus(PLAYERTYPES::STATUS_IDLE);
     };
 }; /* namespace KaraiBoss */
+
+
+//
+// *********************************************************************************
+//  Karai boss variant: Thunder countdown above her head
+// *********************************************************************************
+//
+
+
+namespace KaraiBoss
+{
+    static const float HUD_READY_SHOW_TIME = 1.5f;
+    static const float HUD_HEAD_LIFT       = 0.25f;
+    static const float HUD_TEXT_HEIGHT     = 15.0f;
+
+    static float s_afReadyShownAt[GAMETYPES::PLAYERS_MAX] = {};
+    static bool s_abWasCooling[GAMETYPES::PLAYERS_MAX] = {};
+
+
+    static bool ProjectToVirtualScreen(const RwV3d& world, float& rx, float& ry)
+    {
+        RwMatrix matrixView;
+        RwMatrixSetIdentity(&matrixView);
+        CGameProperty::GetCameraViewMatrix(&matrixView);
+
+        RwV3d projected = Math::VECTOR3_ZERO;
+        RwV3dTransformPoint(&projected, &world, &matrixView);
+        if ((projected.z <= 1.0f) || (projected.z > 100.0f))
+            return false;
+
+        float nx = projected.x / projected.z;
+        float ny = projected.y / projected.z;
+        if ((nx < -0.05f) || (nx > 1.05f) || (ny < -0.05f) || (ny > 1.05f))
+            return false;
+
+        rx = CSprite::m_fVirtualScreenX + (nx * CSprite::m_fVirtualScreenW);
+        ry = CSprite::m_fVirtualScreenY + (ny * CSprite::m_fVirtualScreenH);
+        return true;
+    };
+}; /* namespace KaraiBoss */
+
+
+/*static*/ void CKarai::DrawBossHud(void)
+{
+    if (!CGameFont::IsOpen())
+        return;
+
+    bool bStatePushed = false;
+    float fNow = CGameProperty::GetTotalElapsedTime();
+
+    for (int32 i = 0; i < COUNT_OF(KaraiBoss::s_apBossKarai); ++i)
+    {
+        CKarai* pKarai = KaraiBoss::s_apBossKarai[i];
+        if (!pKarai || !pKarai->IsActive())
+            continue;
+
+        float fRemaining = pKarai->GetThunderRemaining();
+        bool bCooling = (fRemaining > 0.0f);
+        if (!bCooling && KaraiBoss::s_abWasCooling[i])
+            KaraiBoss::s_afReadyShownAt[i] = fNow;
+        KaraiBoss::s_abWasCooling[i] = bCooling;
+
+        bool bReadyLabel = (!bCooling &&
+                            (KaraiBoss::s_afReadyShownAt[i] > 0.0f) &&
+                            ((fNow - KaraiBoss::s_afReadyShownAt[i]) < KaraiBoss::HUD_READY_SHOW_TIME));
+        if (!bCooling && !bReadyLabel)
+            continue;
+
+        RwV3d vHead = Math::VECTOR3_ZERO;
+        pKarai->GetPosition(&vHead);
+        vHead.y += pKarai->GetCollisionParameter().m_fHeight + KaraiBoss::HUD_HEAD_LIFT;
+
+        float vx = 0.0f;
+        float vy = 0.0f;
+        if (!KaraiBoss::ProjectToVirtualScreen(vHead, vx, vy))
+            continue;
+
+        char szText[32];
+        if (bCooling)
+            std::snprintf(szText, sizeof(szText), "THUNDER %.1f", fRemaining);
+        else
+            std::snprintf(szText, sizeof(szText), "THUNDER READY");
+
+        const float fHeight = KaraiBoss::HUD_TEXT_HEIGHT;
+        float x = vx - (CGameFont::GetStringWidth(szText, fHeight) * 0.5f);
+        float y = vy - fHeight;
+
+        if (!bStatePushed)
+        {
+            CSystem2D::PushRenderState();
+            bStatePushed = true;
+        };
+
+        CGameFont::SetHeight(fHeight);
+        CGameFont::SetRGBA(0x00, 0x00, 0x00, 0xE0);
+        CGameFont::Show(szText, x + 1.0f, y + 1.0f);
+        if (bCooling)
+            CGameFont::SetRGBA(0xFF, 0xB0, 0x30, 0xFF);
+        else
+            CGameFont::SetRGBA(0x60, 0xE0, 0xFF, 0xFF);
+        CGameFont::Show(szText, x, y);
+    };
+
+    if (bStatePushed)
+        CSystem2D::PopRenderState();
+};
