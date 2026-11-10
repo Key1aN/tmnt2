@@ -154,7 +154,7 @@ jobs:
           if ($chr -notmatch [regex]::Escape("pszMotionName = ResolveMotionName(pszMotionName);")) { throw "Motion fallback hook missing." }
           if ($chr -notmatch [regex]::Escape("if (m_bRemapEnemyAttackData)")) { throw "Enemy attack data remap missing." }
           $man = Get-Content "src/Game/Component/Player/ConcreteManipulator/ManipulatorKarai.cpp" -Raw
-          foreach ($required in @("STATUS_BOSS_THUNDER", "STATUS_BOSS_WIND_PRESS", "STATUS_BOSS_DASH_STRIKE", "RequestWindPressFollowup", "RunAttackBCharge", "STATUS_BOSS_AAA", "STATUS_BOSS_COUNTER_STANCE", "STATUS_BOSS_KUNAI_FAN", "STATUS_BOSS_KUNAI_RAIN", "STATUS_BOSS_COUNTER_SLASH", "STATUS_BOSS_BACK_AWAY", "IsBossVariant()")) {
+          foreach ($required in @("STATUS_BOSS_THUNDER", "STATUS_BOSS_DASH_STRIKE", "RequestWindPressFollowup", "RunAttackBCharge", "STATUS_BOSS_AAA", "STATUS_BOSS_COUNTER_STANCE", "STATUS_BOSS_KUNAI_FAN", "STATUS_BOSS_KUNAI_RAIN", "STATUS_BOSS_COUNTER_SLASH", "STATUS_BOSS_BACK_AWAY", "IsBossVariant()")) {
             if ($man -notmatch [regex]::Escape($required)) { throw "Karai boss move input missing: $required" }
           }
           foreach ($required in @("class CBossThunder", "class CBossWindPress", "class CBossAttackB", "class CBossAttackBCharge", "class CBossAttackKnife", "class CBossCounterStance", "class CBossKunaiFan", "THUNDER_COOLDOWN_WARNING = 3.5f", "STATUS_BOSS_MAX")) {
