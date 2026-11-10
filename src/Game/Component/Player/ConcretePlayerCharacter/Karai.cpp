@@ -105,7 +105,7 @@ namespace KaraiBoss
         { "AABBB",          "AAA"           },
         { "AABC",           "AAC"           },
         { "AABBC",          "AAC"           },
-        { "JAttack",        "JAttack1"      },
+        { "JAttack",        "JAttack2"      },  // JAttack1 is the boss ground wind-up; JAttack2 is the airborne attack
         { "JWall",          "J2"            },
         { "Shuriken",       "D"             },
         { "JShuriken",      "JKunai"        },

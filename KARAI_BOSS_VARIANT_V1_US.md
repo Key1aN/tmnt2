@@ -36,7 +36,7 @@ The variant maps player-only motions to boss motions:
 | --- | --- |
 | AABB, AABBB | AAA |
 | AABC, AABBC | AAC |
-| JAttack | JAttack1 |
+| JAttack | JAttack2 (airborne attack; JAttack1 is the boss ground wind-up, fixed in 1.0.1) |
 | JWall | J2 |
 | Shuriken / JShuriken | D / JKunai |
 | Nage1 / Nage2 / Nage3 / NageBack | B / BB / AAC / BackAway |
@@ -58,6 +58,6 @@ Counter Slash, Back Away) are milestone 2.
 - Workflow: `build-karai-boss-variant-v1-us.yml`
 - Artifact: `TMNT2-Karai-Boss-Variant-v1-US-run-N`
 - EXE / PDB / MAP: `TMNT2_Karai_Boss_Variant_v1_US.{exe,pdb,map}`
-- Feature flag: `karai-boss-variant`; package `Karai_Boss_Variant` 1.0.0
+- Feature flag: `karai-boss-variant`; package `Karai_Boss_Variant` 1.0.1 (1.0.0 froze on jump attack)
 
 Status: implemented; requires hands-on testing.
