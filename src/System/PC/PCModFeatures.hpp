@@ -11,6 +11,7 @@ public:
     static bool IsBrutalDifficultiesEnabled(void);
     static bool IsWidescreenEnabled(void);
     static bool IsDebugToolsEnabled(void);
+    static bool IsKaraiBossVariantEnabled(void);
 
 private:
     enum FLAG
@@ -20,6 +21,7 @@ private:
         FLAG_BRUTAL_DIFFICULTIES = (1 << 2),
         FLAG_WIDESCREEN          = (1 << 3),
         FLAG_DEBUG_TOOLS         = (1 << 4),
+        FLAG_KARAI_BOSS_VARIANT  = (1 << 5),
     };
 
     static unsigned int m_flags;

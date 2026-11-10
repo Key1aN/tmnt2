@@ -696,6 +696,12 @@ static inline CCharacterParameterContainer& CharacterParamContainer(void)
 };
 
 
+/*static*/ bool CMotionParameterManager::IsCharacterParameterLoaded(const char* pszName)
+{
+    return (pszName && (CharacterParamContainer().FindPackage(pszName) != nullptr));
+};
+
+
 /*static*/ CCharacterParameter* CMotionParameterManager::GetCharacterParameter(const char* pszName, int32 nPartsNum)
 {
     CCharacterParameter* pPackage = CharacterParamContainer().GetPackage(pszName);

@@ -1,5 +1,9 @@
 #include "CharacterSelectSequence.hpp"
 
+#if defined(TARGET_PC)
+#include "System/PC/PCModFeatures.hpp"
+#endif /* defined(TARGET_PC) */
+
 #include "Game/Component/GameData/GameData.hpp"
 #include "Game/Component/GameMain/GameTypes.hpp"
 #include "Game/Component/Player/PlayerID.hpp"
@@ -279,14 +283,18 @@ void CPlayerSelectWorkPool::Move(void)
             };
         };
 
+        // Costume availability is checked on the real (secret-aware) cursor so the
+        // Karai boss-model variant (R1 on Karai) resolves to the right character.
+        const int32 iCostumeCursor = GetRealCursor(i);
+
         if (CController::GetDigital(iController, CController::DIGITAL_L1))
         {
-            if (IsCostumeTaken(pPlayerInfo->m_iCursor, GAMETYPES::COSTUME_NEXUS))
+            if (IsCostumeTaken(iCostumeCursor, GAMETYPES::COSTUME_NEXUS))
                 m_aCostumeSelect[iController] = GAMETYPES::COSTUME_NEXUS;
         }
         else if (CController::GetDigital(iController, CController::DIGITAL_R1))
         {
-            if (IsCostumeTaken(pPlayerInfo->m_iCursor, GAMETYPES::COSTUME_SAMURAI))
+            if (IsCostumeTaken(iCostumeCursor, GAMETYPES::COSTUME_SAMURAI))
                 m_aCostumeSelect[iController] = GAMETYPES::COSTUME_SAMURAI;
         }
         else
@@ -694,14 +702,14 @@ void CPlayerSelectWorkPool::DrawIconEx(int32 iPlayerNo)
     if (m_aCharacterInfo[m_aPlayerInfo[iPlayerNo].m_iCursor].m_bLocked)
         return;
 
-    if (GetRealCursor(iPlayerNo) >= 4)
+    int32 iCursor = GetRealCursor(iPlayerNo);
+
+    if ((iCursor >= 4) && !IsCostumeTaken(iCursor, GAMETYPES::COSTUME_SAMURAI))
         return;
 
     m_sprite.ResetUV();
     m_sprite.SetOffset(0.5f, 0.5f);
     m_sprite.Resize(32.0f, 32.0f);
-
-    int32 iCursor = m_aPlayerInfo[iPlayerNo].m_iCursor;
 
     if (IsCostumeTaken(iCursor, GAMETYPES::COSTUME_NEXUS))
     {
@@ -910,7 +918,8 @@ bool CPlayerSelectWorkPool::PushStackCharacter(int32 iPlayerNo)
     m_aCharacterInfo[iCursor].m_iLockPlayer = iPlayerNo;
     m_aCharacterInfo[iCursor].m_bLocked = true;
 
-    if (IsCostumeTaken(iCursor, m_aCostumeSelect[iPlayerNo]) && !pPlayerInfo->m_bSecret)
+    const int32 iCostumeCursor = GetRealCursor(iPlayerNo);
+    if (IsCostumeTaken(iCostumeCursor, m_aCostumeSelect[iPlayerNo]))
         pPlayerInfo->m_aStackCostume[pPlayerInfo->m_iCharacterNum] = m_aCostumeSelect[iPlayerNo];
         
     iCursor += (pPlayerInfo->m_bSecret ? 4 : 0);    
@@ -1089,6 +1098,13 @@ bool CPlayerSelectWorkPool::IsCostumeTaken(int32 iCursor, GAMETYPES::COSTUME Cos
             case PLAYERID::ID_RAP: secretId = SECRETID::ID_HOME_SAMURAI_RAP; break;
             case PLAYERID::ID_MIC: secretId = SECRETID::ID_HOME_SAMURAI_MIC; break;
             case PLAYERID::ID_DON: secretId = SECRETID::ID_HOME_SAMURAI_DON; break;
+            case PLAYERID::ID_KAR:
+                // R1 selects the boss-model Karai variant when the T2 Core flag is set.
+#if defined(TARGET_PC)
+                return CPCModFeatures::IsKaraiBossVariantEnabled();
+#else /* defined(TARGET_PC) */
+                return false;
+#endif /* defined(TARGET_PC) */
             default: break;
             };
         }

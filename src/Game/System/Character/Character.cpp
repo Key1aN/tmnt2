@@ -1,4 +1,6 @@
 #include "Character.hpp"
+
+#include <cstring>
 #include "CharacterManager.hpp"
 #include "CharacterAttackCalculator.hpp"
 
@@ -47,6 +49,8 @@ CCharacter::CCharacter(const char* pszName, TYPE type)
 , m_pMotionParameterController(nullptr)
 , m_liftinfo({})
 , m_iDamageRequest(0)
+, m_pMotionAlias(nullptr)
+, m_nMotionAlias(0)
 {
     CCharacterManager::Regist(this);
 };
@@ -1003,11 +1007,43 @@ bool CCharacter::IsWallCrashPossible(void) const
 };
 
 
+void CCharacter::SetMotionAliasTable(const MOTIONALIAS* pTable, int32 nCount)
+{
+    m_pMotionAlias = pTable;
+    m_nMotionAlias = (pTable ? nCount : 0);
+};
+
+
+const char* CCharacter::ResolveMotionName(const char* pszMotionName) const
+{
+    if (!m_pMotionAlias || !m_pMotionController || !pszMotionName)
+        return pszMotionName;
+
+    if (m_pMotionController->FindMotion(pszMotionName))
+        return pszMotionName;
+
+    for (int32 i = 0; i < m_nMotionAlias; ++i)
+    {
+        if (std::strcmp(m_pMotionAlias[i].m_pszFrom, pszMotionName) == 0)
+        {
+            if (m_pMotionController->FindMotion(m_pMotionAlias[i].m_pszTo))
+                return m_pMotionAlias[i].m_pszTo;
+            break;
+        };
+    };
+
+    // Never hand an unknown motion to the controller: that dereferences null.
+    return (m_pMotionController->FindMotion("Idle") ? "Idle" : pszMotionName);
+};
+
+
 void CCharacter::ChangeMotion(const char* pszMotionName, bool bForce)
 {
     ASSERT(pszMotionName);
     ASSERT(m_pMotionController);
     ASSERT(m_pMotionParameterController);
+
+    pszMotionName = ResolveMotionName(pszMotionName);
 
     RwV3d vLocalBonePosPrev = Math::VECTOR3_ZERO;
     GetBonePositionOfPositionCheck(&vLocalBonePosPrev);

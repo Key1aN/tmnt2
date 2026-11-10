@@ -19,6 +19,7 @@ public:
     static void Terminate(void);
     static CModel* CreateModel(const char* pszName);
     static CModel* CreateModelToon(const char* pszName);
+    static bool IsModelLoaded(const char* pszName);
     static void DestroyModel(CModel* pModel);
 
     static void Read(

@@ -140,6 +140,17 @@ public:
     void RotateVectorByDirection(RwV3d* pvOut, const RwV3d* pvIn) const;
     bool IsWallCrashPossible(void) const;
     void ChangeMotion(const char* pszMotionName, bool bForce = false);
+
+    // Optional per-character motion fallbacks. Used only by characters that run on a
+    // model whose motion set lacks some shared player motions (Karai boss variant).
+    // Without a table, ChangeMotion behaves exactly as retail.
+    struct MOTIONALIAS
+    {
+        const char* m_pszFrom;
+        const char* m_pszTo;
+    };
+    void SetMotionAliasTable(const MOTIONALIAS* pTable, int32 nCount);
+    const char* ResolveMotionName(const char* pszMotionName) const;
     void PlayMotion(void);
     void StopMotion(void);
     bool IsMotionEnd(void) const;
@@ -197,4 +208,6 @@ protected:
     CMotionParameterController* m_pMotionParameterController;
     LIFT_INFO m_liftinfo;
     int32 m_iDamageRequest;
+    const MOTIONALIAS* m_pMotionAlias;
+    int32 m_nMotionAlias;
 };

@@ -78,6 +78,8 @@ namespace
             m_flags |= FLAG_WIDESCREEN;
         else if (std::strcmp(line, "feature=debug-tools-f4") == 0)
             m_flags |= FLAG_DEBUG_TOOLS;
+        else if (std::strcmp(line, "feature=karai-boss-variant") == 0)
+            m_flags |= FLAG_KARAI_BOSS_VARIANT;
     }
     std::fclose(stream);
 
@@ -118,4 +120,10 @@ namespace
 /*static*/ bool CPCModFeatures::IsDebugToolsEnabled(void)
 {
     return ((m_flags & FLAG_DEBUG_TOOLS) != 0);
+};
+
+
+/*static*/ bool CPCModFeatures::IsKaraiBossVariantEnabled(void)
+{
+    return ((m_flags & FLAG_KARAI_BOSS_VARIANT) != 0);
 };

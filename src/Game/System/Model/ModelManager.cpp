@@ -295,6 +295,12 @@ static inline CClumpContainer& ClumpContainer(void)
 };
 
 
+/*static*/ bool CModelManager::IsModelLoaded(const char* pszName)
+{
+    return (pszName && (ClumpContainer().GetClump(pszName) != nullptr));
+};
+
+
 /*static*/ CModel* CModelManager::CreateModelToon(const char* pszName)
 {
     ASSERT(pszName);

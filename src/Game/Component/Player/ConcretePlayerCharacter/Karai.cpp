@@ -9,7 +9,14 @@
 #include "Game/Component/Module/ModuleManager.hpp"
 #include "Game/Component/Module/CircleShadowModule.hpp"
 #include "Game/System/Model/Model.hpp"
+#include "Game/System/Model/ModelManager.hpp"
+#include "Game/System/MotionParameter/MotionParameterManager.hpp"
 #include "Game/System/Sound/GameSound.hpp"
+
+#if defined(TARGET_PC)
+#include "System/PC/PCCrashReporter.hpp"
+#include "System/PC/PCModFeatures.hpp"
+#endif /* defined(TARGET_PC) */
 
 
 namespace Karai
@@ -85,9 +92,65 @@ namespace Karai
 }; /* namespace Karai */
 
 
+namespace KaraiBoss
+{
+    static const char* MODEL_NAME = "karai_boss";
+
+    // Shared player motions that the boss Karai motion set does not contain.
+    // Every name the player code can request maps to a boss motion of similar
+    // timing; anything else falls back to Idle in CCharacter::ResolveMotionName.
+    static const CCharacter::MOTIONALIAS MOTION_ALIAS[] =
+    {
+        { "AABB",           "AAA"           },
+        { "AABBB",          "AAA"           },
+        { "AABC",           "AAC"           },
+        { "AABBC",          "AAC"           },
+        { "JAttack",        "JAttack1"      },
+        { "JWall",          "J2"            },
+        { "Shuriken",       "D"             },
+        { "JShuriken",      "JKunai"        },
+        { "Nage1",          "B"             },
+        { "Nage2",          "BB"            },
+        { "Nage3",          "AAC"           },
+        { "NageBack",       "BackAway"      },
+        { "NageIdle",       "Idle"          },
+        { "NageWalk",       "Walk"          },
+        { "NagerarePose",   "YFrontFuttobi1"},
+        { "NagerareTag1",   "YFrontFuttobi2"},
+        { "NagerareTag2",   "YFrontFuttobi3"},
+        { "Piyori",         "Idle"          },
+        { "BiriBiri",       "YFront"        },
+    };
+
+
+    static bool IsRequested(GAMETYPES::COSTUME costume)
+    {
+#if defined(TARGET_PC)
+        if ((costume != GAMETYPES::COSTUME_SAMURAI) || !CPCModFeatures::IsKaraiBossVariantEnabled())
+            return false;
+
+        bool bModel = CModelManager::IsModelLoaded(MODEL_NAME);
+        bool bParameter = CMotionParameterManager::IsCharacterParameterLoaded(MODEL_NAME);
+        CPCCrashReporter::Breadcrumb("KARAI_BOSS variant requested model=%d parameter=%d",
+                                     (bModel ? 1 : 0),
+                                     (bParameter ? 1 : 0));
+        return (bModel && bParameter);
+#else /* defined(TARGET_PC) */
+        (void)costume;
+        return false;
+#endif /* defined(TARGET_PC) */
+    };
+};
+
+
 CKarai::CKarai(GAMETYPES::COSTUME costume)
 : CPlayerCharacter("karai", PLAYERID::ID_KAR, costume)
 {
+    // Holding R1 at character confirm selects COSTUME_SAMURAI, which runs Karai on
+    // the boss Karai model, skeleton, and motion set (unique "karai_boss" records
+    // in the player Karai LPAC). Missing assets fall back to the normal Karai.
+    const bool bBossVariant = KaraiBoss::IsRequested(costume);
+
     //
 	//	Model parts:
 	//		0 - model
@@ -98,8 +161,8 @@ CKarai::CKarai(GAMETYPES::COSTUME costume)
     
     CPlayerCharacter::PARAMETER parameter = {};
     parameter.m_chrparameter.m_bToon            = true;
-    parameter.m_chrparameter.m_pszModelName     = "karai";
-    parameter.m_chrparameter.m_pszMotionSetName = "karai";
+    parameter.m_chrparameter.m_pszModelName     = (bBossVariant ? KaraiBoss::MODEL_NAME : "karai");
+    parameter.m_chrparameter.m_pszMotionSetName = (bBossVariant ? KaraiBoss::MODEL_NAME : "karai");
     parameter.m_feature.m_fWalkMoveSpeed        = 2.0f;
     parameter.m_feature.m_fLiftWalkMoveSpeed    = 3.6f;
     parameter.m_feature.m_fRunMoveSpeed         = 5.2f;
@@ -119,6 +182,9 @@ CKarai::CKarai(GAMETYPES::COSTUME costume)
     parameter.m_pStateMachine->RegistStatus(PLAYERTYPES::STATUS_ATTACK_B,       new Karai::CAttackB);
 
     Initialize(&parameter);
+
+    if (bBossVariant)
+        SetMotionAliasTable(KaraiBoss::MOTION_ALIAS, COUNT_OF(KaraiBoss::MOTION_ALIAS));
 
     m_pModuleMan->Include(CCircleShadowModule::New(this, 1.5f, 1.5f, false));
 };
