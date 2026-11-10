@@ -1,6 +1,7 @@
 #include "PCSystem.hpp"
 #include "PCFramework.hpp"
 #include "PCSpecific.hpp"
+#include "PCFrameStats.hpp"
 #include "resources.hpp"
 
 #include "System/Common/Configure.hpp"
@@ -186,9 +187,19 @@ bool CPCSystem::Run(void)
     }
     else if (m_bFocused)
     {
+#if defined(TMNT2_DEBUG_TOOLS)
+        CPCFrameStats::FrameBegin();
+        Framework().Move();
+        CPCFrameStats::UpdateDone();
+        Framework().Render();
+        CPCFrameStats::RenderDone();
+        Framework().Flip();
+        CPCFrameStats::FrameEnd();
+#else /* defined(TMNT2_DEBUG_TOOLS) */
         Framework().Move();
         Framework().Render();
         Framework().Flip();
+#endif /* defined(TMNT2_DEBUG_TOOLS) */
     }
     else
     {

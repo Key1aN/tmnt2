@@ -4,6 +4,7 @@
 #include "PCSystem.hpp"
 #include "PCSetting.hpp"
 #include "PCTimer.hpp"
+#include "PCFrameStats.hpp"
 #include "PCMemory.hpp"
 #include "PCGraphicsDevice.hpp"
 #include "PCInputsDevice.hpp"
@@ -184,6 +185,9 @@ void CPCFramework::Render(void)
 
     m_pFrameSkipController->Sync();
     m_pGraphicsDevice->SetFlipEnable(!m_pFrameSkipController->IsSkip());
+#if defined(TMNT2_DEBUG_TOOLS)
+    CPCFrameStats::SetDrawSkipped(m_pFrameSkipController->IsSkip());
+#endif /* defined(TMNT2_DEBUG_TOOLS) */
 
     if (m_pGraphicsDevice->RenderBegin())
     {

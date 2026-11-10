@@ -6,6 +6,7 @@
 #include "Game/Sequence/Test/DebugUtils.hpp"
 #include "Game/Component/Enemy/Enemy.hpp"
 #include "Game/Component/Enemy/EnemyCharacter.hpp"
+#include "Game/Component/Enemy/CharacterCompositor.hpp"
 #include "Game/Component/GameData/GameData.hpp"
 #include "Game/Component/GameMain/DebugDifficulty.hpp"
 #include "Game/Component/GameMain/GamePlayer.hpp"
@@ -21,7 +22,10 @@
 #include "Game/System/Misc/Gamepad.hpp"
 #include "System/Common/Process/ProcessMail.hpp"
 #include "System/Common/Process/Sequence.hpp"
+#include "System/Common/Camera.hpp"
 #include "System/Common/Screen.hpp"
+#include "System/Common/System2D.hpp"
+#include "System/PC/PCFrameStats.hpp"
 #include "System/PC/PCPhysicalController.hpp"
 #include "System/PC/PCPhysicalControllerKey.hpp"
 #include "System/PC/PCSpecific.hpp"
@@ -208,6 +212,208 @@ namespace
         static const char* s_apszMSAALabel[] = { "Off", "2X", "4X", "8X" };
         return s_apszMSAALabel[GetMSAAIndex(samples)];
     };
+
+
+    // ---- v1.2.5 performance and move telemetry helpers ----
+
+    static const char* s_apszEnemyStatusName[] =
+    {
+        "HIDE", "QUIT", "DEATH", "APPEAR", "RETREAT", "AERIAL", "TOUCHDOWN", "THINKING",
+        "IDLE", "TURN", "WALK", "WALK_RIGHT", "WALK_LEFT", "WALK_BACK", "RUN", "DASH",
+        "GETUP", "JUMP_READY", "JUMP", "JUMP_2ND", "ATTACK_A", "ATTACK_AA", "ATTACK_AAA",
+        "ATTACK_B", "ATTACK_C", "ATTACK_RUN", "FIRE_A", "FIRE_B", "FIRE_C", "FIRE_AA",
+        "FIRE_BB", "FIRE_CC", "THROW", "JUMP_ATTACK", "KNOCK", "KNOCK_FRONT", "KNOCK_BACK",
+        "FLYAWAY_FRONT", "FLYAWAY_BACK", "FLYAWAY_BOUND_FRONT", "FLYAWAY_BOUND_BACK",
+        "CRASHWALL_FRONT", "CRASHWALL_BACK", "CRASHWALL_FALL_FRONT", "CRASHWALL_FALL_BACK",
+        "CRASHWALL_TOUCHDOWN_FRONT", "CRASHWALL_TOUCHDOWN_BACK", "DINDLE", "STUN",
+        "COUNTERACT", "SLEEP", "FREEZE", "BIND", "CAUGHT", "LIFTED", "LIFTED_WALK",
+        "THROWN_FRONT", "THROWN_BACK", "GUARD",
+    };
+
+    static_assert(COUNT_OF(s_apszEnemyStatusName) == ENEMYTYPES::STATUS_SPECIAL,
+                  "Enemy status name table must match ENEMYTYPES::STATUS.");
+
+
+    static void FormatEnemyStatus(int32 status, char* buffer, size_t capacity)
+    {
+        if ((status >= 0) && (status < ENEMYTYPES::STATUS_SPECIAL))
+            std::snprintf(buffer, capacity, "%s", s_apszEnemyStatusName[status]);
+        else if ((status >= ENEMYTYPES::STATUS_SPECIAL) && (status < ENEMYTYPES::STATUS_MAX))
+            std::snprintf(buffer, capacity, "SPECIAL+%d", status - ENEMYTYPES::STATUS_SPECIAL);
+        else
+            std::snprintf(buffer, capacity, "STATUS_%d", status);
+    };
+
+
+    static bool IsBossEnemy(ENEMYID::VALUE id)
+    {
+        return ((id >= ENEMYID::BOSSBEGIN) && (id < ENEMYID::BOSSEND));
+    };
+
+
+    static void FormatEnemyName(ENEMYID::VALUE id, char* buffer, size_t capacity)
+    {
+        const char* pszName = ENEMYID::GetName(id);
+        if (pszName && pszName[0])
+            std::snprintf(buffer, capacity, "%s", pszName);
+        else
+            std::snprintf(buffer, capacity, "enemy%03d", static_cast<int32>(id));
+    };
+
+
+    static const char* SafeMotionName(const char* pszMotion)
+    {
+        return ((pszMotion && pszMotion[0]) ? pszMotion : "<none>");
+    };
+
+
+    static const char* GetEnemyMotionName(CEnemy* pEnemy)
+    {
+        if (!pEnemy)
+            return nullptr;
+
+        return pEnemy->Character().Compositor().GetMotionName();
+    };
+
+
+    static bool ProjectToScreen(const RwV3d& world, float& screenX, float& screenY)
+    {
+        RwMatrix matrixView;
+        RwMatrixSetIdentity(&matrixView);
+        CGameProperty::GetCameraViewMatrix(&matrixView);
+
+        RwV3d projected = Math::VECTOR3_ZERO;
+        RwV3dTransformPoint(&projected, &world, &matrixView);
+        if ((projected.z <= 1.0f) || (projected.z > 100.0f))
+            return false;
+
+        float x = projected.x / projected.z;
+        float y = projected.y / projected.z;
+        if ((x < -0.05f) || (x > 1.05f) || (y < -0.05f) || (y > 1.05f))
+            return false;
+
+        screenX = x * static_cast<float>(CScreen::Width());
+        screenY = y * static_cast<float>(CScreen::Height());
+        return true;
+    };
+
+
+    struct IM2DBATCH
+    {
+        enum { VERTEX_MAX = 1800 };
+
+        RwIm2DVertex m_aVertex[VERTEX_MAX];
+        int32 m_nVertex;
+        float m_fZ;
+        float m_fRhw;
+    };
+
+
+    static void Im2DQuad(IM2DBATCH& batch, float x0, float y0, float x1, float y1, const RwRGBA& color)
+    {
+        if ((batch.m_nVertex + 6) > IM2DBATCH::VERTEX_MAX)
+            return;
+
+        const float ax[6] = { x0, x1, x0, x0, x1, x1 };
+        const float ay[6] = { y0, y0, y1, y1, y0, y1 };
+        for (int32 i = 0; i < 6; ++i)
+        {
+            RwIm2DVertex* pVertex = &batch.m_aVertex[batch.m_nVertex++];
+            RwIm2DVertexSetScreenX(pVertex, ax[i]);
+            RwIm2DVertexSetScreenY(pVertex, ay[i]);
+            RwIm2DVertexSetScreenZ(pVertex, batch.m_fZ);
+            RwIm2DVertexSetIntRGBA(pVertex, color.red, color.green, color.blue, color.alpha);
+            RwIm2DVertexSetU(pVertex, 0.0f, batch.m_fRhw);
+            RwIm2DVertexSetV(pVertex, 0.0f, batch.m_fRhw);
+            RwIm2DVertexSetRecipCameraZ(pVertex, batch.m_fRhw);
+        };
+    };
+
+
+    struct FRAMEWINDOW
+    {
+        float m_fSpanMs;
+        int32 m_nFrames;
+        int32 m_nDrawn;
+        float m_fDisplayFps;
+        float m_fTickRate;
+        float m_fAvgFrameMs;
+        float m_fWorstDisplayMs;
+        float m_fAvgUpdateMs;
+        float m_fAvgRenderMs;
+        float m_fAvgPresentMs;
+    };
+
+
+    // Summarizes roughly the last second of real frames.
+    static FRAMEWINDOW ComputeFrameWindow(float spanMs)
+    {
+        FRAMEWINDOW window = {};
+        float pendingMs = 0.0f;
+        float updateSum = 0.0f;
+        float renderSum = 0.0f;
+        float presentSum = 0.0f;
+        int32 count = CPCFrameStats::GetHistoryCount();
+
+        for (int32 ago = 0; ago < count; ++ago)
+        {
+            const CPCFrameStats::SAMPLE& sample = CPCFrameStats::GetSample(ago);
+            if (sample.m_fFrameMs > 1000.0f)
+                break;
+
+            window.m_fSpanMs += sample.m_fFrameMs;
+            ++window.m_nFrames;
+            updateSum += sample.m_fUpdateMs;
+            renderSum += sample.m_fRenderMs;
+            presentSum += sample.m_fPresentMs;
+            if (sample.m_bDrawn)
+                ++window.m_nDrawn;
+
+            if (window.m_fSpanMs >= spanMs)
+                break;
+        };
+
+        // Worst interval between frames that actually reached the screen.
+        for (int32 ago = window.m_nFrames - 1; ago >= 0; --ago)
+        {
+            const CPCFrameStats::SAMPLE& sample = CPCFrameStats::GetSample(ago);
+            pendingMs += sample.m_fFrameMs;
+            if (sample.m_bDrawn)
+            {
+                if (pendingMs > window.m_fWorstDisplayMs)
+                    window.m_fWorstDisplayMs = pendingMs;
+                pendingMs = 0.0f;
+            };
+        };
+
+        if ((window.m_nFrames > 0) && (window.m_fSpanMs > 0.0f))
+        {
+            window.m_fDisplayFps = (static_cast<float>(window.m_nDrawn) * 1000.0f) / window.m_fSpanMs;
+            window.m_fTickRate = (static_cast<float>(window.m_nFrames) * 1000.0f) / window.m_fSpanMs;
+            window.m_fAvgFrameMs = window.m_fSpanMs / static_cast<float>(window.m_nFrames);
+            window.m_fAvgUpdateMs = updateSum / static_cast<float>(window.m_nFrames);
+            window.m_fAvgRenderMs = renderSum / static_cast<float>(window.m_nFrames);
+            window.m_fAvgPresentMs = presentSum / static_cast<float>(window.m_nFrames);
+        };
+
+        return window;
+    };
+
+
+    static float GameSpeedPercent(const FRAMEWINDOW& window)
+    {
+        float nominal = CScreen::Framerate();
+        if (nominal <= 0.0f)
+            return 0.0f;
+
+        float speed = (window.m_fTickRate / nominal) * 100.0f;
+        return (speed > 100.0f ? 100.0f : speed);
+    };
+
+
+    static inline float MaxF(float a, float b) { return (a > b ? a : b); };
+    static inline float MinF(float a, float b) { return (a < b ? a : b); };
+    static inline int32 MaxI(int32 a, int32 b) { return (a > b ? a : b); };
 };
 
 
@@ -235,13 +441,47 @@ public:
     , m_fSavedDirection(0.0f)
     , m_iCameraMode(CMapCamera::MODE_AUTOCHANGE)
     , m_aiResumeHandles()
+    , m_bFrameGraph(true)
+    , m_bDropLog(true)
+    , m_bMoveLog(true)
+    , m_iLabelMode(LABELMODE_BOSSES)
+    , m_fDropThresholdMs(20.0f)
+    , m_uPerfProcessed(CPCFrameStats::GetFrameIndex())
+    , m_iPerfSequence(-1)
+    , m_iPerfWarmup(PERF_WARMUP_FRAMES)
+    , m_fPendingDisplayMs(0.0f)
+    , m_iPendingSkips(0)
+    , m_bDropActive(false)
+    , m_iDropFrames(0)
+    , m_iDropSkips(0)
+    , m_iDropRecover(0)
+    , m_fDropWorstMs(0.0f)
+    , m_fDropTotalMs(0.0f)
+    , m_uDropStartTick(0)
+    , m_iSessionDropEpisodes(0)
+    , m_iSessionSlowFrames(0)
+    , m_iSessionSkippedFrames(0)
+    , m_bPerfHeaderWritten(false)
+    , m_perfLog("TMNT2_perf.log")
+    , m_moveLog("TMNT2_moves.log")
+    , m_aTracked()
+    , m_aMoveEvent()
+    , m_iMoveEventHead(0)
+    , m_szPlayerMotion()
     {
         std::memset(m_aiSelection, 0x00, sizeof(m_aiSelection));
+        std::memset(m_aTracked, 0x00, sizeof(m_aTracked));
+        std::memset(m_aMoveEvent, 0x00, sizeof(m_aMoveEvent));
+        m_szPlayerMotion[0] = '\0';
+        m_moveLog.Write("SESSION  TMNT2 Debug Tools v1.2.5 move telemetry (bosses always; all enemies when labels = ALL)");
     };
 
 
     ~CImpl(void)
     {
+        EndDropEpisode("session end");
+        m_perfLog.Flush();
+        m_moveLog.Flush();
         CGameStageDebug::CAMERA_MENU_CONTROL = false;
         SetEnemyAIPaused(false);
         SetGodMode(false);
@@ -250,6 +490,8 @@ public:
 
     void Move(CDebugToolsProcess& owner)
     {
+        UpdatePerformance();
+        UpdateMoveTracking();
         UpdateStep(owner);
         UpdatePersistentTools();
         UpdateScreenshot();
@@ -339,6 +581,10 @@ public:
         int32 currentLabel = CSequence::GetCurrently();
         if (!IsGameplaySequence(currentLabel))
             return;
+
+        DrawEnemyLabels();
+        if (m_bFrameGraph)
+            DrawFrameGraph();
 
         if (m_bOpen)
         {
@@ -515,10 +761,49 @@ private:
         case PAGE_TELEMETRY:
             if (selected == 0)
                 m_bTelemetryEnabled = !m_bTelemetryEnabled;
+            else
+                AdjustTelemetryItem(selected, direction * multiplier);
             break;
 
         default:
             break;
+        };
+    };
+
+
+    void AdjustTelemetryItem(int32 selected, int32 step)
+    {
+        switch (selected)
+        {
+        case 2: m_bFrameGraph = !m_bFrameGraph; break;
+        case 3:
+            if (m_bDropLog)
+                EndDropEpisode("drop log disabled");
+            m_bDropLog = !m_bDropLog;
+            break;
+        case 4:
+            m_fDropThresholdMs = Clamp(m_fDropThresholdMs + (static_cast<float>(step) * 0.5f), 17.0f, 100.0f);
+            break;
+        case 5:
+            m_iLabelMode = (m_iLabelMode + (step < 0 ? LABELMODE_NUM - 1 : 1)) % LABELMODE_NUM;
+            break;
+        case 6: m_bMoveLog = !m_bMoveLog; break;
+        default: break;
+        };
+    };
+
+
+    void ResetTelemetryItem(int32 selected)
+    {
+        switch (selected)
+        {
+        case 0: m_bTelemetryEnabled = false; break;
+        case 2: m_bFrameGraph = true; break;
+        case 3: m_bDropLog = true; break;
+        case 4: m_fDropThresholdMs = 20.0f; break;
+        case 5: m_iLabelMode = LABELMODE_BOSSES; break;
+        case 6: m_bMoveLog = true; break;
+        default: break;
         };
     };
 
@@ -571,6 +856,8 @@ private:
                 m_bTelemetryEnabled = !m_bTelemetryEnabled;
             else if (selected == 1)
                 m_iScreenshotDelay = 3;
+            else if (selected != 4)
+                AdjustTelemetryItem(selected, 1);
             break;
 
         default:
@@ -622,8 +909,7 @@ private:
             break;
 
         case PAGE_TELEMETRY:
-            if (selected == 0)
-                m_bTelemetryEnabled = false;
+            ResetTelemetryItem(selected);
             break;
 
         default:
@@ -664,7 +950,8 @@ private:
             break;
 
         case PAGE_TELEMETRY:
-            m_bTelemetryEnabled = false;
+            for (int32 i = 0; i < GetItemCount(PAGE_TELEMETRY); ++i)
+                ResetTelemetryItem(i);
             break;
 
         default:
@@ -1032,7 +1319,7 @@ private:
         case PAGE_CAMERA:     return 3;
         case PAGE_GRAPHICS:   return 1;
         case PAGE_HITBOXES:   return 3;
-        case PAGE_TELEMETRY:  return 2;
+        case PAGE_TELEMETRY:  return 7;
         default:              return 0;
         };
     };
@@ -1216,8 +1503,18 @@ private:
         case PAGE_TELEMETRY:
             if (index == 0)
                 std::snprintf(buffer, capacity, "Show telemetry when closed    %s", m_bTelemetryEnabled ? "ON" : "OFF");
-            else
+            else if (index == 1)
                 std::snprintf(buffer, capacity, "Copy game screenshot to clipboard");
+            else if (index == 2)
+                std::snprintf(buffer, capacity, "Frame-time graph (top)        %s", m_bFrameGraph ? "ON" : "OFF");
+            else if (index == 3)
+                std::snprintf(buffer, capacity, "Log frame drops               %s  (%d this session)", m_bDropLog ? "ON" : "OFF", m_iSessionDropEpisodes);
+            else if (index == 4)
+                std::snprintf(buffer, capacity, "Frame drop threshold          %.1f ms (%.0f FPS)", m_fDropThresholdMs, 1000.0f / m_fDropThresholdMs);
+            else if (index == 5)
+                std::snprintf(buffer, capacity, "Move labels over enemies      %s", LabelModeName(m_iLabelMode));
+            else
+                std::snprintf(buffer, capacity, "Log enemy/player moves        %s", m_bMoveLog ? "ON" : "OFF");
             break;
 
         default:
@@ -1291,15 +1588,566 @@ private:
             break;
 
         case PAGE_TELEMETRY:
-            scope = (index == 0 ? "DISPLAY TOGGLE" : "UTILITY");
-            description = (index == 0 ?
-                "Keeps the live player, enemy, stage, difficulty, and performance panel visible." :
-                "Captures the game window after rendering and places the image on the clipboard.");
+            switch (index)
+            {
+            case 0:
+                scope = "DISPLAY TOGGLE";
+                description = "Keeps the live player, enemy, stage, difficulty, and performance panel visible.";
+                break;
+            case 1:
+                scope = "UTILITY";
+                description = "Captures the game window after rendering and places the image on the clipboard.";
+                break;
+            case 2:
+                scope = "DISPLAY TOGGLE";
+                description = "Measured time between displayed frames. Green line = 60 FPS target, red line = drop threshold, purple = skipped draw.";
+                break;
+            case 3:
+                scope = "LOG FILE";
+                description = "Writes each slowdown (start, every 60 slow frames, end) with timing split and boss moves to TMNT2_perf.log.";
+                break;
+            case 4:
+                scope = "LIVE SETTING";
+                description = "A displayed frame slower than this counts as a drop. Left/Right 0.5 ms, PgUp/PgDn 2.5 ms.";
+                break;
+            case 5:
+                scope = "DISPLAY MODE";
+                description = "Shows the current animation (move), AI status, and HP above bosses or all enemies.";
+                break;
+            default:
+                scope = "LOG FILE";
+                description = "Writes boss (and with ALL labels, every enemy) move/status changes plus P1 moves to TMNT2_moves.log.";
+                break;
+            };
             break;
 
         default:
             break;
         };
+    };
+
+
+    // ---- v1.2.5: real frame timing, drop log, move telemetry, labels ----
+
+    enum LABELMODE
+    {
+        LABELMODE_OFF = 0,
+        LABELMODE_BOSSES,
+        LABELMODE_ALL,
+        LABELMODE_NUM,
+    };
+
+
+    struct TRACKEDENEMY
+    {
+        uint32 m_uHandle;
+        int32  m_iStatus;
+        char   m_szMotion[48];
+    };
+
+
+    struct MOVEEVENT
+    {
+        char  m_szText[112];
+        bool  m_bBoss;
+    };
+
+
+    enum
+    {
+        MOVEEVENT_NUM = 8,
+        DROP_RECOVER_FRAMES = 30,
+        DROP_CONTEXT_EVERY = 60,
+        PERF_WARMUP_FRAMES = 45,
+    };
+
+
+    static const char* LabelModeName(int32 mode)
+    {
+        switch (mode)
+        {
+        case LABELMODE_OFF:    return "OFF";
+        case LABELMODE_BOSSES: return "BOSSES";
+        case LABELMODE_ALL:    return "ALL ENEMIES";
+        default:               return "?";
+        };
+    };
+
+
+    bool IsTrackedForMoves(ENEMYID::VALUE id) const
+    {
+        return (IsBossEnemy(id) || (m_iLabelMode == LABELMODE_ALL));
+    };
+
+
+    void UpdatePerformance(void)
+    {
+        int32 currentLabel = CSequence::GetCurrently();
+        bool bGameplay = IsGameplaySequence(currentLabel);
+        if (currentLabel != m_iPerfSequence)
+        {
+            m_iPerfSequence = currentLabel;
+            m_iPerfWarmup = PERF_WARMUP_FRAMES;
+            m_fPendingDisplayMs = 0.0f;
+            m_iPendingSkips = 0;
+        };
+
+        uint32 frameIndex = CPCFrameStats::GetFrameIndex();
+        uint32 available = frameIndex - m_uPerfProcessed;
+        if (available > static_cast<uint32>(CPCFrameStats::HISTORY))
+            available = static_cast<uint32>(CPCFrameStats::HISTORY);
+
+        for (int32 ago = static_cast<int32>(available) - 1; ago >= 0; --ago)
+            ProcessFrameSample(CPCFrameStats::GetSample(ago), bGameplay);
+
+        m_uPerfProcessed = frameIndex;
+        m_perfLog.FlushIfDue();
+    };
+
+
+    void ProcessFrameSample(const CPCFrameStats::SAMPLE& sample, bool bGameplay)
+    {
+        // Focus loss, loading, and sequence changes produce long gaps that are not gameplay drops.
+        if (!bGameplay || (sample.m_fFrameMs > 1000.0f))
+        {
+            if (m_bDropActive)
+                EndDropEpisode("interrupted");
+            m_iPerfWarmup = PERF_WARMUP_FRAMES;
+            m_fPendingDisplayMs = 0.0f;
+            m_iPendingSkips = 0;
+            return;
+        };
+
+        m_fPendingDisplayMs += sample.m_fFrameMs;
+        if (!sample.m_bDrawn)
+        {
+            ++m_iPendingSkips;
+            ++m_iSessionSkippedFrames;
+            return;
+        };
+
+        float displayMs = m_fPendingDisplayMs;
+        int32 skips = m_iPendingSkips;
+        m_fPendingDisplayMs = 0.0f;
+        m_iPendingSkips = 0;
+
+        if (m_iPerfWarmup > 0)
+        {
+            --m_iPerfWarmup;
+            return;
+        };
+
+        bool bSlow = (displayMs > m_fDropThresholdMs);
+        if (bSlow)
+        {
+            ++m_iSessionSlowFrames;
+            m_iDropRecover = 0;
+            if (!m_bDropActive)
+            {
+                m_bDropActive = true;
+                m_iDropFrames = 0;
+                m_iDropSkips = 0;
+                m_fDropWorstMs = 0.0f;
+                m_fDropTotalMs = 0.0f;
+                m_uDropStartTick = static_cast<uint32>(CGameStageDebug::STAGE_TICK);
+                ++m_iSessionDropEpisodes;
+                if (m_bDropLog)
+                    WriteDropLine("DROP START", displayMs, skips, sample);
+            }
+            else if (m_bDropLog && ((m_iDropFrames % DROP_CONTEXT_EVERY) == 0))
+            {
+                WriteDropLine("DROP CONT ", displayMs, skips, sample);
+            };
+
+            ++m_iDropFrames;
+            m_iDropSkips += skips;
+            m_fDropTotalMs += displayMs;
+            if (displayMs > m_fDropWorstMs)
+                m_fDropWorstMs = displayMs;
+        }
+        else if (m_bDropActive)
+        {
+            m_iDropSkips += skips;
+            if (++m_iDropRecover >= DROP_RECOVER_FRAMES)
+                EndDropEpisode("recovered");
+        };
+    };
+
+
+    void EndDropEpisode(const char* pszReason)
+    {
+        if (m_bDropActive && m_bDropLog)
+        {
+            m_perfLog.Write(
+                "DROP END    %s  slow frames %d  worst %.1f ms  avg %.1f ms  skipped draws %d  ticks %u  threshold %.1f ms",
+                pszReason,
+                m_iDropFrames,
+                m_fDropWorstMs,
+                (m_iDropFrames ? (m_fDropTotalMs / static_cast<float>(m_iDropFrames)) : 0.0f),
+                m_iDropSkips,
+                static_cast<uint32>(CGameStageDebug::STAGE_TICK) - m_uDropStartTick,
+                m_fDropThresholdMs
+            );
+            m_perfLog.Flush();
+        };
+
+        m_bDropActive = false;
+        m_iDropRecover = 0;
+    };
+
+
+    void WritePerfSessionHeader(void)
+    {
+        if (m_bPerfHeaderWritten)
+            return;
+
+        m_bPerfHeaderWritten = true;
+        m_perfLog.Write(
+            "SESSION  TMNT2 Debug Tools v1.2.5 perf telemetry  %dx%d  nominal %.1f FPS  MSAA %s  threshold %.1f ms",
+            CScreen::Width(),
+            CScreen::Height(),
+            CScreen::Framerate(),
+            GetMSAALabel(CPCSpecific::GetMultiSamplingSamples()),
+            m_fDropThresholdMs
+        );
+    };
+
+
+    void WriteDropLine(const char* pszKind, float displayMs, int32 skips, const CPCFrameStats::SAMPLE& sample)
+    {
+        WritePerfSessionHeader();
+
+        FRAMEWINDOW window = ComputeFrameWindow(1000.0f);
+        int32 enemyCount = 0;
+        int32 enemyMax = CGameProperty::GetEnemyMax();
+        for (int32 i = 0; i < enemyMax; ++i)
+        {
+            if (CGameProperty::GetEnemy(i))
+                ++enemyCount;
+        };
+
+        int32 charId = -1;
+        const char* pszPlayerMotion = nullptr;
+        if (CGameProperty::GetPlayerNum() > 0)
+        {
+            IGamePlayer* pPlayer = CGameProperty::Player(0);
+            if (pPlayer && pPlayer->IsAlive())
+            {
+                charId = static_cast<int32>(pPlayer->GetCurrentCharacterID());
+                CPlayerCharacter* pCharacter = pPlayer->GetCurrentCharacter();
+                if (pCharacter)
+                    pszPlayerMotion = pCharacter->GetMotionName();
+            };
+        };
+
+        m_perfLog.Write(
+            "%s %.1f ms (%.0f FPS)  update %.1f  render %.1f  present %.1f  skipped-before %d  |  1s: shown %.1f FPS  speed %.0f%%  worst %.1f ms  |  seq %d stage %d tick %d  enemies %d  P1 char %d motion %s",
+            pszKind,
+            displayMs,
+            (displayMs > 0.0f ? 1000.0f / displayMs : 0.0f),
+            sample.m_fUpdateMs,
+            sample.m_fRenderMs,
+            sample.m_fPresentMs,
+            skips,
+            window.m_fDisplayFps,
+            GameSpeedPercent(window),
+            window.m_fWorstDisplayMs,
+            CSequence::GetCurrently(),
+            static_cast<int32>(CGameData::PlayParam().GetStage()),
+            CGameStageDebug::STAGE_TICK,
+            enemyCount,
+            charId,
+            SafeMotionName(pszPlayerMotion)
+        );
+
+        for (int32 i = 0; i < enemyMax; ++i)
+        {
+            CEnemy* pEnemy = CGameProperty::GetEnemy(i);
+            if (!pEnemy || !IsBossEnemy(pEnemy->GetID()))
+                continue;
+
+            char name[48];
+            char status[32];
+            FormatEnemyName(pEnemy->GetID(), name, sizeof(name));
+            FormatEnemyStatus(static_cast<int32>(pEnemy->Character().GetStatus()), status, sizeof(status));
+            m_perfLog.Write(
+                "           boss %s (id %d)  motion %s  status %s  HP %d/%d",
+                name,
+                static_cast<int32>(pEnemy->GetID()),
+                SafeMotionName(GetEnemyMotionName(pEnemy)),
+                status,
+                pEnemy->GetHP(),
+                pEnemy->GetHPMax()
+            );
+        };
+
+        m_perfLog.Flush();
+    };
+
+
+    void PushMoveEvent(bool bBoss, const char* pszText)
+    {
+        MOVEEVENT& event = m_aMoveEvent[m_iMoveEventHead % MOVEEVENT_NUM];
+        std::snprintf(event.m_szText, sizeof(event.m_szText), "%s", pszText);
+        event.m_bBoss = bBoss;
+        ++m_iMoveEventHead;
+    };
+
+
+    void UpdateMoveTracking(void)
+    {
+        if (!IsGameplaySequence(CSequence::GetCurrently()))
+        {
+            for (int32 i = 0; i < GAMETYPES::ENEMY_MAX; ++i)
+                m_aTracked[i].m_uHandle = 0;
+            m_szPlayerMotion[0] = '\0';
+            return;
+        };
+
+        int32 enemyMax = CGameProperty::GetEnemyMax();
+        if (enemyMax > GAMETYPES::ENEMY_MAX)
+            enemyMax = GAMETYPES::ENEMY_MAX;
+
+        for (int32 i = 0; i < enemyMax; ++i)
+        {
+            TRACKEDENEMY& tracked = m_aTracked[i];
+            CEnemy* pEnemy = CGameProperty::GetEnemy(i);
+            if (!pEnemy)
+            {
+                tracked.m_uHandle = 0;
+                continue;
+            };
+
+            ENEMYID::VALUE id = pEnemy->GetID();
+            int32 status = static_cast<int32>(pEnemy->Character().GetStatus());
+            const char* pszMotion = SafeMotionName(GetEnemyMotionName(pEnemy));
+            uint32 handle = pEnemy->GetHandle();
+            bool bNew = (tracked.m_uHandle != handle);
+            bool bMotionChanged = (bNew || (std::strcmp(tracked.m_szMotion, pszMotion) != 0));
+            bool bStatusChanged = (bNew || (tracked.m_iStatus != status));
+
+            if ((bMotionChanged || bStatusChanged) && IsTrackedForMoves(id))
+            {
+                char name[48];
+                char statusText[32];
+                FormatEnemyName(id, name, sizeof(name));
+                FormatEnemyStatus(status, statusText, sizeof(statusText));
+
+                char text[112];
+                std::snprintf(text, sizeof(text), "%s%s: %s [%s]",
+                              (IsBossEnemy(id) ? "BOSS " : ""), name, pszMotion, statusText);
+                PushMoveEvent(IsBossEnemy(id), text);
+
+                if (m_bMoveLog)
+                {
+                    m_moveLog.Write(
+                        "tick %-7d %-5s %-24s slot %2d  %s %-28s status %-22s HP %d/%d",
+                        CGameStageDebug::STAGE_TICK,
+                        (IsBossEnemy(id) ? "BOSS" : "enemy"),
+                        name,
+                        i,
+                        (bNew ? "SPAWN " : "motion"),
+                        pszMotion,
+                        statusText,
+                        pEnemy->GetHP(),
+                        pEnemy->GetHPMax()
+                    );
+                };
+            };
+
+            tracked.m_uHandle = handle;
+            tracked.m_iStatus = status;
+            std::snprintf(tracked.m_szMotion, sizeof(tracked.m_szMotion), "%s", pszMotion);
+        };
+
+        if (m_bMoveLog && (CGameProperty::GetPlayerNum() > 0))
+        {
+            IGamePlayer* pPlayer = CGameProperty::Player(0);
+            CPlayerCharacter* pCharacter = ((pPlayer && pPlayer->IsAlive()) ? pPlayer->GetCurrentCharacter() : nullptr);
+            if (pCharacter)
+            {
+                const char* pszMotion = SafeMotionName(pCharacter->GetMotionName());
+                if (std::strcmp(m_szPlayerMotion, pszMotion) != 0)
+                {
+                    m_moveLog.Write(
+                        "tick %-7d P1    char %-19d          motion %-28s HP %d/%d",
+                        CGameStageDebug::STAGE_TICK,
+                        static_cast<int32>(pPlayer->GetCurrentCharacterID()),
+                        pszMotion,
+                        pPlayer->GetHP(),
+                        pPlayer->GetHPMax()
+                    );
+                    std::snprintf(m_szPlayerMotion, sizeof(m_szPlayerMotion), "%s", pszMotion);
+                };
+            };
+        };
+
+        m_moveLog.FlushIfDue();
+    };
+
+
+    void DrawEnemyLabels(void) const
+    {
+        if (m_iLabelMode == LABELMODE_OFF)
+            return;
+
+        int32 enemyMax = CGameProperty::GetEnemyMax();
+        for (int32 i = 0; i < enemyMax; ++i)
+        {
+            CEnemy* pEnemy = CGameProperty::GetEnemy(i);
+            if (!pEnemy)
+                continue;
+
+            ENEMYID::VALUE id = pEnemy->GetID();
+            bool bBoss = IsBossEnemy(id);
+            if (!bBoss && (m_iLabelMode != LABELMODE_ALL))
+                continue;
+
+            const CCharacterCompositor& compositor = pEnemy->Character().Compositor();
+            RwV3d position = Math::VECTOR3_ZERO;
+            pEnemy->GetPosition(&position);
+            position.y += compositor.GetCollisionParameter().m_fHeight + 0.35f;
+
+            float sx = 0.0f;
+            float sy = 0.0f;
+            if (!ProjectToScreen(position, sx, sy))
+                continue;
+
+            char name[48];
+            char status[32];
+            FormatEnemyName(id, name, sizeof(name));
+            FormatEnemyStatus(static_cast<int32>(pEnemy->Character().GetStatus()), status, sizeof(status));
+
+            char line1[96];
+            char line2[96];
+            std::snprintf(line1, sizeof(line1), "%s", SafeMotionName(compositor.GetMotionName()));
+            std::snprintf(line2, sizeof(line2), "%s  %s  HP %d/%d", name, status, pEnemy->GetHP(), pEnemy->GetHPMax());
+
+            int32 width1 = static_cast<int32>(std::strlen(line1)) * 8;
+            int32 width2 = static_cast<int32>(std::strlen(line2)) * 8;
+            int32 x1 = Clamp(static_cast<int32>(sx) - (width1 / 2), 0, MaxI(0, CScreen::Width() - width1));
+            int32 x2 = Clamp(static_cast<int32>(sx) - (width2 / 2), 0, MaxI(0, CScreen::Width() - width2));
+            int32 y = Clamp(static_cast<int32>(sy) - 36, 0, MaxI(0, CScreen::Height() - 36));
+
+            m_font.Background({ 0x00, 0x00, 0x00, 0xA0 });
+            m_font.Color(bBoss ? RwRGBA{ 0xFF, 0xD0, 0x40, 0xFF } : RwRGBA{ 0xE8, 0xEE, 0xF8, 0xFF });
+            m_font.Position(x1, y);
+            m_font.Print("%s", line1);
+            m_font.Color({ 0xB0, 0xC0, 0xD0, 0xFF });
+            m_font.Position(x2, y + 16);
+            m_font.Print("%s", line2);
+        };
+    };
+
+
+    void DrawFrameGraph(void) const
+    {
+        RwCamera* pCamera = CCamera::CameraCurrent();
+        if (!pCamera)
+            return;
+
+        // Build display-frame intervals: time between frames that reached the screen.
+        enum { BARS = 120 };
+        float aBar[BARS] = {};
+        bool aSkipped[BARS] = {};
+        int32 nBar = 0;
+        {
+            float pendingMs = 0.0f;
+            bool bPendingSkip = false;
+            int32 count = CPCFrameStats::GetHistoryCount();
+            float aAll[CPCFrameStats::HISTORY] = {};
+            bool aAllSkipped[CPCFrameStats::HISTORY] = {};
+            int32 nAll = 0;
+            for (int32 ago = count - 1; ago >= 0; --ago)
+            {
+                const CPCFrameStats::SAMPLE& sample = CPCFrameStats::GetSample(ago);
+                if (sample.m_fFrameMs > 1000.0f)
+                {
+                    nAll = 0;
+                    pendingMs = 0.0f;
+                    bPendingSkip = false;
+                    continue;
+                };
+
+                pendingMs += sample.m_fFrameMs;
+                if (!sample.m_bDrawn)
+                {
+                    bPendingSkip = true;
+                    continue;
+                };
+
+                aAll[nAll] = pendingMs;
+                aAllSkipped[nAll] = bPendingSkip;
+                ++nAll;
+                pendingMs = 0.0f;
+                bPendingSkip = false;
+            };
+
+            int32 first = (nAll > BARS ? nAll - BARS : 0);
+            for (int32 i = first; i < nAll; ++i)
+            {
+                aBar[nBar] = aAll[i];
+                aSkipped[nBar] = aAllSkipped[i];
+                ++nBar;
+            };
+        };
+
+        float scale = MaxF(1.0f, static_cast<float>(CScreen::Height()) / 480.0f);
+        float barW = 2.0f * scale;
+        float graphW = barW * static_cast<float>(BARS);
+        float graphH = 56.0f * scale;
+        float x0 = (static_cast<float>(CScreen::Width()) - graphW) * 0.5f;
+        if (m_bOpen && (CScreen::Width() < 1400))
+            x0 = static_cast<float>(CScreen::Width()) - graphW - (12.0f * scale);
+        float y0 = 6.0f * scale;
+        const float MAX_MS = 50.0f;
+
+        static IM2DBATCH s_batch;
+        s_batch.m_nVertex = 0;
+        s_batch.m_fZ = RwIm2DGetNearScreenZ();
+        s_batch.m_fRhw = 1.0f / RwCameraGetNearClipPlane(pCamera);
+
+        Im2DQuad(s_batch, x0 - 4.0f, y0 - 3.0f, x0 + graphW + 4.0f, y0 + graphH + 3.0f, { 0x00, 0x00, 0x00, 0xA8 });
+
+        for (int32 i = 0; i < nBar; ++i)
+        {
+            float ms = MinF(aBar[i], MAX_MS);
+            float h = MaxF(1.0f, (ms / MAX_MS) * graphH);
+            RwRGBA color = { 0x40, 0xE0, 0x70, 0xE0 };
+            if (aBar[i] > m_fDropThresholdMs)
+                color = { 0xFF, 0x48, 0x48, 0xF0 };
+            else if (aBar[i] > 17.6f)
+                color = { 0xFF, 0xC8, 0x40, 0xE8 };
+
+            float bx = x0 + (static_cast<float>(i) * barW);
+            Im2DQuad(s_batch, bx, y0 + graphH - h, bx + barW - 0.5f, y0 + graphH, color);
+            if (aSkipped[i])
+                Im2DQuad(s_batch, bx, y0, bx + barW - 0.5f, y0 + (3.0f * scale), { 0xD0, 0x60, 0xFF, 0xFF });
+        };
+
+        float target = y0 + graphH - ((1000.0f / MaxF(1.0f, CScreen::Framerate())) / MAX_MS) * graphH;
+        float limit = y0 + graphH - (MinF(m_fDropThresholdMs, MAX_MS) / MAX_MS) * graphH;
+        Im2DQuad(s_batch, x0, target, x0 + graphW, target + 1.0f, { 0x60, 0xFF, 0x90, 0x90 });
+        Im2DQuad(s_batch, x0, limit, x0 + graphW, limit + 1.0f, { 0xFF, 0x50, 0x50, 0xA0 });
+
+        CSystem2D::PushRenderState();
+        RwRenderStateSet(rwRENDERSTATETEXTURERASTER, nullptr);
+        RwIm2DRenderPrimitive(rwPRIMTYPETRILIST, s_batch.m_aVertex, s_batch.m_nVertex);
+        CSystem2D::PopRenderState();
+
+        FRAMEWINDOW window = ComputeFrameWindow(1000.0f);
+        float latest = (nBar > 0 ? aBar[nBar - 1] : 0.0f);
+        m_font.Background({ 0x00, 0x00, 0x00, 0xA8 });
+        m_font.Color(window.m_fWorstDisplayMs > m_fDropThresholdMs ? RwRGBA{ 0xFF, 0x90, 0x80, 0xFF } : RwRGBA{ 0xC8, 0xFF, 0xD8, 0xFF });
+        m_font.Position(static_cast<int32>(x0), static_cast<int32>(y0 + graphH + (5.0f * scale)));
+        m_font.Print(
+            "FPS %.1f  %.1fms  worst %.1fms  speed %.0f%%  drops %d",
+            window.m_fDisplayFps,
+            latest,
+            window.m_fWorstDisplayMs,
+            GameSpeedPercent(window),
+            m_iSessionDropEpisodes
+        );
     };
 
 
@@ -1311,10 +2159,12 @@ private:
         m_font.SetAutoStep(0, 16);
 
         GAMETYPES::DIFFICULTY difficulty = CGameData::Option().Play().GetDifficulty();
+        FRAMEWINDOW window = ComputeFrameWindow(1000.0f);
         m_font.Print(
-            "LIVE  FPS %.1f %.2fms  Diff %s  Preset %s  MSAA %s",
-            CScreen::Framerate(),
-            CScreen::TimerStride() * 1000.0f,
+            "LIVE  FPS %.1f %.2fms  Speed %.0f%%  Diff %s  Preset %s  MSAA %s",
+            window.m_fDisplayFps,
+            window.m_fAvgFrameMs,
+            GameSpeedPercent(window),
             DifficultyName(difficulty),
             CDebugDifficulty::GetPresetName(),
             GetMSAALabel(CPCSpecific::GetMultiSamplingSamples())
@@ -1420,7 +2270,28 @@ private:
         m_font.Color({ 0xE8, 0xEE, 0xF8, 0xFF });
 
         GAMETYPES::DIFFICULTY difficulty = CGameData::Option().Play().GetDifficulty();
-        m_font.Print("FPS %.1f  Frame %.2f ms", CScreen::Framerate(), CScreen::TimerStride() * 1000.0f);
+        FRAMEWINDOW window = ComputeFrameWindow(1000.0f);
+        m_font.Print(
+            "FPS %.1f shown  %.1f ticks/s  speed %.0f%%  worst %.1f ms",
+            window.m_fDisplayFps,
+            window.m_fTickRate,
+            GameSpeedPercent(window),
+            window.m_fWorstDisplayMs
+        );
+        m_font.Print(
+            "Frame %.2f ms = update %.2f + render %.2f + present %.2f",
+            window.m_fAvgFrameMs,
+            window.m_fAvgUpdateMs,
+            window.m_fAvgRenderMs,
+            window.m_fAvgPresentMs
+        );
+        m_font.Print(
+            "Drops %d (>%.1f ms)  slow frames %d  skipped draws %d",
+            m_iSessionDropEpisodes,
+            m_fDropThresholdMs,
+            m_iSessionSlowFrames,
+            m_iSessionSkippedFrames
+        );
         m_font.Print("Difficulty %s", DifficultyName(difficulty));
         m_font.Print("Debug preset %s", CDebugDifficulty::GetPresetName());
         m_font.Print("Sequence %d  Tick %d", CSequence::GetCurrently(), CGameStageDebug::STAGE_TICK);
@@ -1489,6 +2360,19 @@ private:
             };
         };
 
+        int32 eventCount = (m_iMoveEventHead < MOVEEVENT_NUM ? m_iMoveEventHead : MOVEEVENT_NUM);
+        if (eventCount > 0)
+        {
+            m_font.Color({ 0x78, 0xD8, 0xFF, 0xFF });
+            m_font.Print("Recent moves (newest first)");
+            for (int32 i = 0; i < eventCount; ++i)
+            {
+                const MOVEEVENT& event = m_aMoveEvent[(m_iMoveEventHead - 1 - i) % MOVEEVENT_NUM];
+                m_font.Color(event.m_bBoss ? RwRGBA{ 0xFF, 0xD0, 0x40, 0xFF } : RwRGBA{ 0xE8, 0xEE, 0xF8, 0xFF });
+                m_font.Print("%s", event.m_szText);
+            };
+        };
+
         m_font.SetAutoStep(0, 0);
     };
 
@@ -1513,6 +2397,33 @@ private:
     float m_fSavedDirection;
     int32 m_iCameraMode;
     std::vector<uint32> m_aiResumeHandles;
+    bool m_bFrameGraph;
+    bool m_bDropLog;
+    bool m_bMoveLog;
+    int32 m_iLabelMode;
+    float m_fDropThresholdMs;
+    uint32 m_uPerfProcessed;
+    int32 m_iPerfSequence;
+    int32 m_iPerfWarmup;
+    float m_fPendingDisplayMs;
+    int32 m_iPendingSkips;
+    bool m_bDropActive;
+    int32 m_iDropFrames;
+    int32 m_iDropSkips;
+    int32 m_iDropRecover;
+    float m_fDropWorstMs;
+    float m_fDropTotalMs;
+    uint32 m_uDropStartTick;
+    int32 m_iSessionDropEpisodes;
+    int32 m_iSessionSlowFrames;
+    int32 m_iSessionSkippedFrames;
+    bool m_bPerfHeaderWritten;
+    CPCDebugLogFile m_perfLog;
+    CPCDebugLogFile m_moveLog;
+    TRACKEDENEMY m_aTracked[GAMETYPES::ENEMY_MAX];
+    MOVEEVENT m_aMoveEvent[MOVEEVENT_NUM];
+    int32 m_iMoveEventHead;
+    char m_szPlayerMotion[48];
 };
 
 
