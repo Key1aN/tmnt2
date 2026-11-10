@@ -14,6 +14,8 @@
 #include "Game/Component/GameMain/GameProperty.hpp"
 #include "Game/System/Misc/Gamepad.hpp"
 
+#include <algorithm>
+
 
 /*static*/ CManipulator* CManipulator::New(CPlayerCharacter* pPlayerChr, int32 nControllerNo)
 {
@@ -62,6 +64,10 @@ CManipulator::CManipulator(const char* pszName, CPlayerCharacter* pPlayerChr, in
 , m_pPlayerChr(pPlayerChr)
 , m_input()
 , m_nControllerNo(nControllerNo)
+#if defined(TARGET_PC)
+, m_fSincePressA(1.0f)
+, m_fSincePressB(1.0f)
+#endif /* defined(TARGET_PC) */
 {
 	ClearInput();
 
@@ -617,6 +623,16 @@ void CManipulator::AnalyzeInputDevice(void)
     {
         m_input.m_attack = ATTACK_C;
     }
+#if defined(TARGET_PC)
+    // Retail only reads A+B as C when both presses land on the same frame (16 ms).
+    // Also accept the second press up to CHORD_WINDOW after the first while the
+    // first button is still held. The first press is never delayed: C replaces
+    // its queued combo request, so A then B (or B then A) still forms C.
+    else if (IsChordWithHeldButton(uDigital, uDigitalTrigger))
+    {
+        m_input.m_attack = ATTACK_C;
+    }
+#endif /* defined(TARGET_PC) */
     else if (IGamepad::CheckFunction(uDigitalTrigger, IGamepad::FUNCTION_ATTACK_B))
     {
         m_input.m_attack = ATTACK_B;
@@ -625,6 +641,10 @@ void CManipulator::AnalyzeInputDevice(void)
     {
         m_input.m_attack = ATTACK_A;
     };
+
+#if defined(TARGET_PC)
+    UpdateChordTimers(uDigitalTrigger);
+#endif /* defined(TARGET_PC) */
 
     if (IGamepad::CheckFunction(uDigital, IGamepad::FUNCTION_ATTACK_B))
         m_input.m_attackCharge = ATTACK_CHARGE_ON;
@@ -741,3 +761,48 @@ void CManipulator::ClearInput(void)
     m_input.m_passive       = PASSIVE_OFF;
     m_input.m_fDirection    = 0.0f;
 };
+
+#if defined(TARGET_PC)
+static const float CHORD_WINDOW = 0.085f; // ~5 frames at 60 fps
+
+
+bool CManipulator::IsChordWithHeldButton(uint32 uDigital, uint32 uDigitalTrigger) const
+{
+    bool bTrigA = IGamepad::CheckFunction(uDigitalTrigger, IGamepad::FUNCTION_ATTACK_A);
+    bool bTrigB = IGamepad::CheckFunction(uDigitalTrigger, IGamepad::FUNCTION_ATTACK_B);
+    bool bHoldA = IGamepad::CheckFunction(uDigital, IGamepad::FUNCTION_ATTACK_A);
+    bool bHoldB = IGamepad::CheckFunction(uDigital, IGamepad::FUNCTION_ATTACK_B);
+
+    float fElapsed = CGameProperty::GetElapsedTime();
+
+    if (bTrigB && bHoldA && ((m_fSincePressA + fElapsed) <= CHORD_WINDOW))
+        return true;
+
+    if (bTrigA && bHoldB && ((m_fSincePressB + fElapsed) <= CHORD_WINDOW))
+        return true;
+
+    return false;
+};
+
+
+void CManipulator::UpdateChordTimers(uint32 uDigitalTrigger)
+{
+    float fElapsed = CGameProperty::GetElapsedTime();
+    m_fSincePressA = std::min(m_fSincePressA + fElapsed, 1.0f);
+    m_fSincePressB = std::min(m_fSincePressB + fElapsed, 1.0f);
+
+    if (m_input.m_attack == ATTACK_C)
+    {
+        // A chord consumes both presses so a third press cannot chord again.
+        m_fSincePressA = 1.0f;
+        m_fSincePressB = 1.0f;
+        return;
+    };
+
+    if (IGamepad::CheckFunction(uDigitalTrigger, IGamepad::FUNCTION_ATTACK_A))
+        m_fSincePressA = 0.0f;
+
+    if (IGamepad::CheckFunction(uDigitalTrigger, IGamepad::FUNCTION_ATTACK_B))
+        m_fSincePressB = 0.0f;
+};
+#endif /* defined(TARGET_PC) */

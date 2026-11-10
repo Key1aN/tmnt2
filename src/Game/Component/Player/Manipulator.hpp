@@ -135,10 +135,19 @@ public:
     void SetSpecificAbilityFlag(void);
     void SetConfusionInput(void);
     void ClearInput(void);
+#if defined(TARGET_PC)
+    bool IsChordWithHeldButton(uint32 uDigital, uint32 uDigitalTrigger) const;
+    void UpdateChordTimers(uint32 uDigitalTrigger);
+#endif /* defined(TARGET_PC) */
 
 protected:
     CPlayerCharacter* m_pPlayerChr;
     INPUT m_input;
     int32 m_nControllerNo;
     CPadStream m_padstream;
+#if defined(TARGET_PC)
+    // A+B (C) chord window: seconds since each button's last press.
+    float m_fSincePressA;
+    float m_fSincePressB;
+#endif /* defined(TARGET_PC) */
 };

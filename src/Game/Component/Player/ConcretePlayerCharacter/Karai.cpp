@@ -2,6 +2,8 @@
 
 #include "Game/Component/GameMain/GameProperty.hpp"
 #include "Game/Component/GameMain/GamePlayer.hpp"
+#include "Game/Component/GameMain/GameEvent.hpp"
+#include "Game/Component/Module/AccumulateModule.hpp"
 #include "Game/Component/Player/PlayerStateMachine.hpp"
 #include "Game/Component/Player/PlayerStatus.hpp"
 #include "Game/Component/Player/PlayerTracer.hpp"
@@ -19,6 +21,8 @@
 #include "Game/System/Model/ModelManager.hpp"
 #include "Game/System/MotionParameter/MotionParameterManager.hpp"
 #include "Game/System/Sound/GameSound.hpp"
+
+#include <algorithm>
 
 #if defined(TARGET_PC)
 #include "System/PC/PCCrashReporter.hpp"
@@ -115,7 +119,7 @@ namespace KaraiBoss
         { "AABBC",          "AAC"           },
         { "JAttack",        "JAttack2"      },  // JAttack1 is the boss ground wind-up; JAttack2 is the airborne attack
         { "JWall",          "J2"            },
-        { "Shuriken",       "D"             },
+        { "Shuriken",       "A"             },  // ground throw uses the quick slash (see CBossAttackKnife)
         { "JShuriken",      "JKunai"        },
         { "Nage1",          "B"             },
         { "Nage2",          "BB"            },
@@ -192,6 +196,9 @@ namespace KaraiBoss
 CKarai::CKarai(GAMETYPES::COSTUME costume)
 : CPlayerCharacter("karai", PLAYERID::ID_KAR, costume)
 , m_bBossVariant(false)
+, m_bWindPressFollowup(false)
+, m_bWindPressFromCombo(false)
+, m_bossChargePhase(0)
 {
     // Holding R1 at character confirm selects COSTUME_SAMURAI, which runs Karai on
     // the boss Karai model, skeleton, and motion set (unique "karai_boss" records
@@ -247,7 +254,11 @@ CKarai::CKarai(GAMETYPES::COSTUME costume)
     };
     parameter.m_pStateMachine->RegistStatus(PLAYERTYPES::STATUS_ATTACK_AABBC,   new Karai::CAttackAABBC);
     if (bBossVariant)
-        parameter.m_pStateMachine->RegistStatus(PLAYERTYPES::STATUS_ATTACK_B, new KaraiBoss::CBossAttackB);
+    {
+        parameter.m_pStateMachine->RegistStatus(PLAYERTYPES::STATUS_ATTACK_B,        new KaraiBoss::CBossAttackB);
+        parameter.m_pStateMachine->RegistStatus(PLAYERTYPES::STATUS_ATTACK_B_CHARGE, new KaraiBoss::CBossAttackBCharge);
+        parameter.m_pStateMachine->RegistStatus(PLAYERTYPES::STATUS_ATTACK_KNIFE,    new KaraiBoss::CBossAttackKnife);
+    }
     else
         parameter.m_pStateMachine->RegistStatus(PLAYERTYPES::STATUS_ATTACK_B, new Karai::CAttackB);
 
@@ -280,6 +291,23 @@ bool CKarai::IsBossVariant(void) const
 
 void CKarai::ShootingKnife(void)
 {
+    if (m_bBossVariant)
+    {
+        // Bone 3 is the right sword on the player skeleton only; the boss
+        // skeleton numbers its bones differently. Throw from chest height.
+        RwV3d vBody = Math::VECTOR3_ZERO;
+        GetBodyPosition(&vBody);
+        RwV3d vForward = { 0.0f, 0.0f, 0.5f };
+        RotateVectorByDirection(&vForward, &vForward);
+        Math::Vec3_Add(&vBody, &vBody, &vForward);
+
+        CShotManager::Shot(SHOTID::ID_KUNAI_PLAYER, &vBody, m_fDirection, this, MATH_DEG2RAD(15.0f), 5.0f);
+
+        if (!TestAttribute(PLAYERTYPES::ATTRIBUTE_INNUMERABLE_KNIFE))
+            CGameProperty::Player(GetPlayerNo())->AddShurikenNum(-1);
+        return;
+    };
+
     RwV3d vPosition = *m_pModel->GetBonePositionFromID(Feature().m_nKnifeAttachBoneID);
     RwV3d vLocalPos = Math::VECTOR3_ZERO;
 
@@ -429,6 +457,25 @@ namespace KaraiBoss
     };
 
 
+    // Jump, wall-jump, and throw statuses leave these flags set when they end;
+    // a stale FIXED_DIRECTION/FIXED_MODEL_ROTATION blocks turning and spinning.
+    static void ClearDirectionLocks(CPlayerCharacter& chr)
+    {
+        chr.ClearCharacterFlag(CHARACTERTYPES::FLAG_FIXED_DIRECTION);
+        chr.ClearCharacterFlag(CHARACTERTYPES::FLAG_FIXED_MODEL_ROTATION);
+    };
+
+
+    static void BossTrace(const char* pszFormat, int32 a, int32 b)
+    {
+#if defined(TARGET_PC)
+        CPCCrashReporter::Breadcrumb(pszFormat, a, b);
+#else /* defined(TARGET_PC) */
+        (void)pszFormat; (void)a; (void)b;
+#endif /* defined(TARGET_PC) */
+    };
+
+
     static bool IsLanded(CPlayerCharacter& chr)
     {
         RwV3d vFoot = Math::VECTOR3_ZERO;
@@ -457,10 +504,11 @@ namespace KaraiBoss
     };
 
 
-    // ---- Guard + A: Dash Strike (Dash1 -> held Dash2 lunge) ----
+    // ---- Dash: Dash Strike (Dash1 -> held Dash2 lunge) ----
 
     void CBossDashStrike::OnAttach(void)
     {
+        ClearDirectionLocks(Character());
         m_step = 0;
         m_fTimer = 0.0f;
         m_fDashTime = MOVE::DASH_DISTANCE / MOVE::DASH_SPEED;
@@ -519,17 +567,44 @@ namespace KaraiBoss
     };
 
 
-    // ---- Guard + B: Wind Press (B -> BB with wind_press shockwave) ----
+    // ---- B, B (or Guard + B): Wind Press (B -> BB with wind_press shockwave) ----
+
+    bool CBossWindPress::IsEnableChangeStatus(PLAYERTYPES::STATUS status)
+    {
+        if (status == PLAYERTYPES::STATUS_ATTACK_B)
+            return true;
+
+        return CBossMoveStatus::IsEnableChangeStatus(status);
+    };
+
 
     void CBossWindPress::OnAttach(void)
     {
+        ClearDirectionLocks(Character());
+        CKarai& karai = static_cast<CKarai&>(Character());
+        bool bFromCombo = karai.TestWindPressFromCombo();
+        karai.SetWindPressFromCombo(false);
+        karai.ClearWindPressFollowup();
+
         m_step = 0;
         m_bMagic = false;
 
         Character().ResetVelocity();
         Character().ResetAcceleration();
-        Character().ChangeMotion(MOVE::WIND_PRESS_START, true);
+
+        if (bFromCombo)
+        {
+            // B already played as the first hit: go straight to the slam.
+            Character().ChangeMotion(MOVE::WIND_PRESS_SLAM, true);
+            m_step = 1;
+        }
+        else
+        {
+            Character().ChangeMotion(MOVE::WIND_PRESS_START, true);
+        };
+
         CGameSound::PlayAttackSE(m_pPlayerChr);
+        BossTrace("KARAI_BOSS wind_press combo=%d step=%d", (bFromCombo ? 1 : 0), m_step);
     };
 
 
@@ -599,6 +674,7 @@ namespace KaraiBoss
         for (int32 i = 0; i < COUNT_OF(m_ahEffectElectric); ++i)
             m_ahEffectElectric[i] = 0;
 
+        ClearDirectionLocks(Character());
         Character().ResetVelocity();
         Character().ResetAcceleration();
         FaceNearestEnemy(Character(), MOVE::THUNDER_RANGE, nullptr);
@@ -701,6 +777,7 @@ namespace KaraiBoss
         m_fTimer = 0.0f;
         m_bShot = false;
 
+        ClearDirectionLocks(Character());
         Character().ResetVelocity();
         Character().ResetAcceleration();
         Character().ChangeMotion(MOVE::KUNAI_READY, true);
@@ -722,6 +799,7 @@ namespace KaraiBoss
             if (Character().IsMotionEnd())
             {
                 Character().ChangeMotion(MOVE::KUNAI_SPIN, true);
+                ClearDirectionLocks(Character());
                 RwV3d vVelocity = Math::VECTOR3_ZERO;
                 vVelocity.y = MOVE::KUNAI_JUMP_SPEED;
                 Character().SetVelocity(&vVelocity);
@@ -735,6 +813,7 @@ namespace KaraiBoss
             {
                 float fDt = CGameProperty::GetElapsedTime();
                 m_fTimer += fDt;
+                ClearDirectionLocks(Character());
                 Character().SetDirection(Character().GetDirection() + (fDt * (MATH_PI * 5.0f)));
 
                 RwV3d vVelocity = Math::VECTOR3_ZERO;
@@ -762,6 +841,8 @@ namespace KaraiBoss
 
                 if ((m_fTimer > 0.2f) && IsLanded(Character()))
                 {
+                    BossTrace("KARAI_BOSS kunai_rain landed spin_ms=%d shot=%d",
+                              static_cast<int32>(m_fTimer * 1000.0f), (m_bShot ? 1 : 0));
                     Character().ResetVelocity();
                     Character().ResetAcceleration();
                     Character().ClearPlayerFlag(PLAYERTYPES::FLAG_AERIAL_STATUS);
@@ -783,6 +864,7 @@ namespace KaraiBoss
 
     void CBossCounterSlash::OnAttach(void)
     {
+        ClearDirectionLocks(Character());
         Character().ResetVelocity();
         Character().ResetAcceleration();
         FaceNearestEnemy(Character(), 4.0f, nullptr);
@@ -845,44 +927,242 @@ namespace KaraiBoss
     };
 
 
-    // ---- Charged B: boss Thunder finisher (C3) instead of the charge wave ----
+    // ---- Charged B: boss charge (C1) -> Thunder finisher (C3) ----
+
+    static CAccumulateModule* GetAccumulateModule(CPlayerCharacter& chr)
+    {
+        return static_cast<CAccumulateModule*>(chr.GetModule(MODULETYPE::ACCUMULATE));
+    };
+
+
+    static void HideRetailChargeGlow(CPlayerCharacter& chr)
+    {
+        CAccumulateModule* pModule = GetAccumulateModule(chr);
+        if (pModule)
+        {
+            pModule->SetStepZero();
+            pModule->SetEffectOff();
+            pModule->SetDrawOff();
+        };
+    };
+
+
+    static int32 ChargePhaseToLevel(PLAYERTYPES::CHARGEPHASE phase)
+    {
+        switch (phase)
+        {
+        case PLAYERTYPES::CHARGEPHASE_1ST: return 1;
+        case PLAYERTYPES::CHARGEPHASE_2ND: return 2;
+        case PLAYERTYPES::CHARGEPHASE_3RD: return 3;
+        default:                           return 0;
+        };
+    };
+
+
+    void CBossAttackBCharge::FinishEffects(void)
+    {
+        FinishEffect(m_hEffectCharge);
+        FinishEffect(m_hEffectElectric);
+    };
+
+
+    void CBossAttackBCharge::OnAttach(void)
+    {
+        m_bHold = false;
+        m_phase = 0;
+        m_hEffectCharge = 0;
+        m_hEffectElectric = 0;
+
+        static_cast<CKarai&>(Character()).SetBossChargePhase(0);
+
+        ClearDirectionLocks(Character());
+        Character().ResetVelocity();
+        Character().ResetAcceleration();
+        Character().ChangeMotion(MOVE::THUNDER_CHARGE, true);
+
+        // Reach the end of the C1 crouch at the first charge level (1 s), then hold it.
+        float fEnd = Character().GetMotionEndTime();
+        Character().SetCharacterFlag(CHARACTERTYPES::FLAG_MOTION_SPEED_CTRL);
+        Character().SetMotionSpeed((fEnd > 0.0f) ? (fEnd / 1.0f) : 1.0f);
+
+        HideRetailChargeGlow(Character());
+    };
+
+
+    void CBossAttackBCharge::OnDetach(void)
+    {
+        FinishEffects();
+        Character().ClearCharacterFlag(CHARACTERTYPES::FLAG_MOTION_SPEED_CTRL);
+        Character().PlayMotion();
+        HideRetailChargeGlow(Character());
+    };
+
+
+    void CBossAttackBCharge::OnRun(void)
+    {
+        float fDuration = StateMachine().GetStatusDuration();
+
+        if (!m_bHold && Character().IsMotionEnd())
+        {
+            Character().StopMotion();
+            m_bHold = true;
+        };
+
+        if (!m_hEffectCharge && (fDuration >= 0.3f))
+            m_hEffectCharge = PlayBodyEffect(m_pPlayerChr, EFFECTID::ID_ALL_TAME1, 1.0f);
+
+        PLAYERTYPES::CHARGEPHASE phaseNow = PLAYERTYPES::CHARGEPHASE_ZERO;
+        bool bRelease = Character().CheckChargeTime(fDuration, &phaseNow);
+        int32 phase = ChargePhaseToLevel(phaseNow);
+
+        if (phase != m_phase)
+        {
+            m_phase = phase;
+            static_cast<CKarai&>(Character()).SetBossChargePhase(phase);
+
+            const EFFECTID::VALUE aGlow[] = { EFFECTID::ID_ALL_TAME1, EFFECTID::ID_ALL_TAME2, EFFECTID::ID_ALL_TAME3 };
+            const float afElectric[] = { 1.25f, 1.75f, 2.25f };
+            if ((phase >= 1) && (phase <= 3))
+            {
+                FinishEffect(m_hEffectCharge);
+                m_hEffectCharge = PlayBodyEffect(m_pPlayerChr, aGlow[phase - 1], 1.25f);
+                PlayBodyEffect(m_pPlayerChr, EFFECTID::ID_ALL_TAME_FLASH, 1.25f);
+
+                FinishEffect(m_hEffectElectric);
+                PlayTraceEffect(m_pPlayerChr, EFFECTID::ID_SHRD_ELEC, afElectric[phase - 1], nullptr, &m_hEffectElectric);
+                CGameSound::PlayObjectSE(m_pPlayerChr, SDCODE_SE(4411));
+            };
+
+            BossTrace("KARAI_BOSS charge phase=%d t_ms=%d", phase, static_cast<int32>(fDuration * 1000.0f));
+        };
+
+        if (bRelease)
+            StateMachine().ChangeStatus(PLAYERTYPES::STATUS_ATTACK_B);
+    };
+
 
     void CBossAttackB::OnAttach(void)
     {
-        Karai::CAttackB::OnAttach();
-        m_hEffectElectric = 0;
+        CKarai& karai = static_cast<CKarai&>(Character());
 
-        m_bBossFinisher = ((Character().GetChargePhase() == PLAYERTYPES::CHARGEPHASE_1ST) ||
-                           (Character().GetChargePhase() == PLAYERTYPES::CHARGEPHASE_2ND) ||
-                           (Character().GetChargePhase() == PLAYERTYPES::CHARGEPHASE_3RD));
+        Karai::CAttackB::OnAttach();
+        HideRetailChargeGlow(Character());
+        m_hEffectElectric = 0;
+        karai.ClearWindPressFollowup();
+
+        int32 level = std::max(ChargePhaseToLevel(Character().GetChargePhase()), karai.GetBossChargePhase());
+        karai.SetBossChargePhase(0);
+        m_bBossFinisher = (level > 0);
+
         if (m_bBossFinisher)
         {
+            // The C3 hit data (retargeted to enemies; the 3rd charge level doubles
+            // power as in retail) is the attack. The electric burst is visual.
+            FaceNearestEnemy(Character(), 4.0f, nullptr);
             Character().ChangeMotion(MOVE::THUNDER_FINISH, true);
-            PlayBodyEffect(m_pPlayerChr, EFFECTID::ID_ALL_TAME_FLASH, 1.5f);
+
+            float fScale = ((level >= 3) ? 2.5f : ((level == 2) ? 2.0f : 1.5f));
+            PlayTraceEffect(m_pPlayerChr, EFFECTID::ID_SHRD_ELEC, fScale, nullptr, &m_hEffectElectric);
+            PlayBodyEffect(m_pPlayerChr, EFFECTID::ID_ALL_TAME_FLASH, fScale);
+            CGameSound::PlayObjectSE(m_pPlayerChr, SDCODE_SE(8387));
+        }
+        else
+        {
+            // The boss charge pose is C1, so a tapped B restarts the boss B slash.
+            Character().ChangeMotion(MOVE::WIND_PRESS_START, true);
         };
+
+        BossTrace("KARAI_BOSS attack_b level=%d finisher=%d", level, (m_bBossFinisher ? 1 : 0));
+    };
+
+
+    void CBossAttackB::OnRun(void)
+    {
+        if (!m_bBossFinisher)
+        {
+            CKarai& karai = static_cast<CKarai&>(Character());
+            if (karai.TestWindPressFollowup())
+            {
+                float fConnect = Character().GetNextChainMotionConnectTime();
+                float fEnd = Character().GetMotionEndTime();
+                if ((fConnect <= 0.0f) || (fConnect > fEnd))
+                    fConnect = fEnd * 0.6f;
+
+                if ((Character().GetMotionTime() >= fConnect) || Character().IsMotionEnd())
+                {
+                    karai.ClearWindPressFollowup();
+                    karai.SetWindPressFromCombo(true);
+                    StateMachine().ChangeStatus(static_cast<PLAYERTYPES::STATUS>(STATUS_BOSS_WIND_PRESS));
+                    if (StateMachine().CurrentStatus() == static_cast<PLAYERTYPES::STATUS>(STATUS_BOSS_WIND_PRESS))
+                        return;
+                    karai.SetWindPressFromCombo(false);
+                };
+            };
+        };
+
+        Karai::CAttackB::OnRun();
     };
 
 
     void CBossAttackB::OnDischargeWave(MAGIC_GENERIC::STEP step)
     {
-        if (!m_bBossFinisher)
-        {
-            Karai::CAttackB::OnDischargeWave(step);
-            return;
-        };
-
-        // The C3 hit data (retargeted to enemies, charge-scaled power) is the attack;
-        // the electric burst is visual.
-        float fScale = ((step == MAGIC_GENERIC::STEP_THREE) ? 2.5f : ((step == MAGIC_GENERIC::STEP_TWO) ? 2.0f : 1.5f));
-        FinishEffect(m_hEffectElectric);
-        PlayTraceEffect(m_pPlayerChr, EFFECTID::ID_SHRD_ELEC, fScale, nullptr, &m_hEffectElectric);
-        PlayBodyEffect(m_pPlayerChr, EFFECTID::ID_ALL_TAME_FLASH, fScale);
+        // Charged release is the C3 finisher; an uncharged B has no wave in retail.
+        (void)step;
     };
 
 
     void CBossAttackB::OnDetach(void)
     {
         FinishEffect(m_hEffectElectric);
+        static_cast<CKarai&>(Character()).ClearWindPressFollowup();
         Karai::CAttackB::OnDetach();
+    };
+
+
+    // ---- Shuriken: throw from the quick slash ----
+
+    static const float KNIFE_THROW_TIME = 0.12f;
+    static const float KNIFE_RECOVER_TIME = 0.45f;
+    static const float KNIFE_MOTION_SPEED = 1.4f;
+
+
+    void CBossAttackKnife::OnAttach(void)
+    {
+        m_fTimer = 0.0f;
+        m_bShot = false;
+
+        ClearDirectionLocks(Character());
+        Character().ChangeMotion(PLAYERTYPES::MOTIONNAMES::ATTACK_KNIFE, true);
+        Character().SetCharacterFlag(CHARACTERTYPES::FLAG_MOTION_SPEED_CTRL);
+        Character().SetMotionSpeed(KNIFE_MOTION_SPEED);
+
+        Character().ResetAcceleration();
+        Character().ResetVelocity();
+        Character().SetPlayerFlag(PLAYERTYPES::FLAG_DISABLE_THROW_KNIFE);
+    };
+
+
+    void CBossAttackKnife::OnDetach(void)
+    {
+        Character().ClearCharacterFlag(CHARACTERTYPES::FLAG_MOTION_SPEED_CTRL);
+        Character().ClearPlayerFlag(PLAYERTYPES::FLAG_DISABLE_THROW_KNIFE);
+    };
+
+
+    void CBossAttackKnife::OnRun(void)
+    {
+        m_fTimer += CGameProperty::GetElapsedTime();
+
+        if (!m_bShot && (m_fTimer >= KNIFE_THROW_TIME))
+        {
+            CGameSound::PlayObjectSE(m_pPlayerChr, SDCODE_SE(0x1020));
+            Character().ShootingKnife();
+            CGameEvent::SetPlayerTechnicalAction(Character().GetPlayerNo(), GAMETYPES::TECACT_KNIFE);
+            Character().ClearPlayerFlag(PLAYERTYPES::FLAG_DISABLE_THROW_KNIFE);
+            m_bShot = true;
+        };
+
+        if ((m_fTimer >= KNIFE_RECOVER_TIME) || Character().IsMotionEnd())
+            StateMachine().ChangeStatus(PLAYERTYPES::STATUS_IDLE);
     };
 }; /* namespace KaraiBoss */

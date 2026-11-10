@@ -43,8 +43,8 @@ namespace KaraiBoss
 {
     enum STATUS
     {
-        STATUS_BOSS_DASH_STRIKE = PLAYERTYPES::NORMALMAX,   // Guard + A
-        STATUS_BOSS_WIND_PRESS,                             // Guard + B (replaces grab)
+        STATUS_BOSS_DASH_STRIKE = PLAYERTYPES::NORMALMAX,   // Dash
+        STATUS_BOSS_WIND_PRESS,                             // B, B (also Guard + B, replaces grab)
         STATUS_BOSS_THUNDER,                                // Guard + A+B (C)
         STATUS_BOSS_KUNAI_RAIN,                             // Guard + Jump
         STATUS_BOSS_COUNTER_SLASH,                          // Guard + Shuriken
@@ -77,6 +77,7 @@ namespace KaraiBoss
     class CBossWindPress : public CBossMoveStatus
     {
     public:
+        virtual bool IsEnableChangeStatus(PLAYERTYPES::STATUS status) override;
         virtual void OnAttach(void) override;
         virtual void OnDetach(void) override;
         virtual void OnRun(void) override;
@@ -133,16 +134,49 @@ namespace KaraiBoss
         virtual void OnRun(void) override;
     };
 
+    // Boss-style charge: C1 pose with boss charge glows and electric aura
+    // (replaces the retail B windup and its accumulate glow).
+    class CBossAttackBCharge : public PlayerStatus::CAttackBCharge
+    {
+    public:
+        virtual void OnAttach(void) override;
+        virtual void OnDetach(void) override;
+        virtual void OnRun(void) override;
+
+    private:
+        void FinishEffects(void);
+
+        bool m_bHold;
+        int32 m_phase;
+        uint32 m_hEffectCharge;
+        uint32 m_hEffectElectric;
+    };
+
     class CBossAttackB : public Karai::CAttackB
     {
     public:
         virtual void OnAttach(void) override;
         virtual void OnDetach(void) override;
+        virtual void OnRun(void) override;
         virtual void OnDischargeWave(MAGIC_GENERIC::STEP step) override;
 
     private:
         bool m_bBossFinisher;
         uint32 m_hEffectElectric;
+    };
+
+    // Plain Shuriken: the boss model has no ground throw motion, so she throws
+    // from her quick slash (A) at a fixed time instead of a motion timing event.
+    class CBossAttackKnife : public PlayerStatus::CAttackKnife
+    {
+    public:
+        virtual void OnAttach(void) override;
+        virtual void OnDetach(void) override;
+        virtual void OnRun(void) override;
+
+    private:
+        float m_fTimer;
+        bool m_bShot;
     };
 }; /* namespace KaraiBoss */
 
@@ -156,6 +190,19 @@ public:
 
     bool IsBossVariant(void) const;
 
+    // B, B -> Wind Press: the manipulator requests the follow-up during ATTACK_B.
+    void RequestWindPressFollowup(void) { m_bWindPressFollowup = true; };
+    bool TestWindPressFollowup(void) const { return m_bWindPressFollowup; };
+    void ClearWindPressFollowup(void) { m_bWindPressFollowup = false; };
+    void SetWindPressFromCombo(bool bSet) { m_bWindPressFromCombo = bSet; };
+    bool TestWindPressFromCombo(void) const { return m_bWindPressFromCombo; };
+
+    void SetBossChargePhase(int32 phase) { m_bossChargePhase = phase; };
+    int32 GetBossChargePhase(void) const { return m_bossChargePhase; };
+
 private:
     bool m_bBossVariant;
+    bool m_bWindPressFollowup;
+    bool m_bWindPressFromCombo;
+    int32 m_bossChargePhase;
 };
