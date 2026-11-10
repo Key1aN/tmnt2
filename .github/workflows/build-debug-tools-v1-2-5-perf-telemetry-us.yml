@@ -7,7 +7,7 @@ on:
       - "claude/debug-tools-v1-2-5-perf-telemetry-us"
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build-debug-tools-v1-2-5-perf-telemetry-windows-x86-us:
@@ -227,6 +227,22 @@ jobs:
           Get-ChildItem $artifactDir -File | Get-FileHash -Algorithm SHA256 |
             ForEach-Object { "$($_.Hash.ToLowerInvariant())  $($_.Path | Split-Path -Leaf)" } |
             Set-Content (Join-Path $artifactDir "SHA256SUMS.txt") -Encoding utf8
+
+      - name: Publish build outputs to drop branch for packaging
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          $drop = Join-Path $env:RUNNER_TEMP "drop"
+          New-Item -ItemType Directory -Force -Path $drop | Out-Null
+          Copy-Item "$env:GITHUB_WORKSPACE\artifact-debug-tools-v1-2-5-perf-telemetry-us\*" $drop -Force
+          Set-Location $drop
+          git init -q
+          git checkout -q -b drop
+          git add -A
+          git -c user.name="github-actions" -c user.email="github-actions@users.noreply.github.com" commit -q -m "Build outputs for $env:GITHUB_SHA (run $env:GITHUB_RUN_NUMBER)"
+          git push -q -f "https://x-access-token:$env:GH_TOKEN@github.com/$env:GITHUB_REPOSITORY.git" drop:refs/heads/build-drops/debug-tools-v1-2-5-perf-telemetry-us
 
       - name: Upload TMNT2 Debug Tools v1.2.5 Perf Telemetry US artifact
         uses: actions/upload-artifact@v4
