@@ -1,0 +1,3 @@
+Source: Key1aN/tmnt2 claude/debug-tools-v1-2-6-boss-labels-us commit 9027a9b54351aff6d3351612c049c7d59df3bcd5, CI run 42853283220.
+EXE/PDB/MAP/MD from the drop branch match CI SHA256SUMS exactly.
+.t2mod built with the T2 Mod Packager format (Python port, DATA-only T2DELTA1); manifest identity equals v1.2.4, payload rebuilds the exact EXE. No retail files included.
