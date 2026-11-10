@@ -47,10 +47,10 @@ namespace KaraiBoss
         STATUS_BOSS_WIND_PRESS,                             // B, B
         STATUS_BOSS_THUNDER,                                // Hold B
         STATUS_BOSS_KUNAI_RAIN,                             // Guard + Jump
-        STATUS_BOSS_COUNTER_SLASH,                          // Guard + Shuriken
-        STATUS_BOSS_BACK_AWAY,                              // Guard + Dash
+        STATUS_BOSS_COUNTER_SLASH,                          // Counter Stance answer
+        STATUS_BOSS_BACK_AWAY,                              // Guard + B
         STATUS_BOSS_AAA,                                    // A, A, A (boss third hit)
-        STATUS_BOSS_KUNAI_FAN,                              // Guard + B (replaces grab)
+        STATUS_BOSS_KUNAI_FAN,                              // Guard + Shuriken
         STATUS_BOSS_COUNTER_STANCE,                         // Guard + A
         STATUS_BOSS_MAX,
     };

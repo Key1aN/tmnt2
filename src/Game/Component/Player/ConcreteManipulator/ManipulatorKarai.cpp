@@ -121,10 +121,10 @@ bool CKaraiManipulator::StartBossMove(KaraiBoss::STATUS status)
 };
 
 
-// Boss variant only: Guard + A (Counter Stance) / B (Kunai Fan, replaces the
-// retail grab) / Jump (Kunai Rain) / Shuriken (Counter Slash) / Dash (Back Away).
-// Thunder Special is Hold B (see CKaraiManipulator::RunAttackBCharge);
-// Wind Press is B, B.
+// Boss variant only: Guard + A (Counter Stance) / B (Back Away, replaces the
+// retail grab) / Jump (Kunai Rain) / Shuriken (Kunai Fan). Counter Slash is the
+// Counter Stance answer. Thunder Special is Hold B (RunAttackBCharge); Wind
+// Press is B, B.
 bool CKaraiManipulator::RunBossMoveChord(void)
 {
     if (!IsBossVariant() || (m_input.m_guard != GUARD_ON))
@@ -132,16 +132,15 @@ bool CKaraiManipulator::RunBossMoveChord(void)
 
     KaraiBoss::STATUS status = KaraiBoss::STATUS_BOSS_MAX;
 
+    // Guard + Dash has no boss move (retail: guard ignores dash).
     if (m_input.m_attack == ATTACK_A)
         status = KaraiBoss::STATUS_BOSS_COUNTER_STANCE;
     else if (m_input.m_attack == ATTACK_B)
-        status = KaraiBoss::STATUS_BOSS_KUNAI_FAN;
+        status = KaraiBoss::STATUS_BOSS_BACK_AWAY;
     else if (m_input.m_jump == JUMP_ON)
         status = KaraiBoss::STATUS_BOSS_KUNAI_RAIN;
     else if (m_input.m_knife == KNIFE_ON)
-        status = KaraiBoss::STATUS_BOSS_COUNTER_SLASH;
-    else if (m_input.m_dash == DASH_ON)
-        status = KaraiBoss::STATUS_BOSS_BACK_AWAY;
+        status = KaraiBoss::STATUS_BOSS_KUNAI_FAN;
 
     if (status == KaraiBoss::STATUS_BOSS_MAX)
         return false;
