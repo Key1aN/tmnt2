@@ -25,7 +25,7 @@ _tWinMain(
 )
 {
     CPCCrashReporter::Install();
-    CPCCrashReporter::Breadcrumb("BUILD TMNT2_Karai_Boss_Variant_v1_1_1_US");
+    CPCCrashReporter::Breadcrumb("BUILD TMNT2_Core_Karai_v1_2_0_Combo_Assist_v1_US");
     CPCModFeatures::Initialize();
 
 #ifdef VLDCHECK    

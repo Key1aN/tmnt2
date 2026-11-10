@@ -4,6 +4,12 @@
 #include "Player.hpp"
 #include "PlayerUtil.hpp"
 
+#if defined(TARGET_PC)
+#include "System/PC/PCModFeatures.hpp"
+
+static const float COMBO_LATE_WINDOW = 0.30f;
+#endif /* defined(TARGET_PC) */
+
 #include "ConcretePlayerCharacter/Leonardo.hpp"
 #include "ConcretePlayerCharacter/Raphael.hpp"
 #include "ConcretePlayerCharacter/Michelangero.hpp"
@@ -1289,6 +1295,18 @@ PLAYERTYPES::FLAG CPlayerCharacter::CheckAttackConnect(PLAYERTYPES::FLAG mask)
 
         if (fStatusDuration >= fChainMotionConnectTime)
         {
+#if defined(TARGET_PC)
+            // Combo Assist: retail evaluates the chain once, exactly at the connect
+            // time, so a press that lands after it is dropped. Keep the chain open
+            // for COMBO_LATE_WINDOW seconds after the connect time.
+            bool bKeepOpen = (CPCModFeatures::IsComboAssistEnabled() &&
+                              ((static_cast<uint32>(m_pflag) & static_cast<uint32>(mask) & static_cast<uint32>(PLAYERTYPES::FLAG_REQUEST_ATTACK_MASK)) == 0) &&
+                              (fStatusDuration < (fChainMotionConnectTime + COMBO_LATE_WINDOW)) &&
+                              !IsMotionEnd());
+            if (bKeepOpen)
+                return PLAYERTYPES::FLAG_NONE;
+#endif /* defined(TARGET_PC) */
+
             ClearPlayerFlag(PLAYERTYPES::FLAG_ENABLE_ATTACK_CONNECT);
 
             //

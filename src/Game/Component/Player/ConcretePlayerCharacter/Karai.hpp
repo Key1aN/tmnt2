@@ -45,15 +45,16 @@ namespace KaraiBoss
     {
         STATUS_BOSS_DASH_STRIKE = PLAYERTYPES::NORMALMAX,   // Dash
         STATUS_BOSS_WIND_PRESS,                             // B, B (also Guard + B, replaces grab)
-        STATUS_BOSS_THUNDER,                                // Guard + A+B (C)
+        STATUS_BOSS_THUNDER,                                // Hold B
         STATUS_BOSS_KUNAI_RAIN,                             // Guard + Jump
         STATUS_BOSS_COUNTER_SLASH,                          // Guard + Shuriken
         STATUS_BOSS_BACK_AWAY,                              // Guard + Dash
+        STATUS_BOSS_AAA,                                    // A, A, A (boss third hit)
         STATUS_BOSS_MAX,
     };
 
     // Seconds between Thunder Special uses.
-    static const float THUNDER_COOLDOWN = 6.0f;
+    static const float THUNDER_COOLDOWN = 3.0f;
 
     class CBossMoveStatus : public CStatus
     {
@@ -90,12 +91,14 @@ namespace KaraiBoss
     class CBossThunder : public CBossMoveStatus
     {
     public:
+        virtual bool IsEnableChangeStatus(PLAYERTYPES::STATUS status) override;
         virtual void OnAttach(void) override;
         virtual void OnDetach(void) override;
         virtual void OnRun(void) override;
 
     private:
         void FinishEffects(void);
+        void StartDash(void);
 
         int32 m_step;
         int32 m_chargeStep;
@@ -134,8 +137,10 @@ namespace KaraiBoss
         virtual void OnRun(void) override;
     };
 
-    // Boss-style charge: C1 pose with boss charge glows and electric aura
-    // (replaces the retail B windup and its accumulate glow).
+    // Hold B: the Thunder Special charge (C1 crouch, three glows, electric
+    // aura). Released after THUNDER_CHARGE_TIME (or held to the limit) it
+    // dashes and finishes; released early it is a plain B. While Thunder is
+    // recharging, B is always a plain B.
     class CBossAttackBCharge : public PlayerStatus::CAttackBCharge
     {
     public:
@@ -146,8 +151,9 @@ namespace KaraiBoss
     private:
         void FinishEffects(void);
 
+        bool m_bPlainB;
         bool m_bHold;
-        int32 m_phase;
+        int32 m_glow;
         uint32 m_hEffectCharge;
         uint32 m_hEffectElectric;
     };
@@ -159,10 +165,22 @@ namespace KaraiBoss
         virtual void OnDetach(void) override;
         virtual void OnRun(void) override;
         virtual void OnDischargeWave(MAGIC_GENERIC::STEP step) override;
+    };
 
-    private:
-        bool m_bBossFinisher;
-        uint32 m_hEffectElectric;
+    // A, A: A goes to the boss third hit (AAA); B and C keep the retail chain.
+    class CBossAttackAA : public PlayerStatus::CAttackAA
+    {
+    public:
+        virtual void OnRun(void) override;
+    };
+
+    class CBossAttackAAA : public PlayerStatus::CAttackCommon
+    {
+    public:
+        virtual bool IsEnableChangeStatus(PLAYERTYPES::STATUS status) override;
+        virtual void OnAttach(void) override;
+        virtual void OnDetach(void) override;
+        virtual void OnRun(void) override;
     };
 
     // Plain Shuriken: the boss model has no ground throw motion, so she throws
@@ -197,12 +215,19 @@ public:
     void SetWindPressFromCombo(bool bSet) { m_bWindPressFromCombo = bSet; };
     bool TestWindPressFromCombo(void) const { return m_bWindPressFromCombo; };
 
-    void SetBossChargePhase(int32 phase) { m_bossChargePhase = phase; };
-    int32 GetBossChargePhase(void) const { return m_bossChargePhase; };
+    // Thunder Special (Hold B): cooldown and charge hand-off.
+    bool IsThunderReady(void) const;
+    void StartThunderCooldown(void);
+    void SetThunderChargeReady(bool bSet) { m_bThunderChargeReady = bSet; };
+    bool IsThunderChargeReady(void) const { return m_bThunderChargeReady; };
+    void SetThunderFromCharge(bool bSet) { m_bThunderFromCharge = bSet; };
+    bool TestThunderFromCharge(void) const { return m_bThunderFromCharge; };
 
 private:
     bool m_bBossVariant;
     bool m_bWindPressFollowup;
     bool m_bWindPressFromCombo;
-    int32 m_bossChargePhase;
+    bool m_bThunderChargeReady;
+    bool m_bThunderFromCharge;
+    float m_fThunderReadyTime;
 };

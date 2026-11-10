@@ -11,6 +11,7 @@ public:
     virtual ~CKaraiManipulator(void);
     virtual void BranchForStatus(PLAYERTYPES::STATUS status) override;
     virtual void RunGrounding(void) override;
+    virtual void RunAttackBCharge(void) override;
     virtual void RunGuardReady(void) override;
     virtual void RunGuard(void) override;
 
@@ -18,7 +19,4 @@ private:
     bool IsBossVariant(void) const;
     bool RunBossMoveChord(void);
     bool StartBossMove(KaraiBoss::STATUS status);
-
-    float m_fThunderReadyTime;
-    float m_fGuardBPending;
 };

@@ -16,6 +16,10 @@
 
 #include <algorithm>
 
+#if defined(TARGET_PC)
+#include "System/PC/PCModFeatures.hpp"
+#endif /* defined(TARGET_PC) */
+
 
 /*static*/ CManipulator* CManipulator::New(CPlayerCharacter* pPlayerChr, int32 nControllerNo)
 {
@@ -768,6 +772,9 @@ static const float CHORD_WINDOW = 0.085f; // ~5 frames at 60 fps
 
 bool CManipulator::IsChordWithHeldButton(uint32 uDigital, uint32 uDigitalTrigger) const
 {
+    if (!CPCModFeatures::IsComboAssistEnabled())
+        return false;
+
     bool bTrigA = IGamepad::CheckFunction(uDigitalTrigger, IGamepad::FUNCTION_ATTACK_A);
     bool bTrigB = IGamepad::CheckFunction(uDigitalTrigger, IGamepad::FUNCTION_ATTACK_B);
     bool bHoldA = IGamepad::CheckFunction(uDigital, IGamepad::FUNCTION_ATTACK_A);

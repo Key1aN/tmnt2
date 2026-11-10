@@ -80,6 +80,8 @@ namespace
             m_flags |= FLAG_DEBUG_TOOLS;
         else if (std::strcmp(line, "feature=karai-boss-variant") == 0)
             m_flags |= FLAG_KARAI_BOSS_VARIANT;
+        else if (std::strcmp(line, "feature=combo-assist") == 0)
+            m_flags |= FLAG_COMBO_ASSIST;
     }
     std::fclose(stream);
 
@@ -126,4 +128,10 @@ namespace
 /*static*/ bool CPCModFeatures::IsKaraiBossVariantEnabled(void)
 {
     return ((m_flags & FLAG_KARAI_BOSS_VARIANT) != 0);
+};
+
+
+/*static*/ bool CPCModFeatures::IsComboAssistEnabled(void)
+{
+    return ((m_flags & FLAG_COMBO_ASSIST) != 0);
 };
