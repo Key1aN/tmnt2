@@ -151,6 +151,10 @@ public:
     };
     void SetMotionAliasTable(const MOTIONALIAS* pTable, int32 nCount);
     const char* ResolveMotionName(const char* pszMotionName) const;
+
+    // Optional: a character running on enemy motion parameters (Karai boss variant)
+    // retargets those attacks from players to enemies/gimmicks and scales power.
+    void SetEnemyAttackDataRemap(bool bEnable, float fPowerScale);
     void PlayMotion(void);
     void StopMotion(void);
     bool IsMotionEnd(void) const;
@@ -210,4 +214,6 @@ protected:
     int32 m_iDamageRequest;
     const MOTIONALIAS* m_pMotionAlias;
     int32 m_nMotionAlias;
+    bool m_bRemapEnemyAttackData;
+    float m_fRemapPowerScale;
 };

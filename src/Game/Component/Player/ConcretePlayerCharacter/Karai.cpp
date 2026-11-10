@@ -95,6 +95,7 @@ namespace Karai
 namespace KaraiBoss
 {
     static const char* MODEL_NAME = "karai_boss";
+    static const float ATTACK_POWER_SCALE = 0.6f;
 
     // Shared player motions that the boss Karai motion set does not contain.
     // Every name the player code can request maps to a boss motion of similar
@@ -184,7 +185,13 @@ CKarai::CKarai(GAMETYPES::COSTUME costume)
     Initialize(&parameter);
 
     if (bBossVariant)
+    {
         SetMotionAliasTable(KaraiBoss::MOTION_ALIAS, COUNT_OF(KaraiBoss::MOTION_ALIAS));
+
+        // Boss motion parameters aim their hit spheres at players. Retarget them to
+        // enemies/gimmicks and rebalance boss damage for the player (60%).
+        SetEnemyAttackDataRemap(true, KaraiBoss::ATTACK_POWER_SCALE);
+    };
 
     m_pModuleMan->Include(CCircleShadowModule::New(this, 1.5f, 1.5f, false));
 };

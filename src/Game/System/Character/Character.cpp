@@ -51,6 +51,8 @@ CCharacter::CCharacter(const char* pszName, TYPE type)
 , m_iDamageRequest(0)
 , m_pMotionAlias(nullptr)
 , m_nMotionAlias(0)
+, m_bRemapEnemyAttackData(false)
+, m_fRemapPowerScale(1.0f)
 {
     CCharacterManager::Regist(this);
 };
@@ -512,6 +514,20 @@ void CCharacter::UpdateCollisionParameterForAttack(void)
             continue;
 
         m_pMotionParameterController->GetHitAttackData(i, &Attack);
+
+        if (m_bRemapEnemyAttackData)
+        {
+            uint32 target = static_cast<uint32>(Attack.GetTarget());
+            if (target & CHitAttackData::TARGET_PLAYER)
+            {
+                target &= ~static_cast<uint32>(CHitAttackData::TARGET_PLAYER);
+                target |= static_cast<uint32>(CHitAttackData::TARGET_ENEMY_GIMMICK);
+                Attack.SetTarget(static_cast<CHitAttackData::TARGET>(target));
+            };
+
+            int32 power = static_cast<int32>(static_cast<float>(Attack.GetPower()) * m_fRemapPowerScale + 0.5f);
+            Attack.SetPower(power < 1 ? 1 : power);
+        };
 
         int32 nBoneID = m_pMotionParameterController->GetHitAttackBoneID(i);
         RwSphere sphere = *m_pMotionParameterController->GetHitAttackSphere(i);
@@ -1034,6 +1050,13 @@ const char* CCharacter::ResolveMotionName(const char* pszMotionName) const
 
     // Never hand an unknown motion to the controller: that dereferences null.
     return (m_pMotionController->FindMotion("Idle") ? "Idle" : pszMotionName);
+};
+
+
+void CCharacter::SetEnemyAttackDataRemap(bool bEnable, float fPowerScale)
+{
+    m_bRemapEnemyAttackData = bEnable;
+    m_fRemapPowerScale = fPowerScale;
 };
 
 

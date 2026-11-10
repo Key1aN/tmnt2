@@ -47,6 +47,22 @@ The variant maps player-only motions to boss motions:
 Anything else unknown falls back to `Idle`. Bone IDs used by player code (3 knife,
 10 body) exist on the boss skeleton.
 
+## Attack data remap (1.0.2)
+
+Boss motion parameters store each hit sphere's target mask, and boss Karai's
+spheres target players. On the variant, `CCharacter::UpdateCollisionParameterForAttack`
+replaces the player target bit with enemy+gimmick and scales power to 60%
+(`SetEnemyAttackDataRemap`). Without the remap, combos and the jump attack produced
+hit spheres that could only hit players (1.0.0/1.0.1: no damage to enemies).
+
+## Known limits
+
+- Grab: the boss data has no catch spheres or lift/carry offsets and no lift or
+  throw animations, so grabs cannot succeed; the grab input plays the aliased boss
+  attack instead. A boss-style grab replacement is a milestone 2 decision.
+- The B charge attack is still the vanilla Karai charge; milestone 2 maps the boss
+  versions.
+
 ## Not in milestone 1
 
 Guard + button boss moves (Dash Strike, Wind Press, Thunder Special, Kunai Rain,
@@ -58,6 +74,6 @@ Counter Slash, Back Away) are milestone 2.
 - Workflow: `build-karai-boss-variant-v1-us.yml`
 - Artifact: `TMNT2-Karai-Boss-Variant-v1-US-run-N`
 - EXE / PDB / MAP: `TMNT2_Karai_Boss_Variant_v1_US.{exe,pdb,map}`
-- Feature flag: `karai-boss-variant`; package `Karai_Boss_Variant` 1.0.1 (1.0.0 froze on jump attack)
+- Feature flag: `karai-boss-variant`; package `Karai_Boss_Variant` 1.0.2 (1.0.0 froze on jump attack; 1.0.0-1.0.1 attacks could not hit enemies)
 
 Status: implemented; requires hands-on testing.

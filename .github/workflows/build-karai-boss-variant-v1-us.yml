@@ -138,6 +138,7 @@ jobs:
             if ($karai -notmatch [regex]::Escape($required)) { throw "Karai variant missing: $required" }
           }
           if ($chr -notmatch [regex]::Escape("pszMotionName = ResolveMotionName(pszMotionName);")) { throw "Motion fallback hook missing." }
+          if ($chr -notmatch [regex]::Escape("if (m_bRemapEnemyAttackData)")) { throw "Enemy attack data remap missing." }
           if ($sel -notmatch [regex]::Escape("case PLAYERID::ID_KAR:")) { throw "Karai R1 selection missing." }
           if ($feat -notmatch [regex]::Escape("feature=karai-boss-variant")) { throw "karai-boss-variant feature gate missing." }
 
