@@ -1,21 +1,21 @@
-name: Build TMNT2 Debug Tools v1.2.5 Perf Telemetry US
+name: Build TMNT2 Debug Tools v1.2.6 Boss Labels US
 
 on:
   workflow_dispatch:
   push:
     branches:
-      - "claude/debug-tools-v1-2-5-perf-telemetry-us"
+      - "claude/debug-tools-v1-2-6-boss-labels-us"
 
 permissions:
   contents: write
 
 jobs:
-  build-debug-tools-v1-2-5-perf-telemetry-windows-x86-us:
+  build-debug-tools-v1-2-6-boss-labels-windows-x86-us:
     runs-on: windows-2022
     timeout-minutes: 30
 
     steps:
-      - name: Check out v1.2.5 perf telemetry source
+      - name: Check out v1.2.6 boss labels source
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
@@ -24,8 +24,8 @@ jobs:
         shell: pwsh
         run: |
           $expected = @(
-            ".github/workflows/build-debug-tools-v1-2-5-perf-telemetry-us.yml",
-            "DEBUG_TOOLS_V1_2_5_PERF_TELEMETRY_US.md",
+            ".github/workflows/build-debug-tools-v1-2-6-boss-labels-us.yml",
+            "DEBUG_TOOLS_V1_2_6_BOSS_LABELS_US.md",
             "src/Game/Sequence/DebugTools/DebugToolsProcess.cpp",
             "src/System/PC/PCFrameStats.cpp",
             "src/System/PC/PCFrameStats.hpp",
@@ -37,7 +37,7 @@ jobs:
           $unexpected = @($changed | Where-Object { $_ -notin $expected })
           $missing = @($expected | Where-Object { $_ -notin $changed })
           if ($unexpected.Count -ne 0 -or $missing.Count -ne 0) {
-            throw "v1.2.5 perf telemetry scope mismatch. Unexpected: $($unexpected -join ', '); missing: $($missing -join ', ')"
+            throw "v1.2.6 boss labels scope mismatch. Unexpected: $($unexpected -join ', '); missing: $($missing -join ', ')"
           }
 
       - name: Verify local DirectInput horizontal correction
@@ -113,8 +113,8 @@ jobs:
           if ($framework -notmatch [regex]::Escape("CPCFrameStats::SetDrawSkipped(m_pFrameSkipController->IsSkip())")) {
             throw "Frame-skip recording hook missing."
           }
-          foreach ($required in @("TMNT2_perf.log", "TMNT2_moves.log", "DrawFrameGraph", "DrawEnemyLabels", "ComputeFrameWindow", "LABELMODE_BOSSES")) {
-            if ($tools -notmatch [regex]::Escape($required)) { throw "Debug Tools v1.2.5 feature missing: $required" }
+          foreach ($required in @("TMNT2_perf.log", "TMNT2_moves.log", "DrawFrameGraph", "DrawEnemyLabels", "CGameFont::Show(line1", "m_fLabelSize", "m_fLabelLift", "ComputeFrameWindow", "LABELMODE_BOSSES")) {
+            if ($tools -notmatch [regex]::Escape($required)) { throw "Debug Tools v1.2.6 feature missing: $required" }
           }
           if ($tools -match [regex]::Escape('m_font.Print("FPS %.1f  Frame %.2f ms", CScreen::Framerate()')) {
             throw "The nominal (fake) FPS readout is still present."
@@ -194,11 +194,11 @@ jobs:
           }
           "DXSDK_DIR=$dxsdk" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
-      - name: Configure US Win32 Release v1.2.5 perf telemetry build
+      - name: Configure US Win32 Release v1.2.6 boss labels build
         shell: pwsh
         run: cmake --preset vs2022 -DOPT_EU_BUILD=OFF -DOPT_DEBUG_TOOLS=ON
 
-      - name: Build TMNT2 Debug Tools v1.2.5 Perf Telemetry US
+      - name: Build TMNT2 Debug Tools v1.2.6 Boss Labels US
         shell: pwsh
         run: cmake --build --preset vs2022-release --parallel
 
@@ -217,13 +217,13 @@ jobs:
             Sort-Object LastWriteTimeUtc -Descending | Select-Object -First 1
           if (-not $pdb -or -not $map) { throw "The matching PDB or MAP was not found." }
 
-          $artifactDir = Join-Path $env:GITHUB_WORKSPACE "artifact-debug-tools-v1-2-5-perf-telemetry-us"
+          $artifactDir = Join-Path $env:GITHUB_WORKSPACE "artifact-debug-tools-v1-2-6-boss-labels-us"
           New-Item -ItemType Directory -Force -Path $artifactDir | Out-Null
-          $baseName = "TMNT2_Debug_Tools_v1_2_5_Perf_Telemetry_US"
+          $baseName = "TMNT2_Debug_Tools_v1_2_6_Boss_Labels_US"
           Copy-Item $exe.FullName (Join-Path $artifactDir "$baseName.exe") -Force
           Copy-Item $pdb.FullName (Join-Path $artifactDir "$baseName.pdb") -Force
           Copy-Item $map.FullName (Join-Path $artifactDir "$baseName.map") -Force
-          Copy-Item "$env:GITHUB_WORKSPACE\DEBUG_TOOLS_V1_2_5_PERF_TELEMETRY_US.md" $artifactDir -Force
+          Copy-Item "$env:GITHUB_WORKSPACE\DEBUG_TOOLS_V1_2_6_BOSS_LABELS_US.md" $artifactDir -Force
           Get-ChildItem $artifactDir -File | Get-FileHash -Algorithm SHA256 |
             ForEach-Object { "$($_.Hash.ToLowerInvariant())  $($_.Path | Split-Path -Leaf)" } |
             Set-Content (Join-Path $artifactDir "SHA256SUMS.txt") -Encoding utf8
@@ -236,18 +236,20 @@ jobs:
           $ErrorActionPreference = "Stop"
           $drop = Join-Path $env:RUNNER_TEMP "drop"
           New-Item -ItemType Directory -Force -Path $drop | Out-Null
-          Copy-Item "$env:GITHUB_WORKSPACE\artifact-debug-tools-v1-2-5-perf-telemetry-us\*" $drop -Force
+          Copy-Item "$env:GITHUB_WORKSPACE\artifact-debug-tools-v1-2-6-boss-labels-us\*" $drop -Force
           Set-Location $drop
           git init -q
+          git config core.autocrlf false
+          "* -text" | Set-Content .gitattributes
           git checkout -q -b drop
           git add -A
           git -c user.name="github-actions" -c user.email="github-actions@users.noreply.github.com" commit -q -m "Build outputs for $env:GITHUB_SHA (run $env:GITHUB_RUN_NUMBER)"
-          git push -q -f "https://x-access-token:$env:GH_TOKEN@github.com/$env:GITHUB_REPOSITORY.git" drop:refs/heads/build-drops/debug-tools-v1-2-5-perf-telemetry-us
+          git push -q -f "https://x-access-token:$env:GH_TOKEN@github.com/$env:GITHUB_REPOSITORY.git" drop:refs/heads/build-drops/debug-tools-v1-2-6-boss-labels-us
 
-      - name: Upload TMNT2 Debug Tools v1.2.5 Perf Telemetry US artifact
+      - name: Upload TMNT2 Debug Tools v1.2.6 Boss Labels US artifact
         uses: actions/upload-artifact@v4
         with:
-          name: TMNT2-Debug-Tools-v1.2.5-Perf-Telemetry-US-run-${{ github.run_number }}
-          path: artifact-debug-tools-v1-2-5-perf-telemetry-us/*
+          name: TMNT2-Debug-Tools-v1.2.6-Boss-Labels-US-run-${{ github.run_number }}
+          path: artifact-debug-tools-v1-2-6-boss-labels-us/*
           if-no-files-found: error
           retention-days: 14

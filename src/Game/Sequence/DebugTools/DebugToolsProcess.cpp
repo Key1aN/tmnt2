@@ -20,10 +20,12 @@
 #include "Game/System/Map/MapCamera.hpp"
 #include "Game/System/Misc/ControllerMisc.hpp"
 #include "Game/System/Misc/Gamepad.hpp"
+#include "Game/System/2d/GameFont.hpp"
 #include "System/Common/Process/ProcessMail.hpp"
 #include "System/Common/Process/Sequence.hpp"
 #include "System/Common/Camera.hpp"
 #include "System/Common/Screen.hpp"
+#include "System/Common/Sprite.hpp"
 #include "System/Common/System2D.hpp"
 #include "System/PC/PCFrameStats.hpp"
 #include "System/PC/PCPhysicalController.hpp"
@@ -276,7 +278,7 @@ namespace
     };
 
 
-    static bool ProjectToScreen(const RwV3d& world, float& screenX, float& screenY)
+    static bool ProjectToNormalized(const RwV3d& world, float& normalizedX, float& normalizedY)
     {
         RwMatrix matrixView;
         RwMatrixSetIdentity(&matrixView);
@@ -287,14 +289,10 @@ namespace
         if ((projected.z <= 1.0f) || (projected.z > 100.0f))
             return false;
 
-        float x = projected.x / projected.z;
-        float y = projected.y / projected.z;
-        if ((x < -0.05f) || (x > 1.05f) || (y < -0.05f) || (y > 1.05f))
-            return false;
-
-        screenX = x * static_cast<float>(CScreen::Width());
-        screenY = y * static_cast<float>(CScreen::Height());
-        return true;
+        normalizedX = projected.x / projected.z;
+        normalizedY = projected.y / projected.z;
+        return ((normalizedX >= -0.05f) && (normalizedX <= 1.05f) &&
+                (normalizedY >= -0.05f) && (normalizedY <= 1.05f));
     };
 
 
@@ -445,6 +443,8 @@ public:
     , m_bDropLog(true)
     , m_bMoveLog(true)
     , m_iLabelMode(LABELMODE_BOSSES)
+    , m_fLabelSize(16.0f)
+    , m_fLabelLift(0.10f)
     , m_fDropThresholdMs(20.0f)
     , m_uPerfProcessed(CPCFrameStats::GetFrameIndex())
     , m_iPerfSequence(-1)
@@ -473,7 +473,7 @@ public:
         std::memset(m_aTracked, 0x00, sizeof(m_aTracked));
         std::memset(m_aMoveEvent, 0x00, sizeof(m_aMoveEvent));
         m_szPlayerMotion[0] = '\0';
-        m_moveLog.Write("SESSION  TMNT2 Debug Tools v1.2.5 move telemetry (bosses always; all enemies when labels = ALL)");
+        m_moveLog.Write("SESSION  TMNT2 Debug Tools v1.2.6 move telemetry (bosses always; all enemies when labels = ALL)");
     };
 
 
@@ -788,6 +788,12 @@ private:
             m_iLabelMode = (m_iLabelMode + (step < 0 ? LABELMODE_NUM - 1 : 1)) % LABELMODE_NUM;
             break;
         case 6: m_bMoveLog = !m_bMoveLog; break;
+        case 7:
+            m_fLabelSize = Clamp(m_fLabelSize + static_cast<float>(step), 10.0f, 32.0f);
+            break;
+        case 8:
+            m_fLabelLift = Clamp(m_fLabelLift + (static_cast<float>(step) * 0.05f), -1.0f, 1.5f);
+            break;
         default: break;
         };
     };
@@ -803,6 +809,8 @@ private:
         case 4: m_fDropThresholdMs = 20.0f; break;
         case 5: m_iLabelMode = LABELMODE_BOSSES; break;
         case 6: m_bMoveLog = true; break;
+        case 7: m_fLabelSize = 16.0f; break;
+        case 8: m_fLabelLift = 0.10f; break;
         default: break;
         };
     };
@@ -856,7 +864,7 @@ private:
                 m_bTelemetryEnabled = !m_bTelemetryEnabled;
             else if (selected == 1)
                 m_iScreenshotDelay = 3;
-            else if (selected != 4)
+            else if ((selected != 4) && (selected != 7) && (selected != 8))
                 AdjustTelemetryItem(selected, 1);
             break;
 
@@ -1319,7 +1327,7 @@ private:
         case PAGE_CAMERA:     return 3;
         case PAGE_GRAPHICS:   return 1;
         case PAGE_HITBOXES:   return 3;
-        case PAGE_TELEMETRY:  return 7;
+        case PAGE_TELEMETRY:  return 9;
         default:              return 0;
         };
     };
@@ -1513,8 +1521,12 @@ private:
                 std::snprintf(buffer, capacity, "Frame drop threshold          %.1f ms (%.0f FPS)", m_fDropThresholdMs, 1000.0f / m_fDropThresholdMs);
             else if (index == 5)
                 std::snprintf(buffer, capacity, "Move labels over enemies      %s", LabelModeName(m_iLabelMode));
-            else
+            else if (index == 6)
                 std::snprintf(buffer, capacity, "Log enemy/player moves        %s", m_bMoveLog ? "ON" : "OFF");
+            else if (index == 7)
+                std::snprintf(buffer, capacity, "Move label size               %.0f", m_fLabelSize);
+            else
+                std::snprintf(buffer, capacity, "Move label height above head  %+.2f", m_fLabelLift);
             break;
 
         default:
@@ -1614,9 +1626,17 @@ private:
                 scope = "DISPLAY MODE";
                 description = "Shows the current animation (move), AI status, and HP above bosses or all enemies.";
                 break;
-            default:
+            case 6:
                 scope = "LOG FILE";
                 description = "Writes boss (and with ALL labels, every enemy) move/status changes plus P1 moves to TMNT2_moves.log.";
+                break;
+            case 7:
+                scope = "LIVE SETTING";
+                description = "Text height of move labels (10-32, default 16). Left/Right adjust, PgUp/PgDn x5.";
+                break;
+            default:
+                scope = "LIVE SETTING";
+                description = "Distance between the top of the enemy and the label (default +0.10). Lower it if labels float too high.";
                 break;
             };
             break;
@@ -1803,7 +1823,7 @@ private:
 
         m_bPerfHeaderWritten = true;
         m_perfLog.Write(
-            "SESSION  TMNT2 Debug Tools v1.2.5 perf telemetry  %dx%d  nominal %.1f FPS  MSAA %s  threshold %.1f ms",
+            "SESSION  TMNT2 Debug Tools v1.2.6 perf telemetry  %dx%d  nominal %.1f FPS  MSAA %s  threshold %.1f ms",
             CScreen::Width(),
             CScreen::Height(),
             CScreen::Framerate(),
@@ -1988,9 +2008,16 @@ private:
 
     void DrawEnemyLabels(void) const
     {
-        if (m_iLabelMode == LABELMODE_OFF)
+        if ((m_iLabelMode == LABELMODE_OFF) || !CGameFont::IsOpen())
             return;
 
+        // Uses the game's scalable font in the same virtual-screen space as the
+        // engine's own world labels (640x480 virtual units, centered origin).
+        const float mainHeight = m_fLabelSize;
+        const float infoHeight = m_fLabelSize * 0.68f;
+        const float shadow = MaxF(0.6f, m_fLabelSize * 0.06f);
+
+        bool bStatePushed = false;
         int32 enemyMax = CGameProperty::GetEnemyMax();
         for (int32 i = 0; i < enemyMax; ++i)
         {
@@ -2004,13 +2031,13 @@ private:
                 continue;
 
             const CCharacterCompositor& compositor = pEnemy->Character().Compositor();
-            RwV3d position = Math::VECTOR3_ZERO;
-            pEnemy->GetPosition(&position);
-            position.y += compositor.GetCollisionParameter().m_fHeight + 0.35f;
+            RwV3d head = Math::VECTOR3_ZERO;
+            pEnemy->GetPosition(&head);
+            head.y += compositor.GetCollisionParameter().m_fHeight + m_fLabelLift;
 
-            float sx = 0.0f;
-            float sy = 0.0f;
-            if (!ProjectToScreen(position, sx, sy))
+            float nx = 0.0f;
+            float ny = 0.0f;
+            if (!ProjectToNormalized(head, nx, ny))
                 continue;
 
             char name[48];
@@ -2023,20 +2050,39 @@ private:
             std::snprintf(line1, sizeof(line1), "%s", SafeMotionName(compositor.GetMotionName()));
             std::snprintf(line2, sizeof(line2), "%s  %s  HP %d/%d", name, status, pEnemy->GetHP(), pEnemy->GetHPMax());
 
-            int32 width1 = static_cast<int32>(std::strlen(line1)) * 8;
-            int32 width2 = static_cast<int32>(std::strlen(line2)) * 8;
-            int32 x1 = Clamp(static_cast<int32>(sx) - (width1 / 2), 0, MaxI(0, CScreen::Width() - width1));
-            int32 x2 = Clamp(static_cast<int32>(sx) - (width2 / 2), 0, MaxI(0, CScreen::Width() - width2));
-            int32 y = Clamp(static_cast<int32>(sy) - 36, 0, MaxI(0, CScreen::Height() - 36));
+            float vx = CSprite::m_fVirtualScreenX + (nx * CSprite::m_fVirtualScreenW);
+            float vy = CSprite::m_fVirtualScreenY + (ny * CSprite::m_fVirtualScreenH);
 
-            m_font.Background({ 0x00, 0x00, 0x00, 0xA0 });
-            m_font.Color(bBoss ? RwRGBA{ 0xFF, 0xD0, 0x40, 0xFF } : RwRGBA{ 0xE8, 0xEE, 0xF8, 0xFF });
-            m_font.Position(x1, y);
-            m_font.Print("%s", line1);
-            m_font.Color({ 0xB0, 0xC0, 0xD0, 0xFF });
-            m_font.Position(x2, y + 16);
-            m_font.Print("%s", line2);
+            // The info line sits directly above the head point; the move name above it.
+            float y2 = vy - (infoHeight * 1.1f);
+            float y1 = y2 - (mainHeight * 1.02f);
+            float x1 = vx - (CGameFont::GetStringWidth(line1, mainHeight) * 0.5f);
+            float x2 = vx - (CGameFont::GetStringWidth(line2, infoHeight) * 0.5f);
+
+            if (!bStatePushed)
+            {
+                CSystem2D::PushRenderState();
+                bStatePushed = true;
+            };
+
+            CGameFont::SetHeight(mainHeight);
+            CGameFont::SetRGBA(0x00, 0x00, 0x00, 0xE0);
+            CGameFont::Show(line1, x1 + shadow, y1 + shadow);
+            if (bBoss)
+                CGameFont::SetRGBA(0xFF, 0xD0, 0x40, 0xFF);
+            else
+                CGameFont::SetRGBA(0xF0, 0xF4, 0xFF, 0xFF);
+            CGameFont::Show(line1, x1, y1);
+
+            CGameFont::SetHeight(infoHeight);
+            CGameFont::SetRGBA(0x00, 0x00, 0x00, 0xD0);
+            CGameFont::Show(line2, x2 + shadow, y2 + shadow);
+            CGameFont::SetRGBA(0xC8, 0xD8, 0xE8, 0xFF);
+            CGameFont::Show(line2, x2, y2);
         };
+
+        if (bStatePushed)
+            CSystem2D::PopRenderState();
     };
 
 
@@ -2401,6 +2447,8 @@ private:
     bool m_bDropLog;
     bool m_bMoveLog;
     int32 m_iLabelMode;
+    float m_fLabelSize;
+    float m_fLabelLift;
     float m_fDropThresholdMs;
     uint32 m_uPerfProcessed;
     int32 m_iPerfSequence;

@@ -1,4 +1,20 @@
-# TMNT2 Debug Tools v1.2.5 Perf Telemetry US
+# TMNT2 Debug Tools v1.2.6 Boss Labels US
+
+## v1.2.6 changes (on top of v1.2.5 below)
+
+- Move labels now use the game's scalable font instead of the fixed 8x16 debug
+  font: default height 16 virtual units (about 36 px at 1080p, versus 16 px).
+- Labels are anchored at the top of the enemy (position + collision height +
+  0.10) with the status/HP line directly above the head and the move name above
+  that, both with a drop shadow, instead of floating about 36 px higher.
+- New Telemetry page items: **Move label size** (10-32, default 16) and
+  **Move label height above head** (-1.00 to +1.50, default +0.10).
+- The build workflow publishes outputs to `build-drops/debug-tools-v1-2-6-boss-labels-us`
+  with line-ending conversion disabled, so MAP/MD hashes match the CI checksums.
+
+Everything else is identical to v1.2.5.
+
+# v1.2.5 Perf Telemetry (included)
 
 Target: TMNT 2: Battle Nexus, US/NA 32-bit PC.
 
@@ -78,6 +94,8 @@ sequence are ignored.
 | Frame drop threshold | 20.0 ms (Left/Right 0.5 ms, PgUp/PgDn 2.5 ms, 17-100 ms) |
 | Move labels over enemies | BOSSES |
 | Log enemy/player moves | ON |
+| Move label size | 16 |
+| Move label height above head | +0.10 |
 
 Both logs are buffered, flushed at least every 0.5 s and at each drop event,
 and restarted when larger than 8 MB.
@@ -90,9 +108,9 @@ Lab, hitboxes, and gameplay are unchanged. Retail builds without
 
 ## Unique build identities
 
-- Branch: `claude/debug-tools-v1-2-5-perf-telemetry-us`
-- Workflow: `build-debug-tools-v1-2-5-perf-telemetry-us.yml`
-- Artifact: `TMNT2-Debug-Tools-v1.2.5-Perf-Telemetry-US-run-N`
-- EXE / PDB / MAP: `TMNT2_Debug_Tools_v1_2_5_Perf_Telemetry_US.{exe,pdb,map}`
+- Branch: `claude/debug-tools-v1-2-6-boss-labels-us`
+- Workflow: `build-debug-tools-v1-2-6-boss-labels-us.yml`
+- Artifact: `TMNT2-Debug-Tools-v1.2.6-Boss-Labels-US-run-N`
+- EXE / PDB / MAP: `TMNT2_Debug_Tools_v1_2_6_Boss_Labels_US.{exe,pdb,map}`
 
 Status: implemented; requires hands-on testing in the separate test install.
