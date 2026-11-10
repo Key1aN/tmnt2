@@ -3,7 +3,10 @@
 #if defined(TMNT2_DEBUG_TOOLS)
 
 #include "PCTypedefs.hpp"
+#include "PCCrashReporter.hpp"
 
+#include <share.h>
+#include <cerrno>
 #include <cstdarg>
 #include <cstdio>
 #include <cstring>
@@ -171,7 +174,9 @@ bool CPCDebugLogFile::Open(void)
     if (m_pFile)
         return true;
 
-    if (m_bOpenFailed)
+    // A failed open is retried every 2 s instead of disabling the log for the
+    // whole session (another program may hold the file briefly).
+    if (m_bOpenFailed && ((NowMs() - m_uLastFlush) < 2000))
         return false;
 
     char path[MAX_PATH] = {};
@@ -184,12 +189,21 @@ bool CPCDebugLogFile::Open(void)
         ((attributes.nFileSizeHigh != 0) || (attributes.nFileSizeLow > (8u * 1024u * 1024u))))
         pszMode = "wb";
 
-    FILE* pFile = nullptr;
-    if ((fopen_s(&pFile, path, pszMode) != 0) || !pFile)
+    // Shared open: viewers, the T2 Mod Manager Logs page and report builder
+    // can read the file while the game writes it.
+    FILE* pFile = _fsopen(path, pszMode, _SH_DENYNO);
+    if (!pFile)
     {
+        if (!m_bOpenFailed)
+            CPCCrashReporter::Breadcrumb("DEBUGLOG open_failed file=%s errno=%d", m_szFileName, errno);
         m_bOpenFailed = true;
+        m_uLastFlush = NowMs();
         return false;
     };
+
+    if (m_bOpenFailed)
+        CPCCrashReporter::Breadcrumb("DEBUGLOG open_recovered file=%s", m_szFileName);
+    m_bOpenFailed = false;
 
     std::setvbuf(pFile, nullptr, _IOFBF, 64 * 1024);
     m_pFile = pFile;

@@ -258,10 +258,14 @@ bool CPCFramework::ApplyDisplaySettings(int32 nVideomodeNo,
                                  CPCSetting::m_nMSAASamples,
                                  (bVideomodeChanged ? 1 : 0));
 
-    if (bVideomodeChanged)
-        return SetVideomode(nVideomodeNo);
+    bool bResult = (bVideomodeChanged ? SetVideomode(nVideomodeNo)
+                                      : GraphicsDevice().ApplyConfiguredMultiSampling());
 
-    return GraphicsDevice().ApplyConfiguredMultiSampling();
+    char szDisplay[384] = {};
+    CPCGraphicsDevice::DescribeDisplay(szDisplay, sizeof(szDisplay));
+    CPCCrashReporter::Breadcrumb("DISPLAY display_apply result=%d %s", (bResult ? 1 : 0), szDisplay);
+
+    return bResult;
 };
 
 

@@ -38,6 +38,11 @@ public:
     int32 GetVideomodeCur(void) const;
     int32 GetVideomodeNum(void) const;
     bool IsFullscreen(void) const;
+
+    // One-line description of the active D3D9 adapter and swap chain:
+    // GPU name, PCI vendor/device, driver version, back buffer size,
+    // fullscreen/windowed, refresh rate, present interval.
+    static void DescribeDisplay(char* pszBuffer, size_t bufferSize);
     bool ApplyConfiguredMultiSampling(void);
 
 private:

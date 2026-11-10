@@ -13,6 +13,8 @@
 #include <d3d9.h>
 #endif /* defined(TMNT2_RWDRV_D3D9) */
 
+#include <cstdio>
+
 
 #if defined(TMNT2_RWDRV_OPENGL)
 
@@ -298,6 +300,12 @@ bool CPCGraphicsDevice::Start(void)
     };
 
     RwImageSetGamma(1.2f);
+
+    {
+        char szDisplay[384] = {};
+        DescribeDisplay(szDisplay, sizeof(szDisplay));
+        CPCCrashReporter::Breadcrumb("DISPLAY engine_start %s", szDisplay);
+    };
 
     if (!CPCModFeatures::IsMSAARuntimeAvailable())
         return true;
@@ -1219,4 +1227,100 @@ bool CPCGraphicsDevice::IsFullscreenWindow(void) const
         return true; // current mode is windowed and equals to fullscreen
 
     return false;
+};
+
+
+/*static*/ void CPCGraphicsDevice::DescribeDisplay(char* pszBuffer, size_t bufferSize)
+{
+    if (!pszBuffer || !bufferSize)
+        return;
+
+    pszBuffer[0] = '\0';
+
+#if defined(TMNT2_RWDRV_D3D9)
+    IDirect3DDevice9* pDevice = static_cast<IDirect3DDevice9*>(RwD3D9GetCurrentD3DDevice());
+    if (!pDevice)
+    {
+        _snprintf_s(pszBuffer, bufferSize, _TRUNCATE, "gpu=<no d3d9 device>");
+        return;
+    };
+
+    char szGpu[160] = "<unknown>";
+    unsigned long vendorId = 0;
+    unsigned long deviceId = 0;
+    unsigned int driver[4] = {};
+    unsigned int adapterOrdinal = 0;
+
+    D3DDEVICE_CREATION_PARAMETERS creation = {};
+    if (SUCCEEDED(pDevice->GetCreationParameters(&creation)))
+        adapterOrdinal = creation.AdapterOrdinal;
+
+    IDirect3D9* pD3D = nullptr;
+    if (SUCCEEDED(pDevice->GetDirect3D(&pD3D)) && pD3D)
+    {
+        D3DADAPTER_IDENTIFIER9 identifier = {};
+        if (SUCCEEDED(pD3D->GetAdapterIdentifier(adapterOrdinal, 0, &identifier)))
+        {
+            _snprintf_s(szGpu, sizeof(szGpu), _TRUNCATE, "%s", identifier.Description);
+            vendorId = identifier.VendorId;
+            deviceId = identifier.DeviceId;
+            driver[0] = HIWORD(identifier.DriverVersion.HighPart);
+            driver[1] = LOWORD(identifier.DriverVersion.HighPart);
+            driver[2] = HIWORD(identifier.DriverVersion.LowPart);
+            driver[3] = LOWORD(identifier.DriverVersion.LowPart);
+        };
+        pD3D->Release();
+    };
+
+    D3DPRESENT_PARAMETERS present = {};
+    bool bPresent = false;
+    IDirect3DSwapChain9* pSwapChain = nullptr;
+    if (SUCCEEDED(pDevice->GetSwapChain(0, &pSwapChain)) && pSwapChain)
+    {
+        bPresent = SUCCEEDED(pSwapChain->GetPresentParameters(&present));
+        pSwapChain->Release();
+    };
+
+    const char* pszVendor = "other";
+    if (vendorId == 0x10DE)
+        pszVendor = "NVIDIA";
+    else if ((vendorId == 0x1002) || (vendorId == 0x1022))
+        pszVendor = "AMD";
+    else if (vendorId == 0x8086)
+        pszVendor = "Intel";
+
+    if (!bPresent)
+    {
+        _snprintf_s(pszBuffer, bufferSize, _TRUNCATE,
+                    "gpu=\"%s\" vendor=%s(0x%04lX) device=0x%04lX driver=%u.%u.%u.%u adapter=%u present=<unavailable>",
+                    szGpu, pszVendor, vendorId, deviceId,
+                    driver[0], driver[1], driver[2], driver[3], adapterOrdinal);
+        return;
+    };
+
+    const char* pszInterval = "other";
+    switch (present.PresentationInterval)
+    {
+    case D3DPRESENT_INTERVAL_IMMEDIATE: pszInterval = "immediate(vsync off)"; break;
+    case D3DPRESENT_INTERVAL_DEFAULT:   pszInterval = "default(vsync)";       break;
+    case D3DPRESENT_INTERVAL_ONE:       pszInterval = "one(vsync)";           break;
+    case D3DPRESENT_INTERVAL_TWO:       pszInterval = "two(half rate)";       break;
+    default: break;
+    };
+
+    _snprintf_s(pszBuffer, bufferSize, _TRUNCATE,
+                "gpu=\"%s\" vendor=%s(0x%04lX) device=0x%04lX driver=%u.%u.%u.%u adapter=%u "
+                "backbuffer=%ux%u %s refresh=%uHz interval=%s buffers=%u swap=%d msaa=%d",
+                szGpu, pszVendor, vendorId, deviceId,
+                driver[0], driver[1], driver[2], driver[3], adapterOrdinal,
+                present.BackBufferWidth, present.BackBufferHeight,
+                (present.Windowed ? "windowed" : "fullscreen"),
+                present.FullScreen_RefreshRateInHz,
+                pszInterval,
+                present.BackBufferCount,
+                static_cast<int>(present.SwapEffect),
+                static_cast<int>(present.MultiSampleType));
+#else /* defined(TMNT2_RWDRV_D3D9) */
+    _snprintf_s(pszBuffer, bufferSize, _TRUNCATE, "gpu=<not d3d9>");
+#endif /* defined(TMNT2_RWDRV_D3D9) */
 };

@@ -28,6 +28,8 @@
 #include "System/Common/Sprite.hpp"
 #include "System/Common/System2D.hpp"
 #include "System/PC/PCFrameStats.hpp"
+#include "System/PC/PCGraphicsDevice.hpp"
+#include "System/PC/PCCrashReporter.hpp"
 #include "System/PC/PCPhysicalController.hpp"
 #include "System/PC/PCPhysicalControllerKey.hpp"
 #include "System/PC/PCSpecific.hpp"
@@ -328,6 +330,25 @@ namespace
     };
 
 
+    // Gameplay frames accumulated for the periodic SUMMARY line (every 10 s),
+    // so steady slowdowns below the drop threshold are also recorded.
+    struct PERFSUMMARY
+    {
+        float m_fSpanMs;
+        int32 m_nTicks;
+        int32 m_nShown;
+        float m_fUpdateMs;
+        float m_fRenderMs;
+        float m_fPresentMs;
+        float m_fWorstMs;
+        int32 m_nOver17;
+        int32 m_nOver20;
+        int32 m_nOver33;
+    };
+
+    static const float PERF_SUMMARY_SPAN_MS = 10000.0f;
+
+
     struct FRAMEWINDOW
     {
         float m_fSpanMs;
@@ -462,6 +483,9 @@ public:
     , m_iSessionSlowFrames(0)
     , m_iSessionSkippedFrames(0)
     , m_bPerfHeaderWritten(false)
+    , m_iDisplayWidth(0)
+    , m_iDisplayHeight(0)
+    , m_summary()
     , m_perfLog("TMNT2_perf.log")
     , m_moveLog("TMNT2_moves.log")
     , m_aTracked()
@@ -473,7 +497,14 @@ public:
         std::memset(m_aTracked, 0x00, sizeof(m_aTracked));
         std::memset(m_aMoveEvent, 0x00, sizeof(m_aMoveEvent));
         m_szPlayerMotion[0] = '\0';
-        m_moveLog.Write("SESSION  TMNT2 Debug Tools v1.2.6 move telemetry (bosses always; all enemies when labels = ALL)");
+        m_moveLog.Write("SESSION  TMNT2 Debug Tools v1.2.7 move telemetry (bosses always; all enemies when labels = ALL)");
+        m_moveLog.Flush();
+
+        // v1.2.7: the session header (with GPU and display mode) is written at
+        // startup, not at the first drop, so every run is visible in the log.
+        WritePerfSessionHeader();
+        m_perfLog.Flush();
+        CPCCrashReporter::Breadcrumb("DEBUGTOOLS attach perf_log=TMNT2_perf.log moves_log=TMNT2_moves.log");
     };
 
 
@@ -1721,7 +1752,9 @@ private:
             ProcessFrameSample(CPCFrameStats::GetSample(ago), bGameplay);
 
         m_uPerfProcessed = frameIndex;
+        CheckDisplayChange();
         m_perfLog.FlushIfDue();
+        m_moveLog.FlushIfDue();
     };
 
 
@@ -1732,6 +1765,7 @@ private:
         {
             if (m_bDropActive)
                 EndDropEpisode("interrupted");
+            std::memset(&m_summary, 0x00, sizeof(m_summary));
             m_iPerfWarmup = PERF_WARMUP_FRAMES;
             m_fPendingDisplayMs = 0.0f;
             m_iPendingSkips = 0;
@@ -1756,6 +1790,8 @@ private:
             --m_iPerfWarmup;
             return;
         };
+
+        AccumulateSummary(displayMs, sample, skips + 1);
 
         bool bSlow = (displayMs > m_fDropThresholdMs);
         if (bSlow)
@@ -1823,13 +1859,77 @@ private:
 
         m_bPerfHeaderWritten = true;
         m_perfLog.Write(
-            "SESSION  TMNT2 Debug Tools v1.2.6 perf telemetry  %dx%d  nominal %.1f FPS  MSAA %s  threshold %.1f ms",
+            "SESSION  TMNT2 Debug Tools v1.2.7 perf telemetry  %dx%d  nominal %.1f FPS  MSAA %s  threshold %.1f ms  summary every %.0f s",
             CScreen::Width(),
             CScreen::Height(),
             CScreen::Framerate(),
             GetMSAALabel(CPCSpecific::GetMultiSamplingSamples()),
-            m_fDropThresholdMs
+            m_fDropThresholdMs,
+            PERF_SUMMARY_SPAN_MS / 1000.0f
         );
+        WriteDisplayLine("DISPLAY  start");
+    };
+
+
+    void WriteDisplayLine(const char* pszKind)
+    {
+        char szDisplay[384] = {};
+        CPCGraphicsDevice::DescribeDisplay(szDisplay, sizeof(szDisplay));
+        m_perfLog.Write("%s  %s", pszKind, szDisplay);
+        m_iDisplayWidth = CScreen::Width();
+        m_iDisplayHeight = CScreen::Height();
+    };
+
+
+    void CheckDisplayChange(void)
+    {
+        if ((CScreen::Width() == m_iDisplayWidth) && (CScreen::Height() == m_iDisplayHeight))
+            return;
+
+        WriteDisplayLine("DISPLAY  changed");
+        m_perfLog.Flush();
+    };
+
+
+    void AccumulateSummary(float displayMs, const CPCFrameStats::SAMPLE& sample, int32 ticks)
+    {
+        m_summary.m_fSpanMs += displayMs;
+        m_summary.m_nTicks += ticks;
+        ++m_summary.m_nShown;
+        m_summary.m_fUpdateMs += sample.m_fUpdateMs;
+        m_summary.m_fRenderMs += sample.m_fRenderMs;
+        m_summary.m_fPresentMs += sample.m_fPresentMs;
+        if (displayMs > m_summary.m_fWorstMs)
+            m_summary.m_fWorstMs = displayMs;
+        if (displayMs > 17.5f) ++m_summary.m_nOver17;
+        if (displayMs > 20.0f) ++m_summary.m_nOver20;
+        if (displayMs > 33.4f) ++m_summary.m_nOver33;
+
+        if (m_summary.m_fSpanMs < PERF_SUMMARY_SPAN_MS)
+            return;
+
+        float shown = static_cast<float>(m_summary.m_nShown);
+        float fps = (shown * 1000.0f) / m_summary.m_fSpanMs;
+        float speed = (static_cast<float>(m_summary.m_nTicks) * 1000.0f / m_summary.m_fSpanMs) / CScreen::Framerate() * 100.0f;
+        m_perfLog.Write(
+            "SUMMARY  %.1f s  shown %.1f FPS  speed %.0f%%  avg %.2f ms  worst %.1f ms  >17.5ms %d  >20ms %d  >33ms %d  |  avg update %.2f  render %.2f  present %.2f  |  seq %d stage %d  %dx%d",
+            m_summary.m_fSpanMs / 1000.0f,
+            fps,
+            speed,
+            m_summary.m_fSpanMs / shown,
+            m_summary.m_fWorstMs,
+            m_summary.m_nOver17,
+            m_summary.m_nOver20,
+            m_summary.m_nOver33,
+            m_summary.m_fUpdateMs / shown,
+            m_summary.m_fRenderMs / shown,
+            m_summary.m_fPresentMs / shown,
+            CSequence::GetCurrently(),
+            static_cast<int32>(CGameData::PlayParam().GetStage()),
+            CScreen::Width(),
+            CScreen::Height());
+        m_perfLog.Flush();
+        std::memset(&m_summary, 0x00, sizeof(m_summary));
     };
 
 
@@ -2466,6 +2566,9 @@ private:
     int32 m_iSessionSlowFrames;
     int32 m_iSessionSkippedFrames;
     bool m_bPerfHeaderWritten;
+    int32 m_iDisplayWidth;
+    int32 m_iDisplayHeight;
+    PERFSUMMARY m_summary;
     CPCDebugLogFile m_perfLog;
     CPCDebugLogFile m_moveLog;
     TRACKEDENEMY m_aTracked[GAMETYPES::ENEMY_MAX];

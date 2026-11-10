@@ -9,6 +9,16 @@
 #include "System/Common/Configure.hpp"
 
 
+// Hybrid-graphics laptops (NVIDIA Optimus, AMD PowerXpress / Switchable Graphics)
+// run unlisted 32-bit D3D9 games on the integrated GPU. These exported symbols
+// ask both drivers to use the dedicated GPU for this process.
+extern "C"
+{
+    __declspec(dllexport) unsigned long NvOptimusEnablement = 0x00000001;
+    __declspec(dllexport) int AmdPowerXpressRequestHighPerformance = 1;
+};
+
+
 //#define VLDCHECK
 
 #ifdef VLDCHECK
@@ -25,7 +35,7 @@ _tWinMain(
 )
 {
     CPCCrashReporter::Install();
-    CPCCrashReporter::Breadcrumb("BUILD TMNT2_Core_Karai_v1_3_0_Combo_Assist_v1_US");
+    CPCCrashReporter::Breadcrumb("BUILD TMNT2_Core_Debug_Tools_v1_2_7_US");
     CPCModFeatures::Initialize();
 
 #ifdef VLDCHECK    
