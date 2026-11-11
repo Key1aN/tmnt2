@@ -114,6 +114,7 @@ namespace KaraiBoss
     static const char* MODEL_NAME = "karai_boss";
     static const float ATTACK_POWER_SCALE       = 0.6f;    // base and warning phases
     static const float ATTACK_POWER_SCALE_FINAL = 0.8f;    // final phase (<= 35% HP)
+    static const float CHAIN_CONNECT_FALLBACK   = 0.45f;   // fraction of a chainless boss motion
     static const float PHASE_WARNING_HP_RATIO   = 0.70f;
     static const float PHASE_FINAL_HP_RATIO     = 0.35f;
 
@@ -212,6 +213,7 @@ CKarai::CKarai(GAMETYPES::COSTUME costume)
 , m_bWindPressFromCombo(false)
 , m_bThunderChargeReady(false)
 , m_bThunderFromCharge(false)
+, m_bThunderFromCombo(false)
 , m_fThunderReadyTime(0.0f)
 , m_phase(KaraiBoss::PHASE_BASE)
 , m_bAuraShown(false)
@@ -300,6 +302,12 @@ CKarai::CKarai(GAMETYPES::COSTUME costume)
         // Boss motion parameters aim their hit spheres at players. Retarget them to
         // enemies/gimmicks and rebalance boss damage for the player (60%).
         SetEnemyAttackDataRemap(true, KaraiBoss::ATTACK_POWER_SCALE);
+
+        // Boss AAB / BB / AAA / AAC end the boss's own combos, so their motion data
+        // has no chain connect time and retail would wait for the whole motion
+        // before A, A, B, B (and B, B). Connect at 45% instead, close to the
+        // retail player combo timing.
+        SetChainConnectFallbackRatio(KaraiBoss::CHAIN_CONNECT_FALLBACK);
     };
 
     m_pModuleMan->Include(CCircleShadowModule::New(this, 1.5f, 1.5f, false));
@@ -883,7 +891,8 @@ namespace KaraiBoss
 
     bool CBossThunder::IsEnableChangeStatus(PLAYERTYPES::STATUS status)
     {
-        if (status == PLAYERTYPES::STATUS_ATTACK_B_CHARGE)
+        if ((status == PLAYERTYPES::STATUS_ATTACK_B_CHARGE) ||
+            (status == PLAYERTYPES::STATUS_ATTACK_AABBC))
             return true;
 
         return CBossMoveStatus::IsEnableChangeStatus(status);
@@ -894,9 +903,14 @@ namespace KaraiBoss
     {
         CKarai& karai = static_cast<CKarai&>(Character());
         bool bFromCharge = karai.TestThunderFromCharge();
+        bool bFromCombo = karai.TestThunderFromCombo();
         karai.SetThunderFromCharge(false);
+        karai.SetThunderFromCombo(false);
         karai.SetThunderChargeReady(false);
-        karai.StartThunderCooldown();
+
+        // The A, A, B, B, A+B ender is a combo move: it neither needs nor uses the cooldown.
+        if (!bFromCombo)
+            karai.StartThunderCooldown();
 
         m_step = 0;
         m_chargeStep = 0;
@@ -1497,7 +1511,7 @@ namespace KaraiBoss
             float fConnect = Character().GetNextChainMotionConnectTime();
             float fEnd = Character().GetMotionEndTime();
             if ((fConnect <= 0.0f) || (fConnect > fEnd))
-                fConnect = fEnd * 0.6f;
+                fConnect = fEnd * CHAIN_CONNECT_FALLBACK;
 
             if ((Character().GetMotionTime() >= fConnect) || Character().IsMotionEnd())
             {
@@ -1586,11 +1600,25 @@ namespace KaraiBoss
     void CBossAttackAABBC::OnAttach(void)
     {
         m_hEffectElectric = 0;
-        Karai::CAttackAABBC::OnAttach();          // plays AABBC -> C3, voice
-
-        PlayTraceEffect(m_pPlayerChr, EFFECTID::ID_SHRD_ELEC, 2.0f, nullptr, &m_hEffectElectric);
+        Karai::CAttackAABBC::OnAttach();          // retail voice + swing sound
         PlayBodyEffect(m_pPlayerChr, EFFECTID::ID_ALL_TAME_FLASH, 2.0f);
-        CGameSound::PlayObjectSE(m_pPlayerChr, SDCODE_SE(8387));
+    };
+
+
+    void CBossAttackAABBC::OnRun(void)
+    {
+        // C3 alone is the boss's recovery after the Thunder dash and does not hit.
+        // Launch the real Thunder dash (C2 into the nearest enemy, then C3).
+        CKarai& karai = static_cast<CKarai&>(Character());
+        karai.SetThunderFromCharge(true);
+        karai.SetThunderFromCombo(true);
+        StateMachine().ChangeStatus(static_cast<PLAYERTYPES::STATUS>(STATUS_BOSS_THUNDER));
+        if (StateMachine().CurrentStatus() == static_cast<PLAYERTYPES::STATUS>(STATUS_BOSS_THUNDER))
+            return;
+
+        karai.SetThunderFromCharge(false);
+        karai.SetThunderFromCombo(false);
+        Karai::CAttackAABBC::OnRun();
     };
 
 

@@ -155,6 +155,11 @@ public:
     // Optional: a character running on enemy motion parameters (Karai boss variant)
     // retargets those attacks from players to enemies/gimmicks and scales power.
     void SetEnemyAttackDataRemap(bool bEnable, float fPowerScale);
+
+    // Optional: when the current motion has no chain connect time (boss combo
+    // enders), connect at this fraction of the motion instead of its end.
+    // 0 (default) keeps the retail behavior (connect at the motion end).
+    void SetChainConnectFallbackRatio(float fRatio);
     void PlayMotion(void);
     void StopMotion(void);
     bool IsMotionEnd(void) const;
@@ -216,4 +221,5 @@ protected:
     int32 m_nMotionAlias;
     bool m_bRemapEnemyAttackData;
     float m_fRemapPowerScale;
+    float m_fChainConnectFallbackRatio;
 };

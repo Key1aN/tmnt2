@@ -53,6 +53,7 @@ CCharacter::CCharacter(const char* pszName, TYPE type)
 , m_nMotionAlias(0)
 , m_bRemapEnemyAttackData(false)
 , m_fRemapPowerScale(1.0f)
+, m_fChainConnectFallbackRatio(0.0f)
 {
     CCharacterManager::Regist(this);
 };
@@ -1206,9 +1207,19 @@ float CCharacter::GetNextChainMotionConnectTime(void) const
 
     float fResult = m_pMotionParameterController->GetNextChainMotionConnectTime(nullptr);
     if (fResult == 0.0f)
+    {
         fResult = m_pMotionController->GetCurrentMotionEndTime();
+        if (m_fChainConnectFallbackRatio > 0.0f)
+            fResult *= m_fChainConnectFallbackRatio;
+    };
 
     return fResult;
+};
+
+
+void CCharacter::SetChainConnectFallbackRatio(float fRatio)
+{
+    m_fChainConnectFallbackRatio = fRatio;
 };
 
 

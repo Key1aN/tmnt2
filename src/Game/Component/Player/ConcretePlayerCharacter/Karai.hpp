@@ -239,6 +239,7 @@ namespace KaraiBoss
     public:
         virtual void OnAttach(void) override;
         virtual void OnDetach(void) override;
+        virtual void OnRun(void) override;
         virtual void OnDischargeWave(void) override;
 
     private:
@@ -315,6 +316,8 @@ public:
     void SetThunderChargeReady(bool bSet) { m_bThunderChargeReady = bSet; };
     bool IsThunderChargeReady(void) const { return m_bThunderChargeReady; };
     void SetThunderFromCharge(bool bSet) { m_bThunderFromCharge = bSet; };
+    void SetThunderFromCombo(bool bSet) { m_bThunderFromCombo = bSet; };
+    bool TestThunderFromCombo(void) const { return m_bThunderFromCombo; };
     bool TestThunderFromCharge(void) const { return m_bThunderFromCharge; };
 
 private:
@@ -327,6 +330,7 @@ private:
 
     bool m_bThunderChargeReady;
     bool m_bThunderFromCharge;
+    bool m_bThunderFromCombo;
     float m_fThunderReadyTime;
     KaraiBoss::PHASE m_phase;
     bool m_bAuraShown;
