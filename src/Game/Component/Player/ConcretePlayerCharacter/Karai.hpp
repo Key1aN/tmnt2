@@ -209,6 +209,42 @@ namespace KaraiBoss
         virtual void OnDischargeWave(MAGIC_GENERIC::STEP step) override;
     };
 
+    // A, A, B, B: the boss BB slam with the Wind Press shockwave.
+    class CBossAttackAABB : public PlayerStatus::CAttackAABB
+    {
+    public:
+        virtual void OnAttach(void) override;
+        virtual void OnRun(void) override;
+
+    private:
+        bool m_bMagic;
+    };
+
+    // A, A, B, B, B: the boss running attack (RunAttack) with a short lunge.
+    class CBossAttackAABBB : public PlayerStatus::CAttackAABBB
+    {
+    public:
+        virtual void OnAttach(void) override;
+        virtual void OnDetach(void) override;
+        virtual void OnRun(void) override;
+
+    private:
+        float m_fTimer;
+    };
+
+    // A, A, B, B, A+B: the Thunder finisher (C3) with an electric burst instead of
+    // retail Karai's charge wave.
+    class CBossAttackAABBC : public Karai::CAttackAABBC
+    {
+    public:
+        virtual void OnAttach(void) override;
+        virtual void OnDetach(void) override;
+        virtual void OnDischargeWave(void) override;
+
+    private:
+        uint32 m_hEffectElectric;
+    };
+
     // A, A: A goes to the boss third hit (AAA); B and C keep the retail chain.
     class CBossAttackAA : public PlayerStatus::CAttackAA
     {

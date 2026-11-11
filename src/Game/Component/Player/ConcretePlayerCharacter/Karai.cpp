@@ -125,10 +125,10 @@ namespace KaraiBoss
     // timing; anything else falls back to Idle in CCharacter::ResolveMotionName.
     static const CCharacter::MOTIONALIAS MOTION_ALIAS[] =
     {
-        { "AABB",           "AAA"           },
-        { "AABBB",          "AAA"           },
+        { "AABB",           "BB"            },  // boss slam (+ Wind Press shockwave, CBossAttackAABB)
+        { "AABBB",          "RunAttack"     },  // boss running attack (CBossAttackAABBB)
         { "AABC",           "AAC"           },
-        { "AABBC",          "AAC"           },
+        { "AABBC",          "C3"            },  // Thunder finisher (CBossAttackAABBC)
         { "JAttack",        "JAttack2"      },  // JAttack1 is the boss ground wind-up; JAttack2 is the airborne attack
         { "JWall",          "J2"            },
         { "Shuriken",       "A"             },  // ground throw uses the quick slash (see CBossAttackKnife)
@@ -276,15 +276,20 @@ CKarai::CKarai(GAMETYPES::COSTUME costume)
     {
         parameter.m_pStateMachine->RegistStatus(PLAYERTYPES::STATUS_ATTACK_JUMP, new Karai::CAttackJump);
     };
-    parameter.m_pStateMachine->RegistStatus(PLAYERTYPES::STATUS_ATTACK_AABBC,   new Karai::CAttackAABBC);
     if (bBossVariant)
     {
+        parameter.m_pStateMachine->RegistStatus(PLAYERTYPES::STATUS_ATTACK_AABB,     new KaraiBoss::CBossAttackAABB);
+        parameter.m_pStateMachine->RegistStatus(PLAYERTYPES::STATUS_ATTACK_AABBB,    new KaraiBoss::CBossAttackAABBB);
+        parameter.m_pStateMachine->RegistStatus(PLAYERTYPES::STATUS_ATTACK_AABBC,    new KaraiBoss::CBossAttackAABBC);
         parameter.m_pStateMachine->RegistStatus(PLAYERTYPES::STATUS_ATTACK_B,        new KaraiBoss::CBossAttackB);
         parameter.m_pStateMachine->RegistStatus(PLAYERTYPES::STATUS_ATTACK_B_CHARGE, new KaraiBoss::CBossAttackBCharge);
         parameter.m_pStateMachine->RegistStatus(PLAYERTYPES::STATUS_ATTACK_KNIFE,    new KaraiBoss::CBossAttackKnife);
     }
     else
+    {
+        parameter.m_pStateMachine->RegistStatus(PLAYERTYPES::STATUS_ATTACK_AABBC, new Karai::CAttackAABBC);
         parameter.m_pStateMachine->RegistStatus(PLAYERTYPES::STATUS_ATTACK_B, new Karai::CAttackB);
+    };
 
     Initialize(&parameter);
 
@@ -771,6 +776,24 @@ namespace KaraiBoss
     };
 
 
+    static void ReleaseWindPress(CKarai* pKarai)
+    {
+        RwV3d vFoot = Math::VECTOR3_ZERO;
+        pKarai->GetFootPosition(&vFoot);
+
+        // Parent = player: the magic system retargets ATTACK_TO_PLAYER magic to enemies.
+        uint32 hMagic = CMagicManager::Play(MAGICID::GetNameFromID(MAGICID::ID_WINDPRESS),
+                                            &vFoot, nullptr, pKarai, true);
+        if (hMagic)
+        {
+            CMagicManager::SetChangeStatus(hMagic, CHitAttackData::STATUS_KNOCK);
+            CMagicManager::SetStatusTime(hMagic, 0.0f);
+            float fScale = pKarai->GetBossAttackScale();
+            CMagicManager::SetDamage(hMagic, static_cast<int32>((static_cast<float>(MOVE::WIND_PRESS_BOSS_POWER) * fScale) + 0.5f));
+        };
+    };
+
+
     // ---- B, B (or Guard + B): Wind Press (B -> BB with wind_press shockwave) ----
 
     bool CBossWindPress::IsEnableChangeStatus(PLAYERTYPES::STATUS status)
@@ -836,19 +859,7 @@ namespace KaraiBoss
         default:
             if (!m_bMagic && Character().TestCharacterFlag(CHARACTERTYPES::FLAG_OCCURED_TIMING))
             {
-                RwV3d vFoot = Math::VECTOR3_ZERO;
-                Character().GetFootPosition(&vFoot);
-
-                // Parent = player: the magic system retargets ATTACK_TO_PLAYER magic to enemies.
-                uint32 hMagic = CMagicManager::Play(MAGICID::GetNameFromID(MAGICID::ID_WINDPRESS),
-                                                    &vFoot, nullptr, m_pPlayerChr, true);
-                if (hMagic)
-                {
-                    CMagicManager::SetChangeStatus(hMagic, CHitAttackData::STATUS_KNOCK);
-                    CMagicManager::SetStatusTime(hMagic, 0.0f);
-                    float fScale = static_cast<CKarai&>(Character()).GetBossAttackScale();
-                    CMagicManager::SetDamage(hMagic, static_cast<int32>((static_cast<float>(MOVE::WIND_PRESS_BOSS_POWER) * fScale) + 0.5f));
-                };
+                ReleaseWindPress(static_cast<CKarai*>(m_pPlayerChr));
                 m_bMagic = true;
             };
 
@@ -1513,6 +1524,85 @@ namespace KaraiBoss
     {
         static_cast<CKarai&>(Character()).ClearWindPressFollowup();
         Karai::CAttackB::OnDetach();
+    };
+
+
+    // ---- A, A, B, B (+B / +A+B): boss combo enders ----
+
+    void CBossAttackAABB::OnAttach(void)
+    {
+        m_bMagic = false;
+        PlayerStatus::CAttackAABB::OnAttach();    // plays AABB -> BB
+    };
+
+
+    void CBossAttackAABB::OnRun(void)
+    {
+        if (!m_bMagic && Character().TestCharacterFlag(CHARACTERTYPES::FLAG_OCCURED_TIMING))
+        {
+            ReleaseWindPress(static_cast<CKarai*>(m_pPlayerChr));
+            m_bMagic = true;
+        };
+
+        PlayerStatus::CAttackAABB::OnRun();       // retail chain to AABBB / AABBC
+    };
+
+
+    static const float RUN_ATTACK_LUNGE_TIME  = 0.30f;
+    static const float RUN_ATTACK_LUNGE_SPEED = 9.0f;
+
+
+    void CBossAttackAABBB::OnAttach(void)
+    {
+        m_fTimer = 0.0f;
+        ClearDirectionLocks(Character());
+        PlayerStatus::CAttackAABBB::OnAttach();   // plays AABBB -> RunAttack, flash + voice
+        FaceNearestEnemy(Character(), 6.0f, nullptr);
+        SetForwardVelocity(Character(), RUN_ATTACK_LUNGE_SPEED);
+    };
+
+
+    void CBossAttackAABBB::OnDetach(void)
+    {
+        Character().ResetVelocity();
+        PlayerStatus::CAttackAABBB::OnDetach();
+    };
+
+
+    void CBossAttackAABBB::OnRun(void)
+    {
+        if (m_fTimer < RUN_ATTACK_LUNGE_TIME)
+        {
+            m_fTimer += CGameProperty::GetElapsedTime();
+            if (m_fTimer >= RUN_ATTACK_LUNGE_TIME)
+                Character().ResetVelocity();
+        };
+
+        PlayerStatus::CAttackAABBB::OnRun();
+    };
+
+
+    void CBossAttackAABBC::OnAttach(void)
+    {
+        m_hEffectElectric = 0;
+        Karai::CAttackAABBC::OnAttach();          // plays AABBC -> C3, voice
+
+        PlayTraceEffect(m_pPlayerChr, EFFECTID::ID_SHRD_ELEC, 2.0f, nullptr, &m_hEffectElectric);
+        PlayBodyEffect(m_pPlayerChr, EFFECTID::ID_ALL_TAME_FLASH, 2.0f);
+        CGameSound::PlayObjectSE(m_pPlayerChr, SDCODE_SE(8387));
+    };
+
+
+    void CBossAttackAABBC::OnDetach(void)
+    {
+        FinishEffect(m_hEffectElectric);
+        Karai::CAttackAABBC::OnDetach();
+    };
+
+
+    void CBossAttackAABBC::OnDischargeWave(void)
+    {
+        // The C3 hit data is the attack; no retail charge wave on the boss variant.
     };
 
 
