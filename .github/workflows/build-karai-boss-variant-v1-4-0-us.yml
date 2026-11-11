@@ -41,6 +41,7 @@ jobs:
             "scripts/lpacview/build_karai_boss_variant_lpac.py",
             "src/Game/Component/Player/ConcretePlayerCharacter/Karai.cpp",
             "src/Game/Component/Player/ConcretePlayerCharacter/Karai.hpp",
+            "src/Game/Component/Effect/Magic.cpp",
             "src/Game/Component/Gauge/GaugeManager.cpp",
             "src/Game/Sequence/DebugTools/DebugToolsProcess.cpp",
             "src/Game/Component/Player/ConcreteManipulator/ManipulatorKarai.cpp",

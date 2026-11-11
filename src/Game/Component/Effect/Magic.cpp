@@ -866,6 +866,19 @@ bool CMagic::CheckAttack(void)
                 featureAttack = MAGICTYPES::FEATURE_ATTACK_TO_ENEMY;
         };
 
+        /*
+         * Same for boss Karai's Wind Press shockwave on the playable boss variant:
+         * with a player parent it must hit enemies and objects, never players
+         * (including Karai herself). Enemy Karai keeps the retail target.
+         */
+        if ((GetID() == MAGICID::ID_WINDPRESS) &&
+            m_pParent &&
+            (m_pParent->GetType() == GAMEOBJECTTYPE::CHARACTER) &&
+            (static_cast<CCharacter*>(m_pParent)->GetCharacterType() == CCharacter::TYPE_PLAYER))
+        {
+            featureAttack = MAGICTYPES::FEATURE_ATTACK_TO_ENEMY_MAPOBJ;
+        };
+
         switch (featureAttack)
         {
         case MAGICTYPES::FEATURE_ATTACK_TO_PLAYER:

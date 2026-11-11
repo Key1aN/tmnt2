@@ -781,13 +781,14 @@ namespace KaraiBoss
         RwV3d vFoot = Math::VECTOR3_ZERO;
         pKarai->GetFootPosition(&vFoot);
 
-        // Parent = player: the magic system retargets ATTACK_TO_PLAYER magic to enemies.
+        // Parent = player: CMagic retargets player-parented wind_press to enemies and objects only.
         uint32 hMagic = CMagicManager::Play(MAGICID::GetNameFromID(MAGICID::ID_WINDPRESS),
                                             &vFoot, nullptr, pKarai, true);
         if (hMagic)
         {
-            CMagicManager::SetChangeStatus(hMagic, CHitAttackData::STATUS_KNOCK);
-            CMagicManager::SetStatusTime(hMagic, 0.0f);
+            // Knock enemies back (blown away), like breakable-gimmick explosions.
+            CMagicManager::SetChangeStatus(hMagic, CHitAttackData::STATUS_FLYAWAY);
+            CMagicManager::SetFlyawaySpeed(hMagic, 10.0f, 5.0f);
             float fScale = pKarai->GetBossAttackScale();
             CMagicManager::SetDamage(hMagic, static_cast<int32>((static_cast<float>(MOVE::WIND_PRESS_BOSS_POWER) * fScale) + 0.5f));
         };
