@@ -183,3 +183,22 @@ foreach(CONFIG DEBUG RELEASE MINSIZEREL RELWITHDEBINFO)
         RUNTIME_OUTPUT_DIRECTORY_${CONFIG} "${DIR_ROOT}/bin/${TARGET_OS_NAME}/${RWDRV}/${CONFIG_LOWER}/${OPT_BIN_DIR}"
     )
 endforeach()
+
+
+#############################################
+#        Combat Lab launcher (optional)     #
+#############################################
+
+# CombatLab.exe only starts TMNT2.exe --combat-lab from its own folder; the
+# lab itself lives in the Debug Tools game executable.
+if(WIN32 AND MSVC AND OPT_DEBUG_TOOLS)
+    add_executable(CombatLab WIN32 "${DIR_ROOT}/tools/CombatLabLauncher/CombatLabLauncher.cpp")
+    target_compile_definitions(CombatLab PRIVATE UNICODE _UNICODE)
+    set_target_properties(CombatLab PROPERTIES LINK_FLAGS "/MACHINE:X86 /ENTRY:wWinMainCRTStartup")
+    foreach(CONFIG DEBUG RELEASE MINSIZEREL RELWITHDEBINFO)
+        string(TOLOWER "${CONFIG}" CONFIG_LOWER)
+        set_target_properties(CombatLab PROPERTIES
+            RUNTIME_OUTPUT_DIRECTORY_${CONFIG} "${DIR_ROOT}/bin/${TARGET_OS_NAME}/${RWDRV}/${CONFIG_LOWER}/${OPT_BIN_DIR}"
+        )
+    endforeach()
+endif()

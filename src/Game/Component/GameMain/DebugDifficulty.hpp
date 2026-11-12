@@ -38,6 +38,15 @@ public:
         SETTING_NUM,
     };
 
+    // Combat Lab: complete override state, so the lab can restore exactly
+    // what the user had in the Difficulty tab when it exits.
+    struct SNAPSHOT
+    {
+        PRESET m_preset;
+        bool m_bOverrideEnabled;
+        float m_afValue[SETTING_NUM];
+    };
+
 public:
     static void Initialize(void);
     static bool IsOverrideEnabled(void);
@@ -59,6 +68,9 @@ public:
         GAMETYPES::DIFFICULTY difficulty
     );
     static void RefreshLiveEnemies(void);
+    static void Snapshot(SNAPSHOT& rSnapshot);
+    static void Restore(const SNAPSHOT& rSnapshot);
+    static void SetCustomValue(SETTING setting, float value, GAMETYPES::DIFFICULTY difficulty);
 
 private:
     static void LoadBuiltInValues(GAMETYPES::DIFFICULTY difficulty);

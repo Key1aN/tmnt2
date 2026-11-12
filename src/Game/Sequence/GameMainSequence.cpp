@@ -31,6 +31,7 @@
 
 #if defined(TMNT2_DEBUG_TOOLS)
 #include "Game/Sequence/DebugTools/DebugToolsProcess.hpp"
+#include "Game/Component/CombatLab/CombatLab.hpp"
 #endif /* defined(TMNT2_DEBUG_TOOLS) */
 
 
@@ -104,6 +105,8 @@ bool CGameMainSequence::OnAttach(const void* pParam)
 #if defined(TMNT2_DEBUG_TOOLS)
     if (CPCModFeatures::IsDebugToolsEnabled())
         CDebugToolsProcess::Initialize(this);
+
+    CCombatLab::InitializeLaunch();
 #endif /* defined(TMNT2_DEBUG_TOOLS) */
     
     m_fTime = 0.0f;
@@ -155,6 +158,19 @@ void CGameMainSequence::OnMove(bool bRet, const void* pReturnValue)
 {
     if (bRet)
     {
+#if defined(TMNT2_DEBUG_TOOLS)
+        // "Enter Combat Lab" from gameplay ends the stage through the normal
+        // pause-menu quit path; whatever top-level sequence returns, go to the lab.
+        if (CCombatLab::ConsumeEnterRequest())
+        {
+            m_iLabelPrev = m_iLabelCurrent;
+            m_iLabelCurrent = m_iLabelNext = PROCLABEL_SEQ_COMBATLAB;
+            m_param = nullptr;
+            Call(m_iLabelCurrent, m_param);
+            return;
+        };
+#endif /* defined(TMNT2_DEBUG_TOOLS) */
+
         if (pReturnValue)
         {
             m_iLabelNext = reinterpret_cast<int32>(pReturnValue);
@@ -279,6 +295,15 @@ int32 CGameMainSequence::Branch(int32 iLabel)
 		break;
 
     case PROCLABEL_SEQ_SAVELOADCHECK:
+#if defined(TMNT2_DEBUG_TOOLS)
+        // Direct launch (-combatlab / --combat-lab / CombatLab.exe): the save
+        // check above has already run normally; skip logos, movies and menus.
+        if (CCombatLab::ConsumeLaunchRequest())
+        {
+            CPCCrashReporter::Breadcrumb("COMBATLAB direct launch after save check");
+            return PROCLABEL_SEQ_COMBATLAB;
+        };
+#endif /* defined(TMNT2_DEBUG_TOOLS) */
 #ifdef _DEBUG
         return PROCLABEL_SEQ_TITLE;
 #else /* _DEBUG */
@@ -300,6 +325,12 @@ int32 CGameMainSequence::Branch(int32 iLabel)
 
     case PROCLABEL_SEQ_TITLE:
         return PROCLABEL_SEQ_CHARASELECT;
+
+#if defined(TMNT2_DEBUG_TOOLS)
+    case PROCLABEL_SEQ_COMBATLAB:
+        // Reload (arena/player change) re-enters the lab; exit goes to Title.
+        return (CCombatLab::ConsumeRestartRequest() ? PROCLABEL_SEQ_COMBATLAB : PROCLABEL_SEQ_TITLE);
+#endif /* defined(TMNT2_DEBUG_TOOLS) */
 
     case PROCLABEL_SEQ_PLAYDEMO:
     case PROCLABEL_SEQ_ENDING:

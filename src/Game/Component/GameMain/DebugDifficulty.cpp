@@ -296,6 +296,47 @@ namespace
 };
 
 
+/*static*/ void CDebugDifficulty::Snapshot(SNAPSHOT& rSnapshot)
+{
+    rSnapshot.m_preset = m_preset;
+    rSnapshot.m_bOverrideEnabled = m_bOverrideEnabled;
+    for (int32 i = 0; i < SETTING_NUM; ++i)
+        rSnapshot.m_afValue[i] = m_afValue[i];
+};
+
+
+/*static*/ void CDebugDifficulty::Restore(const SNAPSHOT& rSnapshot)
+{
+    m_preset = rSnapshot.m_preset;
+    m_bOverrideEnabled = rSnapshot.m_bOverrideEnabled;
+    for (int32 i = 0; i < SETTING_NUM; ++i)
+        m_afValue[i] = ClampSetting(static_cast<SETTING>(i), rSnapshot.m_afValue[i]);
+
+    RefreshLiveEnemies();
+};
+
+
+/*static*/ void CDebugDifficulty::SetCustomValue(
+    SETTING setting,
+    float value,
+    GAMETYPES::DIFFICULTY difficulty
+)
+{
+    ASSERT(setting >= 0);
+    ASSERT(setting < SETTING_NUM);
+
+    if (!m_bOverrideEnabled)
+    {
+        LoadBuiltInValues(difficulty);
+        m_bOverrideEnabled = true;
+    };
+
+    m_afValue[setting] = ClampSetting(setting, value);
+    m_preset = PRESET_CUSTOM;
+    RefreshLiveEnemies();
+};
+
+
 /*static*/ void CDebugDifficulty::LoadBuiltInValues(GAMETYPES::DIFFICULTY difficulty)
 {
     for (int32 i = 0; i < SETTING_NUM; ++i)

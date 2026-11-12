@@ -3,6 +3,8 @@
 #if defined(TMNT2_DEBUG_TOOLS)
 
 #include "Game/ProcessList.hpp"
+#include "Game/Component/CombatLab/CombatLab.hpp"
+#include "Game/Component/GameData/GamePlayResult.hpp"
 #include "Game/Sequence/Test/DebugUtils.hpp"
 #include "Game/Component/Enemy/Enemy.hpp"
 #include "Game/Component/Enemy/EnemyCharacter.hpp"
@@ -57,6 +59,7 @@ namespace
         PAGE_GRAPHICS,
         PAGE_HITBOXES,
         PAGE_TELEMETRY,
+        PAGE_COMBATLAB,
 
         PAGE_NUM,
     };
@@ -72,6 +75,7 @@ namespace
         "Graphics",
         "Hitboxes",
         "Telemetry",
+        "COMBAT LAB",
     };
 
 
@@ -135,6 +139,7 @@ namespace
         case PROCLABEL_SEQ_NEXUSSTAGE:
         case PROCLABEL_SEQ_PLAYDEMO:
         case PROCLABEL_SEQ_HOMESTAGE:
+        case PROCLABEL_SEQ_COMBATLAB:
             return true;
 
         default:
@@ -215,6 +220,56 @@ namespace
     {
         static const char* s_apszMSAALabel[] = { "Off", "2X", "4X", "8X" };
         return s_apszMSAALabel[GetMSAAIndex(samples)];
+    };
+
+
+    // ---- Combat Lab tab ----
+
+    enum LABITEM
+    {
+        LABITEM_ENTER_EXIT = 0,
+        LABITEM_RESET,
+        LABITEM_ARENA,
+        LABITEM_PLAYER,
+        LABITEM_CRYSTALS,
+        LABITEM_RELOAD,
+        LABITEM_ENEMY_TYPE,
+        LABITEM_ENEMY_COUNT,
+        LABITEM_SPAWN,
+        LABITEM_CLEAR,
+        LABITEM_INF_PLAYER_HP,
+        LABITEM_INF_ENEMY_HP,
+        LABITEM_AI_MODE,
+        LABITEM_AI_EDIT,
+        LABITEM_AI_STORE,
+        LABITEM_AI_RECALL,
+        LABITEM_OVERLAY,
+        LABITEM_STATS_RESET,
+        LABITEM_LOG,
+        LABITEM_LOG_SUMMARY,
+        LABITEM_HITBOXES,
+        LABITEM_LABELS,
+        LABITEM_RULESET,
+        LABITEM_RESET_CLEARS_STATS,
+        LABITEM_DEFAULTS,
+
+        LABITEM_NUM,
+    };
+
+    static const int32 MENU_VISIBLE_ITEMS = 14;
+
+
+    static bool IsCombatLabShortcut(void)
+    {
+        // Ctrl + Shift + L. L, Ctrl and the Shift+Ctrl chord have no retail
+        // binding; left Shift alone is the default "character change" key,
+        // which has no effect with the lab's single character.
+        if (!CPCSpecific::IsKeyTrigger(DIK_L))
+            return false;
+
+        bool bCtrl = (CPCSpecific::IsKeyDown(DIK_LCONTROL) || CPCSpecific::IsKeyDown(DIK_RCONTROL));
+        bool bShift = (CPCSpecific::IsKeyDown(DIK_LSHIFT) || CPCSpecific::IsKeyDown(DIK_RSHIFT));
+        return (bCtrl && bShift);
     };
 
 
@@ -492,6 +547,9 @@ public:
     , m_aMoveEvent()
     , m_iMoveEventHead(0)
     , m_szPlayerMotion()
+    , m_bLabEnterArmed(false)
+    , m_bLabAIPresetStored(false)
+    , m_labAIPreset()
     {
         std::memset(m_aiSelection, 0x00, sizeof(m_aiSelection));
         std::memset(m_aTracked, 0x00, sizeof(m_aTracked));
@@ -539,7 +597,23 @@ public:
             return;
         };
 
-        if (CPCSpecific::IsKeyTrigger(DIK_F4) || bControllerToggle)
+        if (IsCombatLabShortcut())
+        {
+            // One dedicated shortcut: opens the existing menu directly on the
+            // COMBAT LAB tab, or closes it when that tab is already showing.
+            if (m_bOpen && (m_page == PAGE_COMBATLAB))
+            {
+                Close(owner);
+            }
+            else
+            {
+                if (!m_bOpen && bAvailable)
+                    Open(owner, currentLabel);
+                if (m_bOpen)
+                    m_page = PAGE_COMBATLAB;
+            };
+        }
+        else if (CPCSpecific::IsKeyTrigger(DIK_F4) || bControllerToggle)
         {
             if (m_bOpen)
                 Close(owner);
@@ -628,6 +702,15 @@ public:
             if (m_bTelemetryEnabled)
                 DrawTelemetry(12, 30);
         };
+
+        // Right-hand panel; with the menu open it is shown only on the
+        // COMBAT LAB tab and only when the screen is wide enough not to
+        // overlap the menu text.
+        if (CCombatLab::IsPlaying() && CCombatLab::IsOverlayEnabled() &&
+            (!m_bOpen || ((m_page == PAGE_COMBATLAB) && (CScreen::Width() >= 1280))))
+        {
+            DrawCombatLabOverlay(CScreen::Width() - 344, 30);
+        };
     };
 
 private:
@@ -651,6 +734,7 @@ private:
             owner.Mail().Send(m_iPausedLabel, PROCESSTYPES::MAIL::TYPE_MOVE_ENABLE);
 
         m_bOpen = false;
+        m_bLabEnterArmed = false;
         m_iPausedLabel = PROCESSTYPES::LABEL_EOL;
         m_iStepFrames = 0;
         EnableStickToDirButton(false);
@@ -687,6 +771,7 @@ private:
 
     void ChangePage(int32 direction)
     {
+        m_bLabEnterArmed = false;
         int32 page = InvClamp(static_cast<int32>(m_page) + direction, 0, PAGE_NUM - 1);
         m_page = static_cast<PAGE>(page);
 
@@ -698,6 +783,7 @@ private:
 
     void ChangeSelection(int32 direction)
     {
+        m_bLabEnterArmed = false;
         int32 itemCount = GetItemCount(m_page);
         if (itemCount <= 0)
             return;
@@ -794,6 +880,10 @@ private:
                 m_bTelemetryEnabled = !m_bTelemetryEnabled;
             else
                 AdjustTelemetryItem(selected, direction * multiplier);
+            break;
+
+        case PAGE_COMBATLAB:
+            AdjustLabItem(selected, direction, multiplier);
             break;
 
         default:
@@ -899,6 +989,10 @@ private:
                 AdjustTelemetryItem(selected, 1);
             break;
 
+        case PAGE_COMBATLAB:
+            ActivateLabItem(owner, selected);
+            break;
+
         default:
             break;
         };
@@ -951,6 +1045,10 @@ private:
             ResetTelemetryItem(selected);
             break;
 
+        case PAGE_COMBATLAB:
+            ResetLabItem(selected);
+            break;
+
         default:
             break;
         };
@@ -991,6 +1089,10 @@ private:
         case PAGE_TELEMETRY:
             for (int32 i = 0; i < GetItemCount(PAGE_TELEMETRY); ++i)
                 ResetTelemetryItem(i);
+            break;
+
+        case PAGE_COMBATLAB:
+            CCombatLab::RestoreDefaults();
             break;
 
         default:
@@ -1359,6 +1461,7 @@ private:
         case PAGE_GRAPHICS:   return 1;
         case PAGE_HITBOXES:   return 3;
         case PAGE_TELEMETRY:  return 9;
+        case PAGE_COMBATLAB:  return LABITEM_NUM;
         default:              return 0;
         };
     };
@@ -1369,7 +1472,7 @@ private:
         m_font.Background({ 0x00, 0x00, 0x00, 0xB0 });
         m_font.Color({ 0xC0, 0xE8, 0xFF, 0xFF });
         m_font.Position(12, 10);
-        m_font.Print("F4 / BACK  DEBUG TOOLS  |  START  PAUSE");
+        m_font.Print("F4 / BACK  DEBUG TOOLS  |  CTRL+SHIFT+L  COMBAT LAB  |  START  PAUSE");
     };
 
 
@@ -1378,7 +1481,7 @@ private:
         m_font.Background({ 0x08, 0x0C, 0x12, 0xE8 });
         m_font.Color({ 0x78, 0xD8, 0xFF, 0xFF });
         m_font.Position(18, 14);
-        m_font.Print("TMNT2 DEBUG TOOLS  |  F4 or Back menu  |  Start game pause  |  Esc close");
+        m_font.Print("TMNT2 DEBUG TOOLS  |  F4 or Back menu  |  Ctrl+Shift+L Combat Lab  |  Start game pause  |  Esc close");
 
         char tabs[256];
         tabs[0] = '\0';
@@ -1400,8 +1503,14 @@ private:
 
         int32 itemCount = GetItemCount(m_page);
         int32 selected = m_aiSelection[m_page];
-        for (int32 i = 0; i < itemCount; ++i)
+
+        // Pages longer than the space above the compact telemetry scroll;
+        // every pre-existing page fits, so their layout is unchanged.
+        int32 visibleCount = (itemCount < MENU_VISIBLE_ITEMS ? itemCount : MENU_VISIBLE_ITEMS);
+        int32 firstItem = Clamp(selected - (MENU_VISIBLE_ITEMS / 2), 0, MaxI(0, itemCount - visibleCount));
+        for (int32 row = 0; row < visibleCount; ++row)
         {
+            int32 i = firstItem + row;
             char text[160];
             FormatItemText(i, text, sizeof(text));
 
@@ -1410,7 +1519,7 @@ private:
             else
                 m_font.Color({ 0xE8, 0xEE, 0xF8, 0xFF });
 
-            m_font.Position(28, 66 + (i * 18));
+            m_font.Position(28, 66 + (row * 18));
             m_font.Print("%c %s", (i == selected ? '>' : ' '), text);
         };
 
@@ -1418,10 +1527,13 @@ private:
         const char* description = "";
         GetItemHelp(selected, scope, description);
 
-        int32 helpY = 66 + (itemCount * 18) + 12;
+        int32 helpY = 66 + (visibleCount * 18) + 12;
         m_font.Color({ 0x78, 0xD8, 0xFF, 0xFF });
         m_font.Position(18, helpY);
-        m_font.Print("%s", scope);
+        if (itemCount > visibleCount)
+            m_font.Print("%s   [%d-%d of %d]", scope, firstItem + 1, firstItem + visibleCount, itemCount);
+        else
+            m_font.Print("%s", scope);
         m_font.Color({ 0xD8, 0xE0, 0xEC, 0xFF });
         m_font.Position(18, helpY + 18);
         m_font.Print("%s", description);
@@ -1560,6 +1672,10 @@ private:
                 std::snprintf(buffer, capacity, "Move label height above head  %+.2f", m_fLabelLift);
             break;
 
+        case PAGE_COMBATLAB:
+            FormatLabItem(index, buffer, capacity);
+            break;
+
         default:
             break;
         };
@@ -1672,8 +1788,552 @@ private:
             };
             break;
 
+        case PAGE_COMBATLAB:
+            GetLabItemHelp(index, scope, description);
+            break;
+
         default:
             break;
+        };
+    };
+
+
+    // ---- Combat Lab tab (uses the existing menu, AI and hitbox systems) ----
+
+    bool EnterCombatLabFromGameplay(CDebugToolsProcess& owner)
+    {
+        int32 currentLabel = CSequence::GetCurrently();
+        if (currentLabel == PROCLABEL_SEQ_PLAYDEMO)
+            return false;
+
+        CGameStage* pStage = CGameStage::GetCurrent();
+        if (!pStage)
+            return false;
+
+        // Same result the retail pause menu uses for "Quit to title"; the
+        // main sequence then routes to the lab instead of the Title screen.
+        if (!pStage->SetResult(CGameStage::RESULT_RET_TITLE))
+            return false;
+
+        CGameData::PlayResult().SetAreaResult(CGamePlayResult::AREARESULT_EXIT);
+        CGameData::PlayResult().SetExitSub(CGamePlayResult::EXITSUB_TO_TITLE);
+        CCombatLab::RequestEnterFromGameplay();
+        Close(owner);
+        return true;
+    };
+
+
+    int32 GetLabHitboxMode(void) const
+    {
+        bool a = CHitDebug::SHOW_HIT_ATTACK;
+        bool b = CHitDebug::SHOW_HIT_BODY;
+        bool c = CHitDebug::SHOW_HIT_CATCH;
+        if (!a && !b && !c) return 0;
+        if (a && !b && !c)  return 1;
+        if (a && b && !c)   return 2;
+        if (a && b && c)    return 3;
+        return 4; // custom mix set on the Hitboxes tab
+    };
+
+
+    void SetLabHitboxMode(int32 mode)
+    {
+        CHitDebug::SHOW_HIT_ATTACK = (mode >= 1);
+        CHitDebug::SHOW_HIT_BODY   = (mode >= 2);
+        CHitDebug::SHOW_HIT_CATCH  = (mode >= 3);
+    };
+
+
+    void AdjustLabItem(int32 selected, int32 direction, int32 multiplier)
+    {
+        switch (selected)
+        {
+        case LABITEM_ARENA:
+            CCombatLab::SelectArena(CCombatLab::GetSelectedArena() + direction);
+            break;
+
+        case LABITEM_PLAYER:
+            CCombatLab::SelectPlayer(static_cast<PLAYERID::VALUE>(
+                static_cast<int32>(CCombatLab::GetSelectedPlayer()) + direction));
+            break;
+
+        case LABITEM_CRYSTALS:
+            CCombatLab::SetCrystalLevel(InvClamp(CCombatLab::GetCrystalLevel() + direction, -1, 3));
+            break;
+
+        case LABITEM_ENEMY_TYPE:
+            CCombatLab::SelectEnemyType(CCombatLab::GetEnemyTypeIndex() + direction);
+            break;
+
+        case LABITEM_ENEMY_COUNT:
+            CCombatLab::SetEnemyCount(CCombatLab::GetEnemyCount() + direction * multiplier);
+            break;
+
+        case LABITEM_INF_PLAYER_HP:
+            CCombatLab::SetInfinitePlayerHP(!CCombatLab::IsInfinitePlayerHP());
+            break;
+
+        case LABITEM_INF_ENEMY_HP:
+            CCombatLab::SetInfiniteEnemyHP(!CCombatLab::IsInfiniteEnemyHP());
+            break;
+
+        case LABITEM_AI_MODE:
+            CCombatLab::SetAIModeValue(static_cast<CCombatLab::AIMODE>(
+                InvClamp(static_cast<int32>(CCombatLab::GetAIMode()) + direction, 0,
+                         static_cast<int32>(CCombatLab::AIMODE_NUM) - 1)));
+            break;
+
+        case LABITEM_OVERLAY:
+            CCombatLab::SetOverlayEnabled(!CCombatLab::IsOverlayEnabled());
+            break;
+
+        case LABITEM_LOG:
+            CCombatLab::SetLogEnabled(!CCombatLab::IsLogEnabled());
+            break;
+
+        case LABITEM_HITBOXES:
+            {
+                int32 mode = GetLabHitboxMode();
+                if (mode > 3)
+                    mode = 0;
+                SetLabHitboxMode(InvClamp(mode + direction, 0, 3));
+            }
+            break;
+
+        case LABITEM_LABELS:
+            m_iLabelMode = (m_iLabelMode + (direction < 0 ? LABELMODE_NUM - 1 : 1)) % LABELMODE_NUM;
+            break;
+
+        case LABITEM_RULESET:
+            CCombatLab::SetRuleset(CCombatLab::GetRuleset() == CCombatLab::RULESET_VANILLA ?
+                                   CCombatLab::RULESET_EXPERIMENTAL :
+                                   CCombatLab::RULESET_VANILLA);
+            break;
+
+        case LABITEM_RESET_CLEARS_STATS:
+            CCombatLab::SetResetClearsStats(!CCombatLab::IsResetClearsStats());
+            break;
+
+        default:
+            break;
+        };
+    };
+
+
+    void ActivateLabItem(CDebugToolsProcess& owner, int32 selected)
+    {
+        bool bPlaying = CCombatLab::IsPlaying();
+
+        if (selected != LABITEM_ENTER_EXIT)
+            m_bLabEnterArmed = false;
+
+        switch (selected)
+        {
+        case LABITEM_ENTER_EXIT:
+            if (CCombatLab::IsActive())
+            {
+                CCombatLab::RequestExit();
+                Close(owner);
+            }
+            else if (!m_bLabEnterArmed)
+            {
+                m_bLabEnterArmed = true;   // second press confirms leaving the stage
+            }
+            else
+            {
+                m_bLabEnterArmed = false;
+                EnterCombatLabFromGameplay(owner);
+            };
+            break;
+
+        case LABITEM_RESET:
+            if (bPlaying)
+            {
+                CCombatLab::ResetScenario();
+                ResetShowcaseCamera();
+            };
+            break;
+
+        case LABITEM_RELOAD:
+            if (CCombatLab::IsActive())
+            {
+                CCombatLab::RequestRestart();
+                Close(owner);
+            };
+            break;
+
+        case LABITEM_SPAWN:
+            if (bPlaying)
+                CCombatLab::SpawnEnemies();
+            break;
+
+        case LABITEM_CLEAR:
+            if (bPlaying)
+                CCombatLab::ClearEnemies();
+            break;
+
+        case LABITEM_AI_EDIT:
+            // Reuse the existing Difficulty tab (Thinking rate, activity, ...)
+            // instead of duplicating its sliders here.
+            CCombatLab::SetAIModeValue(CCombatLab::AIMODE_CUSTOM);
+            m_page = PAGE_DIFFICULTY;
+            m_aiSelection[PAGE_DIFFICULTY] = 1 + CDebugDifficulty::SETTING_AI_THINKING;
+            break;
+
+        case LABITEM_AI_STORE:
+            CDebugDifficulty::Snapshot(m_labAIPreset);
+            m_bLabAIPresetStored = true;
+            break;
+
+        case LABITEM_AI_RECALL:
+            if (m_bLabAIPresetStored)
+            {
+                CCombatLab::SetAIModeValue(CCombatLab::AIMODE_CUSTOM);
+                CDebugDifficulty::Restore(m_labAIPreset);
+            };
+            break;
+
+        case LABITEM_STATS_RESET:
+            CCombatLab::ResetStats();
+            break;
+
+        case LABITEM_LOG_SUMMARY:
+            CCombatLab::WriteSummaryToLog("manual");
+            break;
+
+        case LABITEM_DEFAULTS:
+            CCombatLab::RestoreDefaults();
+            break;
+
+        default:
+            AdjustLabItem(selected, 1, 1);
+            break;
+        };
+    };
+
+
+    void ResetLabItem(int32 selected)
+    {
+        switch (selected)
+        {
+        case LABITEM_ENEMY_COUNT:   CCombatLab::SetEnemyCount(3); break;
+        case LABITEM_ENEMY_TYPE:    CCombatLab::SelectEnemyType(0); break;
+        case LABITEM_ARENA:         CCombatLab::SelectArena(0); break;
+        case LABITEM_PLAYER:        CCombatLab::SelectPlayer(PLAYERID::ID_LEO); break;
+        case LABITEM_CRYSTALS:      CCombatLab::SetCrystalLevel(3); break;
+        case LABITEM_INF_PLAYER_HP: CCombatLab::SetInfinitePlayerHP(true); break;
+        case LABITEM_INF_ENEMY_HP:  CCombatLab::SetInfiniteEnemyHP(true); break;
+        case LABITEM_AI_MODE:       CCombatLab::SetAIModeValue(CCombatLab::AIMODE_ORIGINAL); break;
+        case LABITEM_OVERLAY:       CCombatLab::SetOverlayEnabled(true); break;
+        case LABITEM_LOG:           CCombatLab::SetLogEnabled(true); break;
+        case LABITEM_HITBOXES:      SetLabHitboxMode(0); break;
+        case LABITEM_LABELS:        m_iLabelMode = LABELMODE_BOSSES; break;
+        case LABITEM_RULESET:       CCombatLab::SetRuleset(CCombatLab::RULESET_VANILLA); break;
+        case LABITEM_RESET_CLEARS_STATS: CCombatLab::SetResetClearsStats(true); break;
+        case LABITEM_STATS_RESET:   CCombatLab::ResetStats(); break;
+        default: break;
+        };
+    };
+
+
+    void FormatLabItem(int32 index, char* buffer, size_t capacity) const
+    {
+        bool bActive = CCombatLab::IsActive();
+        const char* pszLabOnly = (CCombatLab::IsPlaying() ? "" : "  (in lab)");
+
+        switch (index)
+        {
+        case LABITEM_ENTER_EXIT:
+            if (bActive)
+                std::snprintf(buffer, capacity, "Exit Combat Lab (to Title)");
+            else
+                std::snprintf(buffer, capacity, "%s", m_bLabEnterArmed ?
+                              "Enter Combat Lab  - press again to quit this stage" :
+                              "Enter Combat Lab");
+            break;
+
+        case LABITEM_RESET:
+            std::snprintf(buffer, capacity, "Reset scenario%s", pszLabOnly);
+            break;
+
+        case LABITEM_ARENA:
+            std::snprintf(buffer, capacity, "Arena                         %s%s",
+                          CCombatLab::GetArena(CCombatLab::GetSelectedArena()).m_pszName,
+                          (CCombatLab::GetSelectedArena() != CCombatLab::GetLoadedArena() && bActive) ? " *RELOAD" : "");
+            break;
+
+        case LABITEM_PLAYER:
+            std::snprintf(buffer, capacity, "Player character              %s%s",
+                          PLAYERID::GetName(CCombatLab::GetSelectedPlayer()),
+                          (CCombatLab::GetSelectedPlayer() != CCombatLab::GetLoadedPlayer() && bActive) ? " *RELOAD" : "");
+            break;
+
+        case LABITEM_CRYSTALS:
+            if (CCombatLab::GetCrystalLevel() < 0)
+                std::snprintf(buffer, capacity, "Crystal upgrades (move set)   Save file");
+            else
+                std::snprintf(buffer, capacity, "Crystal upgrades (move set)   Level %d%s",
+                              CCombatLab::GetCrystalLevel(),
+                              (CCombatLab::GetCrystalLevel() == 3 ? " (all combos)" : ""));
+            break;
+
+        case LABITEM_RELOAD:
+            std::snprintf(buffer, capacity, "Reload lab with arena/player%s",
+                          bActive ? (CCombatLab::IsReloadPending() ? "  (changes pending)" : "") : "  (in lab)");
+            break;
+
+        case LABITEM_ENEMY_TYPE:
+            std::snprintf(buffer, capacity, "Enemy type                    %s  [%d/%d]",
+                          ENEMYID::GetName(CCombatLab::GetEnemyType()),
+                          CCombatLab::GetEnemyTypeIndex() + 1,
+                          CCombatLab::GetEnemyTypeNum());
+            break;
+
+        case LABITEM_ENEMY_COUNT:
+            std::snprintf(buffer, capacity, "Enemy count                   %d", CCombatLab::GetEnemyCount());
+            break;
+
+        case LABITEM_SPAWN:
+            std::snprintf(buffer, capacity, "Spawn enemies%s   alive %d/%d", pszLabOnly,
+                          CCombatLab::IsPlaying() ? CCombatLab::GetSpawnedAliveNum() : 0,
+                          static_cast<int32>(CCombatLab::SPAWN_MAX));
+            break;
+
+        case LABITEM_CLEAR:
+            std::snprintf(buffer, capacity, "Clear spawned enemies%s", pszLabOnly);
+            break;
+
+        case LABITEM_INF_PLAYER_HP:
+            std::snprintf(buffer, capacity, "Infinite player HP            %s", CCombatLab::IsInfinitePlayerHP() ? "ON" : "OFF");
+            break;
+
+        case LABITEM_INF_ENEMY_HP:
+            std::snprintf(buffer, capacity, "Infinite enemy HP             %s", CCombatLab::IsInfiniteEnemyHP() ? "ON" : "OFF");
+            break;
+
+        case LABITEM_AI_MODE:
+            std::snprintf(buffer, capacity, "Enemy AI                      %s", CCombatLab::GetAIModeName(CCombatLab::GetAIMode()));
+            break;
+
+        case LABITEM_AI_EDIT:
+            std::snprintf(buffer, capacity, "Edit AI values (Thinking rate...) -> Difficulty tab");
+            break;
+
+        case LABITEM_AI_STORE:
+            std::snprintf(buffer, capacity, "Store current AI values as lab preset%s", m_bLabAIPresetStored ? "  (stored)" : "");
+            break;
+
+        case LABITEM_AI_RECALL:
+            std::snprintf(buffer, capacity, "Recall lab AI preset          %s", m_bLabAIPresetStored ? "READY" : "EMPTY");
+            break;
+
+        case LABITEM_OVERLAY:
+            std::snprintf(buffer, capacity, "Combat stats overlay          %s", CCombatLab::IsOverlayEnabled() ? "ON" : "OFF");
+            break;
+
+        case LABITEM_STATS_RESET:
+            std::snprintf(buffer, capacity, "Reset statistics");
+            break;
+
+        case LABITEM_LOG:
+            std::snprintf(buffer, capacity, "Combat log (TMNT2_combatlab.log) %s", CCombatLab::IsLogEnabled() ? "ON" : "OFF");
+            break;
+
+        case LABITEM_LOG_SUMMARY:
+            std::snprintf(buffer, capacity, "Write stats summary to log");
+            break;
+
+        case LABITEM_HITBOXES:
+            {
+                static const char* s_apszMode[] = { "OFF", "Attack", "Attack+Body", "All", "Custom (Hitboxes tab)" };
+                std::snprintf(buffer, capacity, "Hitbox view                   %s", s_apszMode[GetLabHitboxMode()]);
+            }
+            break;
+
+        case LABITEM_LABELS:
+            std::snprintf(buffer, capacity, "Enemy state labels            %s", LabelModeName(m_iLabelMode));
+            break;
+
+        case LABITEM_RULESET:
+            std::snprintf(buffer, capacity, "Combat ruleset                %s", CCombatLab::GetRulesetName(CCombatLab::GetRuleset()));
+            break;
+
+        case LABITEM_RESET_CLEARS_STATS:
+            std::snprintf(buffer, capacity, "Reset also clears statistics  %s", CCombatLab::IsResetClearsStats() ? "ON" : "OFF");
+            break;
+
+        case LABITEM_DEFAULTS:
+            std::snprintf(buffer, capacity, "Restore default Combat Lab settings");
+            break;
+
+        default:
+            break;
+        };
+    };
+
+
+    void GetLabItemHelp(int32 index, const char*& scope, const char*& description) const
+    {
+        switch (index)
+        {
+        case LABITEM_ENTER_EXIT:
+            scope = (CCombatLab::IsActive() ? "LAB EXIT" : "LAB ENTRY");
+            description = (CCombatLab::IsActive() ?
+                "Leaves the lab; record, game mode, option difficulty and AI overrides are restored." :
+                "Quits the current stage like Pause > Quit to title, then loads the lab. Unsaved stage progress is lost.");
+            break;
+        case LABITEM_RESET:
+            scope = "SCENARIO";
+            description = "Player to the arena start, HP/shuriken full, enemies respawned at fixed spots, seed fixed, camera reset.";
+            break;
+        case LABITEM_ARENA:
+            scope = "APPLIES ON RELOAD";
+            description = "Retail Battle Nexus arena. Each choice loads a stage whose LPAC packs that enemy roster.";
+            break;
+        case LABITEM_PLAYER:
+            scope = "APPLIES ON RELOAD";
+            description = "Character loaded into the lab (default Leonardo).";
+            break;
+        case LABITEM_CRYSTALS:
+            scope = "LIVE (SHURIKEN MAX ON RELOAD)";
+            description = "Red lv gates AAC/AABB/power x2, green lv AABC. Forced levels never reach the save; Save file = your record.";
+            break;
+        case LABITEM_RELOAD:
+            scope = "LAB RELOAD";
+            description = "Reloads the lab sequence so a new arena or player takes effect; other lab settings are kept.";
+            break;
+        case LABITEM_ENEMY_TYPE:
+            scope = "NEXT SPAWN";
+            description = "Only enemies packed in the loaded arena are offered; spawning anything else is unsafe.";
+            break;
+        case LABITEM_ENEMY_COUNT:
+            scope = "NEXT SPAWN / RESET";
+            description = "Enemies created per spawn and per reset (1-6). Placed in a fixed arc in front of the start.";
+            break;
+        case LABITEM_SPAWN:
+        case LABITEM_CLEAR:
+            scope = "SCENARIO ACTION";
+            description = "Adds or removes lab enemies with the same CEnemy calls the arena generators and Kill all use.";
+            break;
+        case LABITEM_INF_PLAYER_HP:
+            scope = "LIVE";
+            description = "ON: existing damage negation (God mode path). OFF: HP drains, a lethal hit refills instead of game over.";
+            break;
+        case LABITEM_INF_ENEMY_HP:
+            scope = "LIVE";
+            description = "Full retail damage is still sent; HP is refilled only before a hit that would be lethal.";
+            break;
+        case LABITEM_AI_MODE:
+            scope = "LIVE - LAB ENEMIES";
+            description = "Original = retail Normal. Passive = StopAI, reactions intact. Custom = Difficulty tab. Aggressive = preset.";
+            break;
+        case LABITEM_AI_EDIT:
+            scope = "NAVIGATION";
+            description = "Switches AI to Custom and opens the existing Difficulty tab at AI thinking rate.";
+            break;
+        case LABITEM_AI_STORE:
+        case LABITEM_AI_RECALL:
+            scope = "AI PRESET";
+            description = "Stores/recalls every Difficulty-tab value for this session. Lab exit restores your pre-lab values.";
+            break;
+        case LABITEM_OVERLAY:
+        case LABITEM_STATS_RESET:
+            scope = "DIAGNOSTICS";
+            description = "Hits, guards, theoretical damage, hit chain (gaps <= 1.0 s), KOs prevented, last hit, enemy AI status.";
+            break;
+        case LABITEM_LOG:
+        case LABITEM_LOG_SUMMARY:
+            scope = "LOG FILE";
+            description = "Writes every hit, reset, spawn and summary line to TMNT2_combatlab.log in the game folder.";
+            break;
+        case LABITEM_HITBOXES:
+            scope = "LIVE VISUALIZATION";
+            description = "Shortcut to the existing Hitboxes tab flags; nothing about collision is modified.";
+            break;
+        case LABITEM_LABELS:
+            scope = "LIVE VISUALIZATION";
+            description = "Shortcut to the existing Telemetry move labels (motion, AI status, HP). Choose ALL for normal enemies.";
+            break;
+        case LABITEM_RULESET:
+            scope = "KEPT ACROSS RESETS";
+            description = "Vanilla = retail code. Experimental = enables future switchable changes; none are implemented yet.";
+            break;
+        case LABITEM_RESET_CLEARS_STATS:
+            scope = "SCENARIO";
+            description = "When ON, Reset scenario also zeroes statistics.";
+            break;
+        default:
+            scope = "RESET";
+            description = "Arena, player, enemies, HP toggles, AI mode, overlay. The combat ruleset is kept.";
+            break;
+        };
+    };
+
+
+    void DrawCombatLabOverlay(int32 x, int32 y) const
+    {
+        const CCombatLab::STATS& s = CCombatLab::Stats();
+        int32 lineH = 16;
+
+        m_font.Background({ 0x06, 0x0A, 0x10, 0xC8 });
+        m_font.Color({ 0x78, 0xFF, 0xA8, 0xFF });
+        m_font.Position(x, y);
+        m_font.Print("COMBAT LAB  %s  |  AI %s",
+                     CCombatLab::GetRulesetName(CCombatLab::GetRuleset()),
+                     CCombatLab::GetAIModeName(CCombatLab::GetAIMode()));
+        y += lineH;
+
+        m_font.Color({ 0xE8, 0xEE, 0xF8, 0xFF });
+        m_font.Position(x, y);
+        m_font.Print("Hits %d  guarded %d  ineffective %d", s.m_nPlayerHits, s.m_nPlayerHitsGuarded, s.m_nPlayerHitsIneffective);
+        y += lineH;
+        m_font.Position(x, y);
+        m_font.Print("Damage dealt %.0f  received %.0f (%d hits)", s.m_fDamageDealt, s.m_fDamageReceived, s.m_nEnemyHitsOnPlayer);
+        y += lineH;
+        m_font.Position(x, y);
+        m_font.Print("Hit chain %d  max %d   KO prevented P%d E%d", s.m_nChain, s.m_nChainMax, s.m_nPlayerKOPrevented, s.m_nEnemyKOPrevented);
+        y += lineH;
+        m_font.Position(x, y);
+        m_font.Print("Last: %s -> %s %s %d", s.m_szLastAttackMotion[0] ? s.m_szLastAttackMotion : "-",
+                     s.m_szLastTarget[0] ? s.m_szLastTarget : "-",
+                     s.m_szLastResult[0] ? s.m_szLastResult : "-",
+                     s.m_iLastDamage);
+        y += lineH;
+
+        IGamePlayer* pPlayer = (CGameProperty::GetPlayerNum() > 0 ? CGameProperty::Player(0) : nullptr);
+        CPlayerCharacter* pChr = (pPlayer && pPlayer->IsAlive() ? pPlayer->GetCurrentCharacter() : nullptr);
+        if (pChr)
+        {
+            m_font.Color({ 0xFF, 0xD0, 0x58, 0xFF });
+            m_font.Position(x, y);
+            m_font.Print("P1 %s  st %d (%.2fs)  HP %d/%d",
+                         SafeMotionName(pChr->GetMotionName()),
+                         static_cast<int32>(pChr->GetStatus()),
+                         pChr->GetStatusDuration(),
+                         pPlayer->GetHP(), pPlayer->GetHPMax());
+            y += lineH;
+        };
+
+        m_font.Color({ 0xC0, 0xE8, 0xFF, 0xFF });
+        int32 enemyMax = CGameProperty::GetEnemyMax();
+        int32 shown = 0;
+        for (int32 i = 0; (i < enemyMax) && (shown < CCombatLab::SPAWN_MAX); ++i)
+        {
+            CEnemy* pEnemy = CGameProperty::GetEnemy(i);
+            if (!pEnemy)
+                continue;
+
+            char name[48];
+            char status[32];
+            FormatEnemyName(pEnemy->GetID(), name, sizeof(name));
+            FormatEnemyStatus(static_cast<int32>(pEnemy->Character().GetStatus()), status, sizeof(status));
+
+            m_font.Position(x, y);
+            m_font.Print("%-18.18s %-14.14s %s HP %d/%d", name, status,
+                         pEnemy->Character().IsRunningAI() ? "AI" : "--",
+                         pEnemy->GetHP(), pEnemy->GetHPMax());
+            y += lineH;
+            ++shown;
         };
     };
 
@@ -2575,6 +3235,9 @@ private:
     MOVEEVENT m_aMoveEvent[MOVEEVENT_NUM];
     int32 m_iMoveEventHead;
     char m_szPlayerMotion[48];
+    bool m_bLabEnterArmed;
+    bool m_bLabAIPresetStored;
+    CDebugDifficulty::SNAPSHOT m_labAIPreset;
 };
 
 

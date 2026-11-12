@@ -27,6 +27,10 @@
 #include "Game/System/Map/WorldMap.hpp"
 #include "System/Common/RenderState.hpp"
 
+#if defined(TMNT2_DEBUG_TOOLS)
+#include "Game/Component/CombatLab/CombatLab.hpp"
+#endif /* defined(TMNT2_DEBUG_TOOLS) */
+
 
 CCharacter::CCharacter(const char* pszName, TYPE type)
 : CGameObject(pszName, GAMEOBJECTTYPE::CHARACTER)
@@ -624,6 +628,14 @@ void CCharacter::OnMessageCatchAttack(CHitAttackData* pAttack)
     CHARACTERTYPES::ATTACKRESULTTYPE attackresult = OnDamage(calculator);
     
     int32 iDamage = static_cast<int32>(calculator.CalcDamage(attackresult));
+
+#if defined(TMNT2_DEBUG_TOOLS)
+    // Combat Lab instrumentation: observes the retail result/damage and, only
+    // while the lab is playing, keeps lethal hits from killing. Never changes
+    // iDamage, so reactions, effects, SE and RECVDMG stay retail.
+    CCombatLab::OnCatchAttack(*this, *pAttack, attackresult, iDamage);
+#endif /* defined(TMNT2_DEBUG_TOOLS) */
+
     if (iDamage > 0)
         CGameObjectManager::SendMessage(this, CHARACTERTYPES::MESSAGEID_RECVDMG, reinterpret_cast<void*>(iDamage));
     

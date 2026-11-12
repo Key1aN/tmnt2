@@ -60,5 +60,6 @@ enum
 #endif /* defined(TARGET_WEB) */
 #if defined(TMNT2_DEBUG_TOOLS)
     PROCLABEL_DEBUGTOOLS,
+    PROCLABEL_SEQ_COMBATLAB,
 #endif /* defined(TMNT2_DEBUG_TOOLS) */
 };

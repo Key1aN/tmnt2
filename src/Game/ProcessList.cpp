@@ -40,6 +40,7 @@
 
 #if defined(TMNT2_DEBUG_TOOLS)
 #include "Game/Sequence/DebugTools/DebugToolsProcess.hpp"
+#include "Game/Sequence/CombatLab/CombatLabSequence.hpp"
 #endif /* defined(TMNT2_DEBUG_TOOLS) */
 
 #ifdef _DEBUG
@@ -117,6 +118,7 @@ extern const PROCESSTYPES::PROCESS g_aProcessList[] =
 #endif /* defined(TARGET_WEB) */
 #if defined(TMNT2_DEBUG_TOOLS)
     { PROCLABEL_DEBUGTOOLS,             PROCESSTYPES::PRIORITY_NORMAL + 1,  CDebugToolsProcess::Instance         },
+    { PROCLABEL_SEQ_COMBATLAB,          PROCESSTYPES::PRIORITY_NORMAL,      CCombatLabSequence::Instance         },
 #endif /* defined(TMNT2_DEBUG_TOOLS) */
 
     { PROCESSTYPES::LABEL_EOL, 0, nullptr }
