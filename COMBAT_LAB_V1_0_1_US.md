@@ -1,4 +1,4 @@
-# TMNT2 Core: Combat Lab v1.0.0 (US)
+# TMNT2 Core: Combat Lab v1.0.1 (US)
 
 Cumulative on Karai Boss Variant v1.4.1 (`224106c`), which already contains Debug Tools v1.2.7.
 EXE-only change. No retail EXE, DAT or LPAC data is added or modified. Runtime-gated by the
@@ -106,8 +106,8 @@ currently only tags logs. It survives Reset scenario and Restore defaults.
 cmake --preset vs2022 -DOPT_EU_BUILD=OFF -DOPT_DEBUG_TOOLS=ON
 cmake --build --preset vs2022-release --parallel
 ```
-Outputs `TMNT2.exe` and `CombatLab.exe` in `bin/win/d3d9/release/`. CI: `.github/workflows/build-combat-lab-v1-0-0-us.yml`
-(branch `claude/combat-lab-v1-0-0-us`) produces `TMNT2_Core_Combat_Lab_v1_0_0_US.exe/.pdb/.map` and `CombatLab.exe`.
+Outputs `TMNT2.exe` and `CombatLab.exe` in `bin/win/d3d9/release/`. CI: `.github/workflows/build-combat-lab-v1-0-1-us.yml`
+(branch `claude/combat-lab-v1-0-1-us`) produces `TMNT2_Core_Combat_Lab_v1_0_1_US.exe/.pdb/.map` and `CombatLab.exe`.
 
 ## Launch
 
@@ -117,7 +117,14 @@ Outputs `TMNT2.exe` and `CombatLab.exe` in `bin/win/d3d9/release/`. CI: `.github
 
 The normal save check still runs first; logos, movies, title and menus are skipped. Exit returns to Title.
 
+## v1.0.1 fix
+
+v1.0.0 crashed on every lab entry (access violation in `CGameProperty::GetEnemy`, called from
+`CDebugDifficulty::RefreshLiveEnemies` <- `CCombatLab::OnSequenceAttach`): the lab applied its AI
+preset before the stage, and so the enemy list, existed. `RefreshLiveEnemies` now returns when no
+stage is current. The same class of bug on lab exit (stats time read and AI restore after the stage
+was destroyed) is fixed too.
+
 ## Status
 
-Source compiled for syntax only (MinGW i686 `-fsyntax-only` against the repo headers). **Not built
-with MSVC and not run in game.** See the manual test list in the delivery notes.
+Built by CI (MSVC). v1.0.0 was run in game and crashed on entry; v1.0.1 has not been run in game yet.

@@ -1,6 +1,6 @@
 # TMNT2 Combat Overhaul - Source Findings and Roadmap
 
-Baseline: `224106c` (Karai v1.4.1 / Debug Tools v1.2.7) + Combat Lab v1.0.0.
+Baseline: `224106c` (Karai v1.4.1 / Debug Tools v1.2.7) + Combat Lab v1.0.1.
 **S** = confirmed in source. **H** = gameplay hypothesis to verify in Combat Lab. Nothing here has
 been measured in game yet.
 

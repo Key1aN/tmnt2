@@ -4,6 +4,7 @@
 
 #include "ExtendedDifficulty.hpp"
 #include "GameProperty.hpp"
+#include "GameStage.hpp"
 
 #include "Game/Component/Enemy/Enemy.hpp"
 #include "Game/Component/Enemy/EnemyCharacter.hpp"
@@ -286,6 +287,11 @@ namespace
 
 /*static*/ void CDebugDifficulty::RefreshLiveEnemies(void)
 {
+    // No stage means no CGameProperty object and no enemies (Combat Lab
+    // changes presets before its stage is created and after it is destroyed).
+    if (!CGameStage::GetCurrent())
+        return;
+
     int32 enemyMax = CGameProperty::GetEnemyMax();
     for (int32 i = 0; i < enemyMax; ++i)
     {

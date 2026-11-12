@@ -118,6 +118,18 @@ namespace
     };
 
 
+    // Stage time is only readable while a stage exists; the exit summary is
+    // written after the stage is gone, so keep the last value seen.
+    static float s_fLabLastTime = 0.0f;
+
+    static float LabNow(void)
+    {
+        if (CGameStage::GetCurrent())
+            s_fLabLastTime = CGameProperty::GetTotalElapsedTime();
+        return s_fLabLastTime;
+    };
+
+
     static CPCDebugLogFile& LabLog(void)
     {
         static CPCDebugLogFile s_log("TMNT2_combatlab.log");
@@ -437,7 +449,7 @@ namespace
 
     if (s_lab.m_bLog)
     {
-        LabLog().Write("SESSION  Combat Lab v1.0.0 arena=%s player=%s crystals=%d ruleset=%s ai=%s",
+        LabLog().Write("SESSION  Combat Lab v1.0.1 arena=%s player=%s crystals=%d ruleset=%s ai=%s",
                        arena.m_pszName,
                        PLAYERID::GetName(s_lab.m_idPlayerLoaded),
                        s_lab.m_iCrystalLevel,
@@ -512,6 +524,7 @@ namespace
     if (!s_lab.m_bPlaying)
         return;
 
+    LabNow();
     ApplyPlayerNegation();
     CompactEnemyList();
 
@@ -918,7 +931,7 @@ namespace
 /*static*/ void CCombatLab::ResetStats(void)
 {
     std::memset(&s_lab.m_stats, 0x00, sizeof(s_lab.m_stats));
-    s_lab.m_stats.m_fStartTime = CGameProperty::GetTotalElapsedTime();
+    s_lab.m_stats.m_fStartTime = LabNow();
     s_lab.m_stats.m_fLastPlayerHitTime = -1000.0f;
 };
 
@@ -940,7 +953,7 @@ namespace
 /*static*/ void CCombatLab::WriteSummaryToLog(const char* pszReason)
 {
     const STATS& s = s_lab.m_stats;
-    float span = CGameProperty::GetTotalElapsedTime() - s.m_fStartTime;
+    float span = LabNow() - s.m_fStartTime;
 
     LabLog().Write("SUMMARY  reason=%s arena=%s player=%s ruleset=%s ai=%s span=%.1fs "
                    "hits=%d guarded=%d ineffective=%d dealt=%.0f taken_hits=%d received=%.0f "
@@ -993,7 +1006,7 @@ namespace
         return;
 
     STATS& s = s_lab.m_stats;
-    float now = CGameProperty::GetTotalElapsedTime();
+    float now = LabNow();
 
     CCharacter* pAttackerChr = nullptr;
     CGameObject* pAttacker = rAttack.GetObject();
