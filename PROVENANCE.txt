@@ -1,0 +1,3 @@
+Source: Key1aN/tmnt2 claude/combat-lab-v1-0-1-us, CI run 43303833711.
+T2 Core priority 135, cumulative on Karai v1.4.1 and Debug Tools v1.2.7. EXE-only package (feature debug-tools-f4), no retail assets.
+Fixes the v1.0.0 crash on lab entry. CombatLab.exe is a separate launcher: copy it next to TMNT2.exe.
