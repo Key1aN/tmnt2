@@ -1,0 +1,2 @@
+8db1cbdab3062c0435d5b587a61c94eb900e2a57f5c39791380b7bfc7b4971c1  Debug_Tools_Combat_Lab_v1.2.11_US.t2mod
+d0c42e7f44582d320309de7d68383bb8025cabeb4465f6bb726efa6c19858bd3  CombatLab.exe
