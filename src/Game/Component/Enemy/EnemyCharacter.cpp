@@ -1447,6 +1447,20 @@ void CEnemyCharacter::RefreshDebugDifficultyParameters(void)
     characteristic.m_fRatioOfRearView *=
         (CDebugDifficulty::GetValue(CDebugDifficulty::SETTING_AI_AWARENESS, optionDifficulty) / baseAggression);
 
+    // The view ratios alone cannot raise detection range: the geometry hate
+    // term (ICalcHateOfGeometry) also rejects any player farther than the
+    // action radius. Awareness therefore scales the action radius too, relative
+    // to the game difficulty's own awareness value (which never touched it).
+    {
+        float builtInAwareness = CDebugDifficulty::GetBuiltInValue(CDebugDifficulty::SETTING_AI_AWARENESS, optionDifficulty);
+        if (builtInAwareness <= 0.0f)
+            builtInAwareness = 1.00f;
+        float radiusScale = CDebugDifficulty::GetValue(CDebugDifficulty::SETTING_AI_AWARENESS, optionDifficulty) / builtInAwareness;
+        characteristic.m_fRadiusOfAction *= radiusScale;
+        if (characteristic.m_fRadiusOfAction < characteristic.m_fDistanceOfSuitable)
+            characteristic.m_fRadiusOfAction = characteristic.m_fDistanceOfSuitable;
+    };
+
     if (m_puFrequencyParam && (m_iDebugFrequencyMax > 0))
     {
         GAMETYPES::DIFFICULTY tableDifficulty = CGameProperty::GetDifficulty();

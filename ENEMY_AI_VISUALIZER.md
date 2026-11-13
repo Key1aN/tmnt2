@@ -1,4 +1,4 @@
-# Live Enemy AI Visualizer (Combat Lab v1.2.0 / Debug Tools v1.2.13, US)
+# Live Enemy AI Visualizer (Combat Lab v1.2.0 / Debug Tools v1.2.14, US)
 
 This build adds a read-only view of what each enemy's AI actually evaluates. It does not change
 enemy behaviour, timing or random numbers. It is off by default, and turning it on adds no RNG
@@ -55,9 +55,31 @@ nearest P1. **Zone labels** adds the numbers.
 | Patrol area | green circle | `CAIUtils::IsInsidePatrolArea` (no circle = unlimited) |
 | Line to P1 | blue = seen, red = in attack cone | same measurement as above |
 
+**AI awareness (Difficulty tab), fixed in v1.2.14.** Up to v1.2.13 the multiplier only scaled the
+front/rear *view ratios*. That widened the attack and guard cones, but it could not make enemies
+notice you from farther away: after the view check, the target code (`ICalcHateOfGeometry`) also
+drops any player beyond the enemy's **action radius** (10 for Foot Ninjas), so the extra reach drawn
+by the zones was never usable. Awareness now also scales the action radius (relative to the game
+difficulty's own awareness value), and the blue zone is drawn limited by that radius, so what you see
+is where the enemy can actually pick you as a target. The Difficulty tab shows the result as
+"reach N" (front detection distance). A larger action radius also lets enemies keep chasing you
+farther (the "player beyond action radius" move refusal uses the same value). Behind an enemy a
+rear view of 0 stays 0, so for Foot Ninjas the reach behind stays at the attack distance (2.0).
+
 Attack, run and guard shapes are only drawn for Grappler-family AI (Foot Ninjas, most grunts), where those
 checks exist. The view area is also only one of the target conditions: the enemy must also be inside
 its patrol area and have a walkable route (collision term) for P1 to become its target.
+
+### ImGui menu (Debug Tools v1.2.14)
+
+The Debug Tools menu now opens as a Dear ImGui window by default (Graphics -> Debug menu style:
+ImGui / Game font). It is the same menu, not a second one: tabs, rows, values, help text and
+actions all come from the existing menu functions, so every option behaves the same with keys,
+pad or mouse. Click a row to select it, use the arrow buttons / checkboxes / sliders, double-click
+to run, right-click a Difficulty slider to reset it. On the AI VIEW tab the inspected enemy's
+decision history opens in its own movable "Enemy AI decisions" window. The window layout is saved
+in `TMNT2_debugtools_imgui.ini`. If ImGui cannot start on the graphics device, the game-font menu
+is used automatically.
 
 ## How Foot Ninja AI works (source)
 

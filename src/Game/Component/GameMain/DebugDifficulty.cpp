@@ -51,6 +51,17 @@ namespace
     static const float CAP_FIRE_RANGE        = 255.0f;  // uint8 world distance
     static const float CAP_RATE_PERCENT      = 100.0f;  // thinking rate 1.0 = no wait; activity roll 0..1
     static const float CAP_VIEW              = 5.0f;    // 36 deg x view = 180 deg facing cone
+    static const float CAP_REACH             = 1000.0f; // detection reach has no engine cap
+
+
+    // Distance at which an enemy can first notice a player straight ahead:
+    // CAIUtils::IsObjectViewArea2 reach, limited by the action radius that
+    // ICalcHateOfGeometry checks afterwards.
+    static float FrontReach(const ENEMYTYPES::CHARACTERISTIC& c)
+    {
+        float reach = c.m_fDistanceOfSuitable + ((c.m_fRadiusOfAction - c.m_fDistanceOfSuitable) * c.m_fRatioOfFrontView);
+        return (reach < c.m_fRadiusOfAction ? reach : c.m_fRadiusOfAction);
+    };
     static const float IDLE_MAXIMUM          = 10.0f;   // capped settings when no enemy is alive
 
 
@@ -449,9 +460,9 @@ namespace
             }
             else
             {
-                aBase[0] = rBase.m_fRatioOfFrontView;
-                aNow[0] = rNow.m_fRatioOfFrontView;
-                cap = CAP_VIEW;
+                aBase[0] = FrontReach(rBase);
+                aNow[0] = FrontReach(rNow);
+                cap = CAP_REACH;
             };
             nPair = 1;
         }

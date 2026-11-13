@@ -177,6 +177,30 @@ else()
     message(FATAL_ERROR "Unexpected platform: ${CMAKE_SYSTEM_NAME}")
 endif()
 
+#############################################
+#      Dear ImGui (Debug Tools menu only)   #
+#############################################
+
+if(WIN32 AND MSVC AND OPT_DEBUG_TOOLS AND (RWDRV STREQUAL "d3d9"))
+    set(DIR_IMGUI "${DIR_LIB}/imgui")
+    set(SRC_IMGUI
+        "${DIR_IMGUI}/imgui.cpp"
+        "${DIR_IMGUI}/imgui_draw.cpp"
+        "${DIR_IMGUI}/imgui_tables.cpp"
+        "${DIR_IMGUI}/imgui_widgets.cpp"
+        "${DIR_IMGUI}/backends/imgui_impl_dx9.cpp"
+        "${DIR_IMGUI}/backends/imgui_impl_win32.cpp"
+    )
+    target_sources(${EXEC_NAME} PRIVATE ${SRC_IMGUI})
+    set_source_files_properties(${SRC_IMGUI} PROPERTIES
+        SKIP_PRECOMPILE_HEADERS ON
+        COMPILE_OPTIONS "/W1"
+    )
+    target_include_directories(${EXEC_NAME} PRIVATE "${DIR_IMGUI}")
+    target_compile_definitions(${EXEC_NAME} PRIVATE TMNT2_IMGUI IMGUI_DISABLE_OBSOLETE_FUNCTIONS)
+    target_link_libraries(${EXEC_NAME} PRIVATE dwmapi)
+endif()
+
 foreach(CONFIG DEBUG RELEASE MINSIZEREL RELWITHDEBINFO)
     string(TOLOWER "${CONFIG}" CONFIG_LOWER)
     set_target_properties(${EXEC_NAME} PROPERTIES

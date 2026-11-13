@@ -6,9 +6,19 @@
 
 #include "System/Common/Configure.hpp"
 
+#if defined(TMNT2_IMGUI)
+#include "PCDebugImGui.hpp"
+#endif /* defined(TMNT2_IMGUI) */
+
 
 static LRESULT CALLBACK WndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 {
+#if defined(TMNT2_IMGUI)
+    // Debug Tools ImGui menu (Debug Tools builds only).
+    if (CPCDebugImGui::WndProc(hWnd, uMsg, static_cast<std::uintptr_t>(wParam), static_cast<std::intptr_t>(lParam)))
+        return TRUE;
+#endif /* defined(TMNT2_IMGUI) */
+
     switch (uMsg)
     {
     case WM_ACTIVATE:

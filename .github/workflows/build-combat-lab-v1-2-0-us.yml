@@ -49,8 +49,27 @@ jobs:
             "src/Game/Sequence/DebugTools/DebugToolsProcess.cpp",
             "src/Game/Sequence/GameMainSequence.cpp",
             "src/Game/System/Character/Character.cpp",
+            "src/System/PC/PCDebugImGui.cpp",
+            "src/System/PC/PCDebugImGui.hpp",
+            "src/System/PC/PCSystem.cpp",
             "tools/AIVisualizer/ai_replay.html",
-            "tools/CombatLabLauncher/CombatLabLauncher.cpp"
+            "tools/CombatLabLauncher/CombatLabLauncher.cpp",
+            "vendor/imgui/LICENSE.txt",
+            "vendor/imgui/VERSION.txt",
+            "vendor/imgui/backends/imgui_impl_dx9.cpp",
+            "vendor/imgui/backends/imgui_impl_dx9.h",
+            "vendor/imgui/backends/imgui_impl_win32.cpp",
+            "vendor/imgui/backends/imgui_impl_win32.h",
+            "vendor/imgui/imconfig.h",
+            "vendor/imgui/imgui.cpp",
+            "vendor/imgui/imgui.h",
+            "vendor/imgui/imgui_draw.cpp",
+            "vendor/imgui/imgui_internal.h",
+            "vendor/imgui/imgui_tables.cpp",
+            "vendor/imgui/imgui_widgets.cpp",
+            "vendor/imgui/imstb_rectpack.h",
+            "vendor/imgui/imstb_textedit.h",
+            "vendor/imgui/imstb_truetype.h"
           )
           # 224106c is Karai boss variant v1.4.1 (includes Debug Tools v1.2.7), the cumulative baseline.
           $changed = @(git diff --name-only 224106c HEAD)
@@ -82,7 +101,7 @@ jobs:
           if ($main -notmatch [regex]::Escape("CCombatLab::ConsumeLaunchRequest()")) { throw "Direct launch branch missing." }
           if ($chr -notmatch [regex]::Escape("CCombatLab::OnCatchAttack(*this, *pAttack, attackresult, iDamage);")) { throw "Damage instrumentation hook missing." }
           # AI visualizer: hooks are trace-only and present.
-          foreach ($required in @("PAGE_AIVIEW", '"AI VIEW"', "CEnemyAITrace::Update()", "CEnemyAITrace::SetEnabled(false)", "DrawAIView", "DrawAwarenessZones", "ZoneViewReach")) {
+          foreach ($required in @("PAGE_AIVIEW", '"AI VIEW"', "CEnemyAITrace::Update()", "CEnemyAITrace::SetEnabled(false)", "DrawAIView", "DrawAwarenessZones", "ZoneViewReach", "DrawMenuImGui", "ApplyUIActions")) {
             if ($tools -notmatch [regex]::Escape($required)) { throw "AI visualizer integration missing: $required" }
           }
           $trace = Get-Content "src/Game/Component/Enemy/AITrace.hpp" -Raw
@@ -194,6 +213,11 @@ jobs:
             Where-Object { $_.FullName -notmatch "\\vendor\\" } |
             Sort-Object LastWriteTimeUtc -Descending | Select-Object -First 1
           if (-not $pdb -or -not $map) { throw "The matching PDB or MAP was not found." }
+          $exeBytes = [System.IO.File]::ReadAllBytes($exe.FullName)
+          $exeText = [System.Text.Encoding]::ASCII.GetString($exeBytes)
+          foreach ($marker in @("TMNT2_debugtools_imgui.ini", "Debug menu style")) {
+            if (-not $exeText.Contains($marker)) { throw "ImGui Debug Tools menu missing from the EXE: $marker" }
+          }
 
           $artifactDir = Join-Path $env:GITHUB_WORKSPACE "artifact-combat-lab-v1-2-0-us"
           New-Item -ItemType Directory -Force -Path $artifactDir | Out-Null

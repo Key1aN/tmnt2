@@ -6,6 +6,11 @@
 #include "Game/Component/CombatLab/CombatLab.hpp"
 #include "Game/Component/Enemy/AITrace.hpp"
 #include "Game/Component/Enemy/EnemyUtils.hpp"
+
+#if defined(TMNT2_IMGUI)
+#include "imgui.h"
+#include "System/PC/PCDebugImGui.hpp"
+#endif /* defined(TMNT2_IMGUI) */
 #include "Game/Component/GameData/GamePlayResult.hpp"
 #include "Game/Sequence/Test/DebugUtils.hpp"
 #include "Game/Component/Enemy/Enemy.hpp"
@@ -111,7 +116,7 @@ namespace
         "Shooters only: the distance they open fire from, in world units. Does nothing to melee Foot Ninjas. Stops at 255.",
         "How often an enemy re-decides; 100% = no wait. Foot Ninjas and other grunts read it only when they spawn (Reset scenario), and a higher rate also makes their idle waits longer.",
         "Chance, each time an enemy thinks, that it commits to a target instead of idling. Stops at 100%.",
-        "Front and rear view: how far away an enemy notices you and how wide its facing cone is (36 degrees x view). A rear view of 0 stays 0. No gain past view 5.0.",
+        "How far away enemies notice and chase you: scales their action radius and their front/rear view (also widens the 36 deg attack and 90 deg guard cones). Behind them, a rear view of 0 stays 0. See AI VIEW > awareness zones.",
         "Bosses and monster-type enemies only: time between their attacks; lower = more attacks. Does nothing to Foot Ninjas and other grunts.",
         "Bosses and elites only: damage they absorb before getting temporary super-armour; lower = they stop flinching sooner. Does nothing to Foot Ninjas.",
     };
@@ -128,7 +133,7 @@ namespace
         "LIVE - SHOOTERS ONLY - DISTANCE",
         "GRUNTS: NEXT SPAWN / BOSSES: LIVE - PERCENT",
         "LIVE - ALL ENEMIES - PERCENT CHANCE",
-        "LIVE - ALL ENEMIES - VIEW RATIO",
+        "LIVE - ALL ENEMIES - DETECTION REACH (UNITS)",
         "BOSSES AND MONSTERS ONLY - MULTIPLIER",
         "BOSSES AND ELITES ONLY - MULTIPLIER",
     };
@@ -302,7 +307,7 @@ namespace
 
     // ---- v1.2.10 menu renderer (game font + flat panels) ----
 
-    static const char* MENU_VERSION = "v1.2.13";
+    static const char* MENU_VERSION = "v1.2.14";
 
     enum MENUSIZE
     {
@@ -317,6 +322,17 @@ namespace
 
     static const char* s_apszMenuSizeName[MENUSIZE_NUM] = { "Classic", "Small", "Normal", "Large", "Extra large" };
     static const float s_afMenuSizeScale[MENUSIZE_NUM] = { 1.00f, 0.88f, 1.00f, 1.14f, 1.28f };
+
+
+    enum MENUSTYLE
+    {
+        MENUSTYLE_IMGUI = 0,    // Dear ImGui window (mouse + keyboard + pad)
+        MENUSTYLE_GAMEFONT,     // in-game font renderer (v1.2.10 - v1.2.13)
+
+        MENUSTYLE_NUM,
+    };
+
+    static const char* s_apszMenuStyleName[MENUSTYLE_NUM] = { "ImGui", "Game font" };
 
 
     struct MENUTEXT
@@ -737,6 +753,10 @@ public:
     , m_uNavHeld(0)
     , m_iNavFrames(0)
     , m_iMenuSize(MENUSIZE_NORMAL)
+    , m_iMenuStyle(MENUSTYLE_IMGUI)
+    , m_nUIAction(0)
+    , m_iUILastSelection(-1)
+    , m_iUILastPage(-1)
     , m_aiScroll()
     , m_iAISelected(-1)
     , m_fAIRadarRange(8.0f)
@@ -747,6 +767,7 @@ public:
     , m_bAIZoneLabels(true)
     , m_iLastMenuBottom(0)
     , m_iLastMenuRight(0)
+    , m_bImGuiMenuShown(false)
     , m_bLabEnterArmed(false)
     , m_bLabAIPresetStored(false)
     , m_labAIPreset()
@@ -756,7 +777,7 @@ public:
         std::memset(m_aTracked, 0x00, sizeof(m_aTracked));
         std::memset(m_aMoveEvent, 0x00, sizeof(m_aMoveEvent));
         m_szPlayerMotion[0] = '\0';
-        m_moveLog.Write("SESSION  TMNT2 Debug Tools v1.2.13 move telemetry (bosses always; all enemies when labels = ALL)");
+        m_moveLog.Write("SESSION  TMNT2 Debug Tools v1.2.14 move telemetry (bosses always; all enemies when labels = ALL)");
         m_moveLog.Flush();
 
         // v1.2.7: the session header (with GPU and display mode) is written at
@@ -827,7 +848,10 @@ public:
         UpdateShowcaseCamera();
 
         if (!m_bOpen)
+        {
+            m_nUIAction = 0;
             return;
+        };
 
         if (controllerTrigger & CController::DIGITAL_START)
         {
@@ -844,6 +868,10 @@ public:
             Close(owner);
             return;
         };
+
+        // Mouse actions from the ImGui menu (queued during Draw).
+        if (!ApplyUIActions(owner))
+            return;
 
         // Direction input with its own hold-repeat for keyboard, D-pad and
         // stick alike: first press acts at once, holding repeats, and a long
@@ -933,16 +961,52 @@ public:
     {
         int32 currentLabel = CSequence::GetCurrently();
         if (!IsGameplaySequence(currentLabel))
+        {
+#if defined(TMNT2_IMGUI)
+            CPCDebugImGui::MarkHidden();
+#endif
             return;
+        };
 
         DrawAwarenessZones();
         DrawEnemyLabels();
         if (m_bFrameGraph)
             DrawFrameGraph();
 
+        bool bImGuiMenu = (m_bOpen && IsImGuiMenuStyle());
+        m_bImGuiMenuShown = bImGuiMenu;
+
+        // Right-hand panel; with the menu open it is shown only on the
+        // COMBAT LAB tab and only when the screen is wide enough not to
+        // overlap the menu text.
+        DrawAIView();
+
+        // The AI radar takes the right-hand column while it is enabled.
+        if (CCombatLab::IsPlaying() && CCombatLab::IsOverlayEnabled() && !CEnemyAITrace::IsEnabled() &&
+            (!m_bOpen || ((m_page == PAGE_COMBATLAB) && (CScreen::Width() >= 1280))))
+        {
+            // With the menu open the frame graph moves to the right edge.
+            float graphScale = MaxF(1.0f, static_cast<float>(CScreen::Height()) / 480.0f);
+            int32 overlayY = ((m_bOpen && m_bFrameGraph) ? static_cast<int32>(70.0f * graphScale) + 26 : 30);
+            DrawCombatLabOverlay(CScreen::Width() - 344, overlayY);
+        };
+
+        // The menu is drawn last so it stays on top of the overlays.
         if (m_bOpen)
         {
-            int32 menuBottom = DrawMenu();
+            int32 menuBottom = 0;
+            if (bImGuiMenu && DrawMenuImGui())
+            {
+                menuBottom = m_iLastMenuBottom;
+            }
+            else
+            {
+                m_bImGuiMenuShown = false;
+#if defined(TMNT2_IMGUI)
+                CPCDebugImGui::MarkHidden();
+#endif
+                menuBottom = DrawMenu();
+            };
             m_iLastMenuBottom = menuBottom;
 
             // Compact telemetry: below the menu only while it clears the
@@ -958,24 +1022,12 @@ public:
         }
         else
         {
+#if defined(TMNT2_IMGUI)
+            CPCDebugImGui::MarkHidden();
+#endif
             DrawHint();
             if (m_bTelemetryEnabled)
                 DrawTelemetry(12, 30);
-        };
-
-        // Right-hand panel; with the menu open it is shown only on the
-        // COMBAT LAB tab and only when the screen is wide enough not to
-        // overlap the menu text.
-        DrawAIView();
-
-        // The AI radar takes the right-hand column while it is enabled.
-        if (CCombatLab::IsPlaying() && CCombatLab::IsOverlayEnabled() && !CEnemyAITrace::IsEnabled() &&
-            (!m_bOpen || ((m_page == PAGE_COMBATLAB) && (CScreen::Width() >= 1280))))
-        {
-            // With the menu open the frame graph moves to the right edge.
-            float graphScale = MaxF(1.0f, static_cast<float>(CScreen::Height()) / 480.0f);
-            int32 overlayY = ((m_bOpen && m_bFrameGraph) ? static_cast<int32>(70.0f * graphScale) + 26 : 30);
-            DrawCombatLabOverlay(CScreen::Width() - 344, overlayY);
         };
     };
 
@@ -1132,6 +1184,10 @@ private:
             {
                 m_iMenuSize = InvClamp(m_iMenuSize + direction, 0, MENUSIZE_NUM - 1);
             }
+            else if (selected == 2)
+            {
+                m_iMenuStyle = InvClamp(m_iMenuStyle + direction, 0, MENUSTYLE_NUM - 1);
+            }
             else
             {
                 int32 currentIndex = GetMSAAIndex(CPCSpecific::GetMultiSamplingSamples());
@@ -1252,6 +1308,8 @@ private:
         case PAGE_GRAPHICS:
             if (selected == 1)
                 m_iMenuSize = InvClamp(m_iMenuSize + 1, 0, MENUSIZE_NUM - 1);
+            else if (selected == 2)
+                m_iMenuStyle = InvClamp(m_iMenuStyle + 1, 0, MENUSTYLE_NUM - 1);
             else
                 ApplyMSAA(CPCSpecific::GetMultiSamplingSamples());
             break;
@@ -1320,6 +1378,8 @@ private:
         case PAGE_GRAPHICS:
             if (selected == 1)
                 m_iMenuSize = MENUSIZE_NORMAL;
+            else if (selected == 2)
+                m_iMenuStyle = MENUSTYLE_IMGUI;
             else
                 ApplyMSAA(0);
             break;
@@ -1370,6 +1430,7 @@ private:
         case PAGE_GRAPHICS:
             ApplyMSAA(0);
             m_iMenuSize = MENUSIZE_NORMAL;
+            m_iMenuStyle = MENUSTYLE_IMGUI;
             break;
 
         case PAGE_HITBOXES:
@@ -1755,7 +1816,7 @@ private:
         case PAGE_ENEMY_AI:   return 2;
         case PAGE_STAGE:      return 5;
         case PAGE_CAMERA:     return 3;
-        case PAGE_GRAPHICS:   return 2;
+        case PAGE_GRAPHICS:   return 3;
         case PAGE_HITBOXES:   return 3;
         case PAGE_TELEMETRY:  return 9;
         case PAGE_COMBATLAB:  return LABITEM_NUM;
@@ -2268,11 +2329,11 @@ private:
                     break;
 
                 default:
-                    pszMax = ((info.m_fNowMin >= (info.m_fCap - 0.01f)) ? " MAX" : "");
+                    // AI awareness: front detection reach in world units
                     if ((info.m_fNowMax - info.m_fNowMin) < 0.05f)
-                        std::snprintf(effect, sizeof(effect), "   view %.1f%s", info.m_fNowMax, pszMax);
+                        std::snprintf(effect, sizeof(effect), "   reach %.1f", info.m_fNowMax);
                     else
-                        std::snprintf(effect, sizeof(effect), "   view %.1f-%.1f%s", info.m_fNowMin, info.m_fNowMax, pszMax);
+                        std::snprintf(effect, sizeof(effect), "   reach %.1f-%.1f", info.m_fNowMin, info.m_fNowMax);
                     break;
                 };
             };
@@ -2361,6 +2422,9 @@ private:
         case PAGE_GRAPHICS:
             if (index == 1)
                 std::snprintf(buffer, capacity, "Debug menu size               %s", s_apszMenuSizeName[m_iMenuSize]);
+            else if (index == 2)
+                std::snprintf(buffer, capacity, "Debug menu style              %s%s", s_apszMenuStyleName[m_iMenuStyle],
+                              ((m_iMenuStyle == MENUSTYLE_IMGUI) && !IsImGuiMenuStyle()) ? " (unavailable)" : "");
             else
             std::snprintf(
                 buffer,
@@ -2471,10 +2535,12 @@ private:
             break;
 
         case PAGE_GRAPHICS:
-            scope = (index == 1 ? "MENU APPEARANCE" : "LIVE GRAPHICS DEVICE");
+            scope = ((index == 1) || (index == 2) ? "MENU APPEARANCE" : "LIVE GRAPHICS DEVICE");
             description = (index == 1 ?
-                "Size of this menu. Classic is the previous small fixed-size text menu." :
-                "Changes MSAA Off/2X/4X/8X immediately; fullscreen and driver support are required.");
+                "Size of this menu (text size in the ImGui menu). Classic is the previous small fixed-size text menu." :
+                (index == 2 ?
+                "ImGui: resizable window with mouse support (click rows, drag sliders, double-click to run), plus the keyboard and pad controls. Game font: the in-game font menu. The window layout is saved in TMNT2_debugtools_imgui.ini." :
+                "Changes MSAA Off/2X/4X/8X immediately; fullscreen and driver support are required."));
             break;
 
         case PAGE_HITBOXES:
@@ -3078,6 +3144,462 @@ private:
     };
 
 
+    // ---- ImGui menu (Debug Tools v1.2.14) ----
+    //
+    // A second front end for the same menu: pages, items, values, help and
+    // actions all come from the functions the game-font menu uses
+    // (GetItemCount, FormatItemText, GetItemHelp, AdjustSelected, ...).
+    // Mouse clicks are queued here (Draw is const) and applied in Move.
+
+    enum UIACTIONTYPE
+    {
+        UIACTION_PAGE = 0,
+        UIACTION_SELECT,
+        UIACTION_ADJUST,
+        UIACTION_ACTIVATE,
+        UIACTION_RESET_ITEM,
+        UIACTION_RESET_PAGE,
+        UIACTION_SET_DIFFICULTY,
+        UIACTION_CLOSE,
+    };
+
+    struct UIACTION
+    {
+        int32 m_type;
+        int32 m_page;
+        int32 m_index;
+        int32 m_direction;
+        float m_fValue;
+    };
+
+    enum { UIACTION_MAX = 16 };
+
+
+    void PushUIAction(int32 type, int32 page, int32 index, int32 direction = 0, float value = 0.0f) const
+    {
+        if (m_nUIAction >= UIACTION_MAX)
+            return;
+
+        UIACTION& rAction = m_aUIAction[m_nUIAction++];
+        rAction.m_type = type;
+        rAction.m_page = page;
+        rAction.m_index = index;
+        rAction.m_direction = direction;
+        rAction.m_fValue = value;
+    };
+
+
+    // Returns false when the menu was closed by an action.
+    bool ApplyUIActions(CDebugToolsProcess& owner)
+    {
+        int32 count = m_nUIAction;
+        m_nUIAction = 0;
+
+        for (int32 n = 0; n < count; ++n)
+        {
+            const UIACTION& rAction = m_aUIAction[n];
+            if ((rAction.m_page < 0) || (rAction.m_page >= PAGE_NUM))
+                continue;
+
+            if (rAction.m_type == UIACTION_CLOSE)
+            {
+                Close(owner);
+                return false;
+            };
+
+            if (rAction.m_page != static_cast<int32>(m_page))
+            {
+                m_bLabEnterArmed = false;
+                m_page = static_cast<PAGE>(rAction.m_page);
+            };
+
+            if (rAction.m_type == UIACTION_PAGE)
+            {
+                int32 itemCount = GetItemCount(m_page);
+                if (m_aiSelection[m_page] >= itemCount)
+                    m_aiSelection[m_page] = (itemCount - 1);
+                continue;
+            };
+
+            if (rAction.m_type == UIACTION_RESET_PAGE)
+            {
+                ResetPage();
+                continue;
+            };
+
+            int32 itemCount = GetItemCount(m_page);
+            if ((rAction.m_index < 0) || (rAction.m_index >= itemCount))
+                continue;
+
+            if (m_aiSelection[m_page] != rAction.m_index)
+            {
+                m_bLabEnterArmed = false;
+                m_aiSelection[m_page] = rAction.m_index;
+            };
+
+            switch (rAction.m_type)
+            {
+            case UIACTION_ADJUST:
+                AdjustSelected(rAction.m_direction, 1);
+                break;
+
+            case UIACTION_ACTIVATE:
+                ActivateSelected(owner);
+                break;
+
+            case UIACTION_RESET_ITEM:
+                ResetSelected();
+                break;
+
+            case UIACTION_SET_DIFFICULTY:
+                if ((m_page == PAGE_DIFFICULTY) && (rAction.m_index >= 1) && (rAction.m_index <= CDebugDifficulty::SETTING_NUM))
+                {
+                    CDebugDifficulty::SetCustomValue(
+                        static_cast<CDebugDifficulty::SETTING>(rAction.m_index - 1),
+                        rAction.m_fValue,
+                        CGameData::Option().Play().GetDifficulty()
+                    );
+                };
+                break;
+
+            default:
+                break;
+            };
+
+            if (!m_bOpen)
+                return false;
+        };
+
+        return true;
+    };
+
+
+    bool IsImGuiMenuStyle(void) const
+    {
+#if defined(TMNT2_IMGUI)
+        return ((m_iMenuStyle == MENUSTYLE_IMGUI) && CPCDebugImGui::IsAvailable());
+#else
+        return false;
+#endif
+    };
+
+
+#if defined(TMNT2_IMGUI)
+    static ImVec4 ImColor4(const RwRGBA& color)
+    {
+        return ImVec4(color.red / 255.0f, color.green / 255.0f, color.blue / 255.0f, color.alpha / 255.0f);
+    };
+
+
+    // Splits "Label  value" (two or more spaces) like the game-font menu does.
+    static const char* SplitItemText(char* line)
+    {
+        char* pszValue = std::strstr(line, "  ");
+        if (!pszValue)
+            return "";
+
+        *pszValue = '\0';
+        ++pszValue;
+        while (*pszValue == ' ')
+            ++pszValue;
+        return pszValue;
+    };
+
+
+    void DrawImGuiItems(PAGE page, float height) const
+    {
+        const int32 itemCount = GetItemCount(page);
+        const int32 selected = m_aiSelection[page];
+        const bool bSelectionMoved = ((selected != m_iUILastSelection) || (static_cast<int32>(page) != m_iUILastPage));
+        const GAMETYPES::DIFFICULTY difficulty = CGameData::Option().Play().GetDifficulty();
+        const float em = ImGui::GetFontSize();
+
+        const ImVec4 COL_ACCENT = ImVec4(0.47f, 0.85f, 1.00f, 1.00f);
+        const ImVec4 COL_ON     = ImVec4(0.44f, 0.94f, 0.56f, 1.00f);
+        const ImVec4 COL_OFF    = ImVec4(0.60f, 0.63f, 0.69f, 1.00f);
+        const ImVec4 COL_VALUE  = ImVec4(0.72f, 0.94f, 1.00f, 1.00f);
+        const ImVec4 COL_SEL    = ImVec4(1.00f, 0.82f, 0.38f, 1.00f);
+
+        if (!ImGui::BeginChild("items", ImVec2(0.0f, height), ImGuiChildFlags_Borders))
+        {
+            ImGui::EndChild();
+            return;
+        };
+
+        for (int32 i = 0; i < itemCount; ++i)
+        {
+            const char* pszSection = GetSectionTitle(page, i);
+            if (pszSection)
+            {
+                if (i > 0)
+                    ImGui::Spacing();
+                ImGui::PushStyleColor(ImGuiCol_Text, COL_ACCENT);
+                ImGui::SeparatorText(pszSection);
+                ImGui::PopStyleColor();
+            };
+
+            char line[200];
+            FormatItemText(i, line, sizeof(line));
+            const char* pszValue = SplitItemText(line);
+
+            bool bDifficultySetting = ((page == PAGE_DIFFICULTY) && (i >= 1) && (i <= CDebugDifficulty::SETTING_NUM));
+            bool bToggle = (!std::strcmp(pszValue, "ON") || !std::strcmp(pszValue, "OFF"));
+            bool bAction = (pszValue[0] == '\0');
+            bool bSelected = (i == selected);
+
+            ImGui::PushID(i);
+
+            // Row: label (selectable, full width) / control / value
+            float rowStartY = ImGui::GetCursorPosY();
+            float rowRight = ImGui::GetCursorPosX() + ImGui::GetContentRegionAvail().x;
+            ImGui::PushStyleColor(ImGuiCol_Text, (bSelected ? COL_SEL : ImGui::GetStyleColorVec4(ImGuiCol_Text)));
+            if (ImGui::Selectable(line, bSelected,
+                                  ImGuiSelectableFlags_AllowDoubleClick | ImGuiSelectableFlags_AllowOverlap,
+                                  ImVec2(0.0f, em * 1.45f)))
+            {
+                PushUIAction(UIACTION_SELECT, page, i);
+                if (ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
+                    PushUIAction((bAction ? UIACTION_ACTIVATE : UIACTION_ADJUST), page, i, 1);
+            };
+            ImGui::PopStyleColor();
+
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal))
+            {
+                const char* scope = "";
+                const char* description = "";
+                GetItemHelp(i, scope, description);
+                if (description && description[0])
+                {
+                    ImGui::BeginTooltip();
+                    ImGui::PushTextWrapPos(em * 26.0f);
+                    if (scope && scope[0])
+                        ImGui::TextColored(COL_ACCENT, "%s", scope);
+                    ImGui::TextUnformatted(description);
+                    ImGui::PopTextWrapPos();
+                    ImGui::EndTooltip();
+                };
+            };
+
+            if (bSelected && bSelectionMoved)
+                ImGui::SetScrollHereY(0.5f);
+
+            // controls are right-aligned on the same row
+            float right = rowRight;
+            float controlW = em * 11.0f;
+            float valueW = em * 9.5f;
+            float rowY = rowStartY + ((em * 1.45f) - ImGui::GetFrameHeight()) * 0.5f;
+
+            if (bDifficultySetting)
+            {
+                CDebugDifficulty::SETTING setting = static_cast<CDebugDifficulty::SETTING>(i - 1);
+                float value = CDebugDifficulty::GetValue(setting, difficulty);
+                float minimum = CDebugDifficulty::GetMinimum(setting);
+                float maximum = MaxF(CDebugDifficulty::GetEffectiveMaximum(setting), value);
+
+                // value text after the "x1.00" multiplier
+                const char* pszEffect = std::strstr(pszValue, "   ");
+                while (pszEffect && (*pszEffect == ' '))
+                    ++pszEffect;
+
+                ImGui::SetCursorPos(ImVec2(right - controlW - valueW, rowY));
+                ImGui::SetNextItemWidth(controlW);
+                float edit = value;
+                if (ImGui::SliderFloat("##v", &edit, minimum, maximum, "x%.2f", ImGuiSliderFlags_AlwaysClamp))
+                    PushUIAction(UIACTION_SET_DIFFICULTY, page, i, 0, edit);
+                if (ImGui::IsItemClicked(ImGuiMouseButton_Right))
+                    PushUIAction(UIACTION_RESET_ITEM, page, i);
+
+                if (pszEffect && pszEffect[0])
+                {
+                    ImGui::SetCursorPos(ImVec2(right - valueW + (em * 0.5f), rowY + ImGui::GetStyle().FramePadding.y));
+                    ImGui::TextColored(COL_VALUE, "%s", pszEffect);
+                };
+            }
+            else if (bToggle)
+            {
+                bool bOn = (pszValue[1] == 'N');
+                ImGui::SetCursorPos(ImVec2(right - valueW, rowY));
+                if (ImGui::Checkbox("##t", &bOn))
+                    PushUIAction(UIACTION_ADJUST, page, i, 1);
+                ImGui::SameLine();
+                ImGui::AlignTextToFramePadding();
+                ImGui::TextColored((bOn ? COL_ON : COL_OFF), "%s", pszValue);
+            }
+            else if (bAction)
+            {
+                ImGui::SetCursorPos(ImVec2(right - valueW, rowY));
+                if (ImGui::Button("Run", ImVec2(valueW, 0.0f)))
+                    PushUIAction(UIACTION_ACTIVATE, page, i);
+            }
+            else
+            {
+                float buttonW = ImGui::GetFrameHeight();
+                ImGui::SetCursorPos(ImVec2(right - valueW - controlW, rowY));
+                if (ImGui::ArrowButton("##l", ImGuiDir_Left))
+                    PushUIAction(UIACTION_ADJUST, page, i, -1);
+                ImGui::SameLine();
+                ImGui::SetCursorPosX(right - valueW - (buttonW + ImGui::GetStyle().ItemSpacing.x));
+                if (ImGui::ArrowButton("##r", ImGuiDir_Right))
+                    PushUIAction(UIACTION_ADJUST, page, i, 1);
+
+                // values can be long (enemy names, file names): clip to the row
+                ImGui::SetCursorPos(ImVec2(right - valueW - controlW + buttonW + ImGui::GetStyle().ItemSpacing.x, rowY + ImGui::GetStyle().FramePadding.y));
+                ImGui::PushClipRect(ImGui::GetCursorScreenPos(),
+                                    ImVec2(ImGui::GetWindowPos().x + right - valueW - buttonW - (ImGui::GetStyle().ItemSpacing.x * 2.0f),
+                                           ImGui::GetCursorScreenPos().y + em * 1.5f), true);
+                ImGui::TextColored(COL_VALUE, "%s", pszValue);
+                ImGui::PopClipRect();
+            };
+
+            ImGui::SetCursorPosY(rowStartY + (em * 1.45f) + ImGui::GetStyle().ItemSpacing.y);
+            ImGui::PopID();
+        };
+
+        ImGui::EndChild();
+
+        m_iUILastSelection = selected;
+        m_iUILastPage = static_cast<int32>(page);
+    };
+
+
+    void DrawImGuiAIWindow(void) const
+    {
+        if (!CEnemyAITrace::IsEnabled() || !m_bAIDecisionPanel)
+            return;
+
+        static PANELLINE s_aLine[64];
+        int32 nLine = CollectAIDecisionLines(s_aLine, COUNT_OF(s_aLine));
+
+        const ImGuiIO& io = ImGui::GetIO();
+        ImGui::SetNextWindowPos(ImVec2(io.DisplaySize.x * 0.45f, io.DisplaySize.y * 0.55f), ImGuiCond_FirstUseEver);
+        ImGui::SetNextWindowSize(ImVec2(io.DisplaySize.x * 0.42f, io.DisplaySize.y * 0.36f), ImGuiCond_FirstUseEver);
+        if (ImGui::Begin("Enemy AI decisions###AIDecisions"))
+        {
+            if (ImGui::ArrowButton("##prev", ImGuiDir_Left))
+                PushUIAction(UIACTION_ADJUST, PAGE_AIVIEW, AIITEM_SELECT, -1);
+            ImGui::SameLine();
+            if (ImGui::ArrowButton("##next", ImGuiDir_Right))
+                PushUIAction(UIACTION_ADJUST, PAGE_AIVIEW, AIITEM_SELECT, 1);
+            ImGui::SameLine();
+            ImGui::TextDisabled("inspect another enemy");
+            ImGui::Separator();
+
+            if (nLine == 0)
+                ImGui::TextDisabled("No enemy to inspect yet.");
+            for (int32 n = 0; n < nLine; ++n)
+                ImGui::TextColored(ImColor4(s_aLine[n].m_color), "%s", s_aLine[n].m_szText);
+        };
+        ImGui::End();
+    };
+#endif /* defined(TMNT2_IMGUI) */
+
+
+    // Returns false when ImGui could not draw; the caller uses the game-font menu.
+    bool DrawMenuImGui(void) const
+    {
+#if defined(TMNT2_IMGUI)
+        float scale = s_afMenuSizeScale[(m_iMenuSize == MENUSIZE_CLASSIC) ? MENUSIZE_NORMAL : m_iMenuSize];
+        if (!CPCDebugImGui::BeginFrame(scale))
+            return false;
+
+        const ImGuiIO& io = ImGui::GetIO();
+        const float em = ImGui::GetFontSize();
+        const ImVec4 COL_ACCENT = ImVec4(0.47f, 0.85f, 1.00f, 1.00f);
+
+        ImGui::SetNextWindowPos(ImVec2(io.DisplaySize.x * 0.012f, io.DisplaySize.y * 0.02f), ImGuiCond_FirstUseEver);
+        ImGui::SetNextWindowSize(ImVec2(MinF(io.DisplaySize.x * 0.46f, em * 44.0f), io.DisplaySize.y * 0.86f), ImGuiCond_FirstUseEver);
+        ImGui::SetNextWindowSizeConstraints(ImVec2(em * 26.0f, em * 18.0f), io.DisplaySize);
+
+        char title[96];
+        std::snprintf(title, sizeof(title), "TMNT2 Debug Tools  %s  -  %s###DebugTools",
+                      MENU_VERSION, (CCombatLab::IsActive() ? "COMBAT LAB" : "GAME PAUSED"));
+
+        if (ImGui::Begin(title, nullptr, ImGuiWindowFlags_NoCollapse))
+        {
+            // ---- tabs (wrap to the window width) ----
+            float avail = ImGui::GetContentRegionAvail().x;
+            float x = 0.0f;
+            for (int32 i = 0; i < PAGE_NUM; ++i)
+            {
+                float w = ImGui::CalcTextSize(s_apszPageName[i]).x + (ImGui::GetStyle().FramePadding.x * 2.0f);
+                if ((i > 0) && ((x + ImGui::GetStyle().ItemSpacing.x + w) <= avail))
+                {
+                    ImGui::SameLine();
+                    x += ImGui::GetStyle().ItemSpacing.x;
+                }
+                else
+                {
+                    x = 0.0f;
+                };
+                x += w;
+
+                bool bActive = (i == static_cast<int32>(m_page));
+                if (bActive)
+                {
+                    ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.12f, 0.29f, 0.45f, 1.0f));
+                    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.00f, 0.82f, 0.38f, 1.0f));
+                };
+                if (ImGui::Button(s_apszPageName[i]))
+                    PushUIAction(UIACTION_PAGE, i, 0);
+                if (bActive)
+                {
+                    ImVec2 min = ImGui::GetItemRectMin();
+                    ImVec2 max = ImGui::GetItemRectMax();
+                    ImGui::GetWindowDrawList()->AddRectFilled(ImVec2(min.x, max.y - 3.0f), max, IM_COL32(255, 168, 40, 255), 2.0f);
+                    ImGui::PopStyleColor(2);
+                };
+            };
+            ImGui::Spacing();
+
+            // ---- items, then help for the selected one ----
+            float helpH = (em * 4.2f) + (ImGui::GetStyle().ItemSpacing.y * 3.0f);
+            float footerH = ImGui::GetFrameHeightWithSpacing() + ImGui::GetStyle().ItemSpacing.y;
+            float listH = MaxF(em * 6.0f, ImGui::GetContentRegionAvail().y - helpH - footerH);
+            DrawImGuiItems(m_page, listH);
+
+            {
+                const char* scope = "";
+                const char* description = "";
+                GetItemHelp(m_aiSelection[m_page], scope, description);
+                ImGui::BeginChild("help", ImVec2(0.0f, helpH), ImGuiChildFlags_None);
+                if (scope && scope[0])
+                    ImGui::TextColored(COL_ACCENT, "%s", scope);
+                ImGui::PushTextWrapPos(0.0f);
+                ImGui::TextUnformatted(description ? description : "");
+                ImGui::PopTextWrapPos();
+                ImGui::EndChild();
+            };
+
+            // ---- footer ----
+            if (ImGui::Button("Reset item"))
+                PushUIAction(UIACTION_RESET_ITEM, m_page, m_aiSelection[m_page]);
+            ImGui::SameLine();
+            if (ImGui::Button("Reset tab"))
+                PushUIAction(UIACTION_RESET_PAGE, m_page, 0);
+            ImGui::SameLine();
+            if (ImGui::Button("Close"))
+                PushUIAction(UIACTION_CLOSE, m_page, 0);
+            ImGui::SameLine();
+            ImGui::TextDisabled("F4 close   Q/E tab   arrows / mouse   double-click runs   right-click slider resets");
+
+            ImVec2 pos = ImGui::GetWindowPos();
+            ImVec2 size = ImGui::GetWindowSize();
+            m_iLastMenuBottom = static_cast<int32>(pos.y + size.y);
+            m_iLastMenuRight = static_cast<int32>(pos.x + size.x);
+        };
+        ImGui::End();
+
+        if (m_page == PAGE_AIVIEW)
+            DrawImGuiAIWindow();
+
+        CPCDebugImGui::EndFrame();
+        return true;
+#else
+        return false;
+#endif
+    };
+
+
     // ---- In-world AI awareness zones (read-only; same formulas as the AI) ----
     //
     //  view   : CAIUtils::IsObjectViewArea2 - reach = suitable + (radius - suitable) * view ratio,
@@ -3225,10 +3747,13 @@ private:
     };
 
 
+    // Where a player can become the target: the view reach of IsObjectViewArea2,
+    // limited by the action radius that ICalcHateOfGeometry checks next.
     static float ZoneViewReach(const ENEMYTYPES::CHARACTERISTIC& c, float angleDiff)
     {
         float ratio = c.m_fRatioOfFrontView + ((c.m_fRatioOfRearView - c.m_fRatioOfFrontView) * (std::fabs(angleDiff) * MATH_INV_PI));
-        return c.m_fDistanceOfSuitable + ((c.m_fRadiusOfAction - c.m_fDistanceOfSuitable) * ratio);
+        float reach = c.m_fDistanceOfSuitable + ((c.m_fRadiusOfAction - c.m_fDistanceOfSuitable) * ratio);
+        return MinF(reach, c.m_fRadiusOfAction);
     };
 
 
@@ -4046,39 +4571,64 @@ private:
             int32 panelX = 12;
             int32 panelY = (m_bOpen ? m_iLastMenuBottom + 8 : 30);
             int32 panelBottom = static_cast<int32>(m_bAITimeline && (nRow > 0) ? ty0 - (24.0f * px) : SH - 12.0f);
-            if (!m_bOpen || (m_page == PAGE_AIVIEW))
+            if (!m_bOpen || ((m_page == PAGE_AIVIEW) && !m_bImGuiMenuShown))
                 DrawAIDecisionPanel(panelX, panelY, panelBottom);
         };
     };
 
 
+    struct PANELLINE
+    {
+        RwRGBA m_color;
+        char m_szText[256];
+    };
+
+
     void DrawAIDecisionPanel(int32 x, int32 y, int32 bottom) const
     {
-        const CEnemyAITrace::SLOT* pSlot = CEnemyAITrace::GetSlot(GetAISelectedSlot());
-        if (!pSlot || ((y + 40) > bottom))
+        if ((y + 40) > bottom)
             return;
+
+        static PANELLINE s_aLine[64];
+        int32 maxLines = Clamp((bottom - y) / 16, 0, COUNT_OF(s_aLine));
+        int32 nLine = CollectAIDecisionLines(s_aLine, maxLines);
+
+        m_font.Background({ 0x06, 0x0A, 0x12, 0xD8 });
+        for (int32 n = 0; n < nLine; ++n)
+        {
+            m_font.Color(s_aLine[n].m_color);
+            m_font.Position(x, y + (n * 16));
+            m_font.Print("%s", s_aLine[n].m_szText);
+        };
+    };
+
+
+    // Lines of the decision panel for the inspected enemy; shared by the
+    // game-font overlay and the ImGui window.
+    int32 CollectAIDecisionLines(PANELLINE* aLine, int32 maxLines) const
+    {
+        const CEnemyAITrace::SLOT* pSlot = CEnemyAITrace::GetSlot(GetAISelectedSlot());
+        if (!pSlot || (maxLines <= 0))
+            return 0;
 
         CGameObject* pObject = CGameObjectManager::GetObject(pSlot->m_hEnemy);
         if (!pObject || (pObject->GetType() != GAMEOBJECTTYPE::ENEMY))
-            return;
+            return 0;
 
         CEnemy* pEnemy = static_cast<CEnemy*>(pObject);
         const CEnemyCharacter& rChr = pEnemy->Character();
         const ENEMYTYPES::CHARACTERISTIC& rNow = rChr.AICharacteristic();
         const ENEMYTYPES::CHARACTERISTIC& rBase = rChr.GetDebugBaseAICharacteristic();
 
-        const int32 LINE = 16;
-        int32 maxLines = (bottom - y) / LINE;
         int32 line = 0;
         char text[256];
 
         auto print = [&](const RwRGBA& color, const char* pszText)
         {
             if (line >= maxLines)
-                return;
-            m_font.Color(color);
-            m_font.Position(x, y + (line * LINE));
-            m_font.Print("%s", pszText);
+                return line;
+            aLine[line].m_color = color;
+            std::snprintf(aLine[line].m_szText, sizeof(aLine[line].m_szText), "%s", pszText);
             ++line;
         };
 
@@ -4086,8 +4636,6 @@ private:
         const RwRGBA TEXT = { 0xE8, 0xEE, 0xF8, 0xFF };
         const RwRGBA DIM  = { 0xA0, 0xAC, 0xC0, 0xFF };
         const RwRGBA SEL  = { 0xFF, 0xD0, 0x60, 0xFF };
-
-        m_font.Background({ 0x06, 0x0A, 0x12, 0xD8 });
 
         char name[48];
         char status[32];
@@ -4101,7 +4649,7 @@ private:
         if (!pSlot->m_bGeneralAI)
         {
             print(DIM, "This enemy does not use the General AI; only its status is shown.");
-            return;
+            return line;
         };
 
         if (pSlot->m_target >= 0)
@@ -4178,6 +4726,8 @@ private:
                     print(DIM, "   (more checks than the panel stores)");
             };
         };
+
+        return line;
     };
 
 
@@ -5081,6 +5631,11 @@ private:
     uint32 m_uNavHeld;
     int32 m_iNavFrames;
     int32 m_iMenuSize;
+    int32 m_iMenuStyle;
+    mutable UIACTION m_aUIAction[UIACTION_MAX];
+    mutable int32 m_nUIAction;
+    mutable int32 m_iUILastSelection;
+    mutable int32 m_iUILastPage;
     mutable int32 m_aiScroll[PAGE_NUM];
     int32 m_iAISelected;
     float m_fAIRadarRange;
@@ -5091,6 +5646,7 @@ private:
     bool m_bAIZoneLabels;
     mutable int32 m_iLastMenuBottom;
     mutable int32 m_iLastMenuRight;
+    mutable bool m_bImGuiMenuShown;
     bool m_bLabEnterArmed;
     bool m_bLabAIPresetStored;
     CDebugDifficulty::SNAPSHOT m_labAIPreset;
