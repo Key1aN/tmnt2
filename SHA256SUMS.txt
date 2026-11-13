@@ -1,0 +1,2 @@
+033b64b044dde2d3f10f4e9e0fd4c5f815c3bdfb10893d963e411514631dd1fc  Debug_Tools_Combat_Lab_v1.2.12_US.t2mod
+31a1c0b5939aa8a2788ebba79357293c5ddfb30c9059b02c82dd255157bccd31  CombatLab.exe
