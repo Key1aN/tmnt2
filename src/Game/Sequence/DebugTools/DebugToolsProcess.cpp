@@ -307,7 +307,7 @@ namespace
 
     // ---- v1.2.10 menu renderer (game font + flat panels) ----
 
-    static const char* MENU_VERSION = "v1.2.14";
+    static const char* MENU_VERSION = "v1.2.15";
 
     enum MENUSIZE
     {
@@ -777,7 +777,7 @@ public:
         std::memset(m_aTracked, 0x00, sizeof(m_aTracked));
         std::memset(m_aMoveEvent, 0x00, sizeof(m_aMoveEvent));
         m_szPlayerMotion[0] = '\0';
-        m_moveLog.Write("SESSION  TMNT2 Debug Tools v1.2.14 move telemetry (bosses always; all enemies when labels = ALL)");
+        m_moveLog.Write("SESSION  TMNT2 Debug Tools v1.2.15 move telemetry (bosses always; all enemies when labels = ALL)");
         m_moveLog.Flush();
 
         // v1.2.7: the session header (with GPU and display mode) is written at
@@ -2423,8 +2423,15 @@ private:
             if (index == 1)
                 std::snprintf(buffer, capacity, "Debug menu size               %s", s_apszMenuSizeName[m_iMenuSize]);
             else if (index == 2)
-                std::snprintf(buffer, capacity, "Debug menu style              %s%s", s_apszMenuStyleName[m_iMenuStyle],
-                              ((m_iMenuStyle == MENUSTYLE_IMGUI) && !IsImGuiMenuStyle()) ? " (unavailable)" : "");
+            {
+                const char* pszReason = "";
+#if defined(TMNT2_IMGUI)
+                if ((m_iMenuStyle == MENUSTYLE_IMGUI) && !CPCDebugImGui::IsAvailable())
+                    pszReason = CPCDebugImGui::GetFailReason();
+#endif
+                std::snprintf(buffer, capacity, "Debug menu style              %s%s%s", s_apszMenuStyleName[m_iMenuStyle],
+                              (pszReason[0] ? " - " : ""), pszReason);
+            }
             else
             std::snprintf(
                 buffer,

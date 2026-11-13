@@ -1,4 +1,4 @@
-# Live Enemy AI Visualizer (Combat Lab v1.2.0 / Debug Tools v1.2.14, US)
+# Live Enemy AI Visualizer (Combat Lab v1.2.0 / Debug Tools v1.2.15, US)
 
 This build adds a read-only view of what each enemy's AI actually evaluates. It does not change
 enemy behaviour, timing or random numbers. It is off by default, and turning it on adds no RNG
@@ -70,7 +70,7 @@ Attack, run and guard shapes are only drawn for Grappler-family AI (Foot Ninjas,
 checks exist. The view area is also only one of the target conditions: the enemy must also be inside
 its patrol area and have a walkable route (collision term) for P1 to become its target.
 
-### ImGui menu (Debug Tools v1.2.14)
+### ImGui menu (Debug Tools v1.2.14, renderer and font replaced in v1.2.15)
 
 The Debug Tools menu now opens as a Dear ImGui window by default (Graphics -> Debug menu style:
 ImGui / Game font). It is the same menu, not a second one: tabs, rows, values, help text and
@@ -78,8 +78,14 @@ actions all come from the existing menu functions, so every option behaves the s
 pad or mouse. Click a row to select it, use the arrow buttons / checkboxes / sliders, double-click
 to run, right-click a Difficulty slider to reset it. On the AI VIEW tab the inspected enemy's
 decision history opens in its own movable "Enemy AI decisions" window. The window layout is saved
-in `TMNT2_debugtools_imgui.ini`. If ImGui cannot start on the graphics device, the game-font menu
-is used automatically.
+in `TMNT2_debugtools_imgui.ini`. If ImGui cannot start, the game-font menu is used automatically
+and Graphics -> Debug menu style shows the reason.
+
+v1.2.15: v1.2.14 used ImGui's stock Direct3D 9 backend, which needs a device that can save and
+restore its state; the game's RenderWare device could not, so the menu reported "unavailable".
+ImGui is now drawn through RenderWare's own Im2D path (the same way the game draws its 2D), with
+only the clip rectangle set on the device. The menu uses an embedded font, **Inter Medium**
+(SIL Open Font License, Latin subset in `vendor/fonts/inter`), sized to the window height.
 
 ## How Foot Ninja AI works (source)
 

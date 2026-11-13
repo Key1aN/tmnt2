@@ -54,10 +54,11 @@ jobs:
             "src/System/PC/PCSystem.cpp",
             "tools/AIVisualizer/ai_replay.html",
             "tools/CombatLabLauncher/CombatLabLauncher.cpp",
+            "vendor/fonts/inter/InterMedium_compressed.inl",
+            "vendor/fonts/inter/LICENSE.txt",
+            "vendor/fonts/inter/README.txt",
             "vendor/imgui/LICENSE.txt",
             "vendor/imgui/VERSION.txt",
-            "vendor/imgui/backends/imgui_impl_dx9.cpp",
-            "vendor/imgui/backends/imgui_impl_dx9.h",
             "vendor/imgui/backends/imgui_impl_win32.cpp",
             "vendor/imgui/backends/imgui_impl_win32.h",
             "vendor/imgui/imconfig.h",
@@ -215,7 +216,7 @@ jobs:
           if (-not $pdb -or -not $map) { throw "The matching PDB or MAP was not found." }
           $exeBytes = [System.IO.File]::ReadAllBytes($exe.FullName)
           $exeText = [System.Text.Encoding]::ASCII.GetString($exeBytes)
-          foreach ($marker in @("TMNT2_debugtools_imgui.ini", "Debug menu style")) {
+          foreach ($marker in @("TMNT2_debugtools_imgui.ini", "Debug menu style", "tmnt2_rw_im2d")) {
             if (-not $exeText.Contains($marker)) { throw "ImGui Debug Tools menu missing from the EXE: $marker" }
           }
 

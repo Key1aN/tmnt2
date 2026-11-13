@@ -6,13 +6,30 @@
 #include <d3d9.h>
 
 #include "imgui.h"
-#include "backends/imgui_impl_dx9.h"
 #include "backends/imgui_impl_win32.h"
 
 #include "PCSpecific.hpp"
+#include "PCCrashReporter.hpp"
+
+#include "System/Common/Camera.hpp"
+#include "System/Common/RenderState.hpp"
+#include "System/Common/System2D.hpp"
 
 
 extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
+
+
+// Embedded UI font: Inter Medium (SIL OFL 1.1), Latin subset - vendor/fonts/inter.
+#include "inter/InterMedium_compressed.inl"
+
+
+//
+//  Rendering goes through RenderWare's Im2D instead of a raw Direct3D 9
+//  backend: RW owns the device (it may be a pure device, which cannot save
+//  and restore state blocks) and keeps a render-state cache, so ImGui draws
+//  the same way the game's own 2D does. Only the scissor rectangle is set on
+//  the device directly (RwD3D9SetRenderState keeps RW's cache in step).
+//
 
 
 namespace
@@ -27,31 +44,17 @@ namespace
     STATE s_state = STATE_NONE;
     bool s_bInFrame = false;
     bool s_bShownLastFrame = false;
-    bool s_bDeviceLost = false;
-    float s_fFontScale = 1.0f;
-    IDirect3DDevice9* s_pDevice = nullptr;
-    rwD3D9DeviceReleaseCallBack s_pfnPrevRelease = nullptr;
-    rwD3D9DeviceRestoreCallBack s_pfnPrevRestore = nullptr;
+    const char* s_pszFailReason = "";
+    RwRaster* s_pFontRaster = nullptr;
+
+    enum { VERTEX_MAX = 65535 };
+    RwIm2DVertex* s_pVertex = nullptr;
 
 
-    void OnDeviceRelease(void)
+    void Fail(const char* pszReason)
     {
-        if (s_pfnPrevRelease)
-            s_pfnPrevRelease();
-
-        if (s_state == STATE_READY)
-            ImGui_ImplDX9_InvalidateDeviceObjects();
-        s_bDeviceLost = true;
-    };
-
-
-    void OnDeviceRestore(void)
-    {
-        if (s_pfnPrevRestore)
-            s_pfnPrevRestore();
-
-        // Device objects are recreated lazily by ImGui_ImplDX9_NewFrame.
-        s_bDeviceLost = false;
+        s_pszFailReason = pszReason;
+        CPCCrashReporter::Breadcrumb(pszReason);
     };
 
 
@@ -61,9 +64,9 @@ namespace
         if (CPCSpecific::m_hWnd && GetClientRect(CPCSpecific::m_hWnd, &rect))
         {
             float height = static_cast<float>(rect.bottom - rect.top);
-            float size = height / 46.0f;
-            if (size < 15.0f) size = 15.0f;
-            if (size > 30.0f) size = 30.0f;
+            float size = height / 44.0f;
+            if (size < 16.0f) size = 16.0f;
+            if (size > 32.0f) size = 32.0f;
             return size;
         };
         return 18.0f;
@@ -89,6 +92,8 @@ namespace
         style.ItemInnerSpacing = ImVec2(6.0f, 4.0f);
         style.SeparatorTextBorderSize = 2.0f;
         style.SeparatorTextPadding = ImVec2(10.0f, 4.0f);
+        style.AntiAliasedFill = true;
+        style.AntiAliasedLines = true;
 
         ImVec4* c = style.Colors;
         const ImVec4 accent      = ImVec4(0.23f, 0.61f, 0.85f, 1.00f);
@@ -119,27 +124,78 @@ namespace
         c[ImGuiCol_SliderGrabActive]    = orange;
         c[ImGuiCol_CheckMark]           = orange;
         c[ImGuiCol_Separator]           = ImVec4(0.23f, 0.61f, 0.85f, 0.40f);
-        c[ImGuiCol_Text]                = ImVec4(0.91f, 0.93f, 0.97f, 1.00f);
-        c[ImGuiCol_TextDisabled]        = ImVec4(0.55f, 0.60f, 0.68f, 1.00f);
+        c[ImGuiCol_Text]                = ImVec4(0.92f, 0.94f, 0.97f, 1.00f);
+        c[ImGuiCol_TextDisabled]        = ImVec4(0.58f, 0.63f, 0.70f, 1.00f);
         c[ImGuiCol_PlotHistogram]       = accent;
+    };
+
+
+    // Font atlas -> RW texture raster (A8R8G8B8, stored B,G,R,A in memory).
+    bool CreateFontRaster(void)
+    {
+        ImGuiIO& io = ImGui::GetIO();
+        unsigned char* pPixels = nullptr;
+        int width = 0;
+        int height = 0;
+        io.Fonts->GetTexDataAsRGBA32(&pPixels, &width, &height);
+        if (!pPixels || (width <= 0) || (height <= 0))
+            return false;
+
+        RwRaster* pRaster = RwRasterCreate(width, height, 32, rwRASTERTYPETEXTURE | rwRASTERFORMAT8888);
+        if (!pRaster)
+            return false;
+
+        RwUInt8* pDst = RwRasterLock(pRaster, 0, rwRASTERLOCKWRITE | rwRASTERLOCKNOFETCH);
+        if (!pDst)
+        {
+            RwRasterDestroy(pRaster);
+            return false;
+        };
+
+        int32 stride = RwRasterGetStride(pRaster);
+        for (int y = 0; y < height; ++y)
+        {
+            const unsigned char* pSrcRow = &pPixels[y * width * 4];
+            RwUInt8* pDstRow = &pDst[y * stride];
+            for (int x = 0; x < width; ++x)
+            {
+                pDstRow[(x * 4) + 0] = pSrcRow[(x * 4) + 2];
+                pDstRow[(x * 4) + 1] = pSrcRow[(x * 4) + 1];
+                pDstRow[(x * 4) + 2] = pSrcRow[(x * 4) + 0];
+                pDstRow[(x * 4) + 3] = pSrcRow[(x * 4) + 3];
+            };
+        };
+        RwRasterUnlock(pRaster);
+
+        s_pFontRaster = pRaster;
+        io.Fonts->SetTexID(static_cast<ImTextureID>(reinterpret_cast<intptr_t>(pRaster)));
+        io.Fonts->ClearTexData();
+        return true;
+    };
+
+
+    void BuildFonts(float size)
+    {
+        ImGuiIO& io = ImGui::GetIO();
+        io.Fonts->Clear();
+
+        ImFontConfig config;
+        config.OversampleH = 2;
+        config.OversampleV = 1;
+        config.PixelSnapH = false;
+        io.Fonts->AddFontFromMemoryCompressedTTF(InterMedium_compressed_data, InterMedium_compressed_size, size, &config);
     };
 
 
     bool Initialize(void)
     {
         if (!CPCSpecific::m_hWnd)
+        {
+            Fail("IMGUI init failed: no game window");
             return false;
+        };
 
-        IDirect3DDevice9* pDevice = static_cast<IDirect3DDevice9*>(RwD3D9GetCurrentD3DDevice());
-        if (!pDevice)
-            return false;
-
-        // ImGui's DX9 backend saves and restores device state with a state
-        // block; a pure device cannot capture one, so use the game-font menu.
-        D3DDEVICE_CREATION_PARAMETERS params = {};
-        if (SUCCEEDED(pDevice->GetCreationParameters(&params)) &&
-            (params.BehaviorFlags & D3DCREATE_PUREDEVICE))
-            return false;
+        s_pVertex = new RwIm2DVertex[VERTEX_MAX];
 
         IMGUI_CHECKVERSION();
         ImGui::CreateContext();
@@ -149,49 +205,132 @@ namespace
         io.LogFilename = nullptr;
         io.ConfigFlags |= ImGuiConfigFlags_NoMouseCursorChange;
         io.ConfigWindowsMoveFromTitleBarOnly = true;
+        io.BackendRendererName = "tmnt2_rw_im2d";
 
         ApplyStyle();
-
-        // Segoe UI when present, ImGui's built-in font otherwise.
-        float size = FontPixelSize();
-        char fontPath[MAX_PATH] = {};
-        UINT len = GetWindowsDirectoryA(fontPath, MAX_PATH);
-        bool bLoaded = false;
-        if ((len > 0) && (len < (MAX_PATH - 32)))
-        {
-            lstrcatA(fontPath, "\\Fonts\\segoeui.ttf");
-            if (GetFileAttributesA(fontPath) != INVALID_FILE_ATTRIBUTES)
-                bLoaded = (io.Fonts->AddFontFromFileTTF(fontPath, size) != nullptr);
-        };
-
-        if (!bLoaded)
-        {
-            ImFontConfig config;
-            config.SizePixels = size;
-            io.Fonts->AddFontDefault(&config);
-        };
+        BuildFonts(FontPixelSize());
 
         if (!ImGui_ImplWin32_Init(CPCSpecific::m_hWnd))
         {
             ImGui::DestroyContext();
+            Fail("IMGUI init failed: Win32 input backend");
             return false;
         };
 
-        if (!ImGui_ImplDX9_Init(pDevice))
+        if (!CreateFontRaster())
         {
             ImGui_ImplWin32_Shutdown();
             ImGui::DestroyContext();
+            Fail("IMGUI init failed: font texture");
             return false;
         };
 
-        s_pDevice = pDevice;
-        s_pfnPrevRelease = _rwD3D9DeviceGetReleaseCallback();
-        s_pfnPrevRestore = _rwD3D9DeviceGetRestoreCallback();
-        _rwD3D9DeviceSetReleaseCallback(OnDeviceRelease);
-        _rwD3D9DeviceSetRestoreCallback(OnDeviceRestore);
+        CPCCrashReporter::Breadcrumb("IMGUI ready (RW Im2D renderer, Inter font)");
         return true;
     };
+
+
+    void SetScissor(IDirect3DDevice9* pDevice, float x0, float y0, float x1, float y1)
+    {
+        if (!pDevice)
+            return;
+
+        RECT rect;
+        rect.left = static_cast<LONG>(x0);
+        rect.top = static_cast<LONG>(y0);
+        rect.right = static_cast<LONG>(x1);
+        rect.bottom = static_cast<LONG>(y1);
+        pDevice->SetScissorRect(&rect);
+    };
+
+
+    void RenderDrawData(ImDrawData* pDrawData)
+    {
+        RwCamera* pCamera = CCamera::CameraCurrent();
+        if (!pCamera || !pDrawData || (pDrawData->DisplaySize.x <= 0.0f) || (pDrawData->DisplaySize.y <= 0.0f))
+            return;
+
+        // ImGui works in window client pixels; RW draws in raster pixels.
+        RwRaster* pTarget = RwCameraGetRaster(pCamera);
+        float targetW = (pTarget ? static_cast<float>(RwRasterGetWidth(pTarget)) : pDrawData->DisplaySize.x);
+        float targetH = (pTarget ? static_cast<float>(RwRasterGetHeight(pTarget)) : pDrawData->DisplaySize.y);
+        float sx = targetW / pDrawData->DisplaySize.x;
+        float sy = targetH / pDrawData->DisplaySize.y;
+        float z = RwIm2DGetNearScreenZ();
+        float rhw = 1.0f / RwCameraGetNearClipPlane(pCamera);
+
+        IDirect3DDevice9* pDevice = static_cast<IDirect3DDevice9*>(RwD3D9GetCurrentD3DDevice());
+
+        CSystem2D::PushRenderState();
+        RENDERSTATE_PUSH(rwRENDERSTATETEXTUREFILTER, rwFILTERLINEAR);
+        RENDERSTATE_PUSH(rwRENDERSTATETEXTUREADDRESS, rwTEXTUREADDRESSCLAMP);
+        RENDERSTATE_PUSH(rwRENDERSTATETEXTURERASTER, 0);
+        if (pDevice)
+            RwD3D9SetRenderState(D3DRS_SCISSORTESTENABLE, TRUE);
+
+        for (int n = 0; n < pDrawData->CmdListsCount; ++n)
+        {
+            const ImDrawList* pList = pDrawData->CmdLists[n];
+            int vertexCount = pList->VtxBuffer.Size;
+            if ((vertexCount <= 0) || (vertexCount > VERTEX_MAX))
+                continue;
+
+            for (int v = 0; v < vertexCount; ++v)
+            {
+                const ImDrawVert& rSrc = pList->VtxBuffer[v];
+                RwIm2DVertex* pDst = &s_pVertex[v];
+                RwIm2DVertexSetScreenX(pDst, (rSrc.pos.x - pDrawData->DisplayPos.x) * sx);
+                RwIm2DVertexSetScreenY(pDst, (rSrc.pos.y - pDrawData->DisplayPos.y) * sy);
+                RwIm2DVertexSetScreenZ(pDst, z);
+                RwIm2DVertexSetRecipCameraZ(pDst, rhw);
+                RwIm2DVertexSetU(pDst, rSrc.uv.x, rhw);
+                RwIm2DVertexSetV(pDst, rSrc.uv.y, rhw);
+                RwIm2DVertexSetIntRGBA(pDst,
+                                       (rSrc.col >> IM_COL32_R_SHIFT) & 0xFF,
+                                       (rSrc.col >> IM_COL32_G_SHIFT) & 0xFF,
+                                       (rSrc.col >> IM_COL32_B_SHIFT) & 0xFF,
+                                       (rSrc.col >> IM_COL32_A_SHIFT) & 0xFF);
+            };
+
+            for (int c = 0; c < pList->CmdBuffer.Size; ++c)
+            {
+                const ImDrawCmd& rCmd = pList->CmdBuffer[c];
+                if (rCmd.UserCallback || (rCmd.ElemCount == 0))
+                    continue;
+
+                float x0 = (rCmd.ClipRect.x - pDrawData->DisplayPos.x) * sx;
+                float y0 = (rCmd.ClipRect.y - pDrawData->DisplayPos.y) * sy;
+                float x1 = (rCmd.ClipRect.z - pDrawData->DisplayPos.x) * sx;
+                float y1 = (rCmd.ClipRect.w - pDrawData->DisplayPos.y) * sy;
+                if ((x1 <= x0) || (y1 <= y0))
+                    continue;
+                SetScissor(pDevice, x0, y0, x1, y1);
+
+                RwRaster* pRaster = reinterpret_cast<RwRaster*>(static_cast<intptr_t>(rCmd.GetTexID()));
+                RwRenderStateSet(rwRENDERSTATETEXTURERASTER, pRaster);
+
+                // ImDrawIdx and RwImVertexIndex are both 16-bit
+                RwIm2DRenderIndexedPrimitive(
+                    rwPRIMTYPETRILIST,
+                    s_pVertex,
+                    vertexCount,
+                    reinterpret_cast<RwImVertexIndex*>(const_cast<ImDrawIdx*>(&pList->IdxBuffer[rCmd.IdxOffset])),
+                    static_cast<RwInt32>(rCmd.ElemCount)
+                );
+            };
+        };
+
+        if (pDevice)
+            RwD3D9SetRenderState(D3DRS_SCISSORTESTENABLE, FALSE);
+        RENDERSTATE_POP(rwRENDERSTATETEXTURERASTER);
+        RENDERSTATE_POP(rwRENDERSTATETEXTUREADDRESS);
+        RENDERSTATE_POP(rwRENDERSTATETEXTUREFILTER);
+        CSystem2D::PopRenderState();
+    };
 };
+
+
+static_assert(sizeof(ImDrawIdx) == sizeof(RwImVertexIndex), "ImGui indices must match RW Im2D indices");
 
 
 /*static*/ bool CPCDebugImGui::WndProc(void* pWnd, unsigned int uMsg, std::uintptr_t wParamRaw, std::intptr_t lParamRaw)
@@ -203,10 +342,9 @@ namespace
     WPARAM wParam = static_cast<WPARAM>(wParamRaw);
     LPARAM lParam = static_cast<LPARAM>(lParamRaw);
 
-    // Always keep ImGui's key/mouse state current, but only swallow input
-    // while a menu frame is shown and the pointer is over it.
-    LRESULT result = ImGui_ImplWin32_WndProcHandler(hWnd, uMsg, wParam, lParam);
-    if (result)
+    // Keep ImGui's key/mouse state current; only swallow mouse buttons while
+    // a menu frame is shown and the pointer is over an ImGui window.
+    if (ImGui_ImplWin32_WndProcHandler(hWnd, uMsg, wParam, lParam))
         return true;
 
     if (!s_bShownLastFrame)
@@ -233,30 +371,16 @@ namespace
     if (s_state == STATE_NONE)
         s_state = (Initialize() ? STATE_READY : STATE_FAILED);
 
-    if ((s_state != STATE_READY) || s_bDeviceLost)
+    if (s_state != STATE_READY)
         return false;
 
-    // The device can be recreated (resolution change): rebind if it changed.
-    IDirect3DDevice9* pDevice = static_cast<IDirect3DDevice9*>(RwD3D9GetCurrentD3DDevice());
-    if (!pDevice)
+    if (!CCamera::CameraCurrent())
         return false;
 
-    if (pDevice != s_pDevice)
-    {
-        ImGui_ImplDX9_Shutdown();
-        if (!ImGui_ImplDX9_Init(pDevice))
-        {
-            s_state = STATE_FAILED;
-            return false;
-        };
-        s_pDevice = pDevice;
-    };
+    ImGuiIO& io = ImGui::GetIO();
+    io.FontGlobalScale = fontScale;
+    io.MouseDrawCursor = true;   // the game hides the OS cursor
 
-    s_fFontScale = fontScale;
-    ImGui::GetIO().FontGlobalScale = fontScale;
-    ImGui::GetIO().MouseDrawCursor = true;   // the game hides the OS cursor
-
-    ImGui_ImplDX9_NewFrame();
     ImGui_ImplWin32_NewFrame();
     ImGui::NewFrame();
     s_bInFrame = true;
@@ -271,9 +395,7 @@ namespace
 
     s_bInFrame = false;
     ImGui::Render();
-    if (!s_bDeviceLost)
-        ImGui_ImplDX9_RenderDrawData(ImGui::GetDrawData());
-
+    RenderDrawData(ImGui::GetDrawData());
     s_bShownLastFrame = true;
 };
 
@@ -287,6 +409,12 @@ namespace
 /*static*/ bool CPCDebugImGui::IsAvailable(void)
 {
     return (s_state != STATE_FAILED);
+};
+
+
+/*static*/ const char* CPCDebugImGui::GetFailReason(void)
+{
+    return s_pszFailReason;
 };
 
 
@@ -307,13 +435,16 @@ namespace
     if (s_state != STATE_READY)
         return;
 
-    _rwD3D9DeviceSetReleaseCallback(s_pfnPrevRelease);
-    _rwD3D9DeviceSetRestoreCallback(s_pfnPrevRestore);
-    ImGui_ImplDX9_Shutdown();
     ImGui_ImplWin32_Shutdown();
     ImGui::DestroyContext();
+    if (s_pFontRaster)
+    {
+        RwRasterDestroy(s_pFontRaster);
+        s_pFontRaster = nullptr;
+    };
+    delete[] s_pVertex;
+    s_pVertex = nullptr;
     s_state = STATE_FAILED;
-    s_pDevice = nullptr;
 };
 
 #endif /* defined(TMNT2_IMGUI) */
