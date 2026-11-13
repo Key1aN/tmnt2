@@ -449,7 +449,7 @@ namespace
 
     if (s_lab.m_bLog)
     {
-        LabLog().Write("SESSION  Combat Lab v1.1.0 arena=%s player=%s crystals=%d ruleset=%s ai=%s",
+        LabLog().Write("SESSION  Combat Lab v1.2.0 arena=%s player=%s crystals=%d ruleset=%s ai=%s",
                        arena.m_pszName,
                        PLAYERID::GetName(s_lab.m_idPlayerLoaded),
                        s_lab.m_iCrystalLevel,

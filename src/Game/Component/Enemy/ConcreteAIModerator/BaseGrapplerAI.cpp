@@ -1,4 +1,5 @@
 #include "BaseGrapplerAI.hpp"
+#include "Game/Component/Enemy/AITrace.hpp"
 
 #include "Game/Component/Player/PlayerCharacter.hpp"
 #include "Game/Component/Enemy/ConcreteEnemyCharacter/BaseGrapplerEnemyChr.hpp"
@@ -38,26 +39,47 @@ CBaseGrapplerAI::CBaseGrapplerAI(CEnemyCharacter* pEnemyChr)
 
 /*virtual*/ CAIThinkOrder::ORDER CBaseGrapplerAI::ActionSelector(int32 iNo) /*override*/
 {
+    // Debug Tools trace: each check below is evaluated exactly once and in
+    // the retail order (including the || short-circuit); only the results
+    // are copied to the trace.
     if (IsOutsidePatrolArea())
     {
         float fRatioOfMove = Characteristic().m_fRatioOfMove;
         float fRand = Math::RandFloat();
+
+        AITRACE(Event(&EnemyCharacter(), CEnemyAITrace::EV_PATROL_RUN, 0, fRatioOfMove, fRand, (fRand < fRatioOfMove)));
 
         if (fRand < fRatioOfMove)
             return CAIThinkOrder::ORDER_RUN;
     };
 
     if (!CAIUtils::GetActivePlayer(iNo))
+    {
+        AITRACE(Event(&EnemyCharacter(), CEnemyAITrace::EV_ELIGIBLE, CEnemyAITrace::ELIGIBLE_NO_TARGET, 0.0f, 0.0f, false));
         return CAIThinkOrder::ORDER_WAIT;
+    };
 
     if (IsTakeGuard())
+    {
+        AITRACE(Event(&EnemyCharacter(), CEnemyAITrace::EV_ELIGIBLE, CEnemyAITrace::ELIGIBLE_GUARD, 0.0f, 0.0f, true));
         return CAIThinkOrder::ORDER_DEFENCE;
+    };
 
-    if (IsTakeAttack() || IsTakeRunAttack())
+    bool bTakeAttack = IsTakeAttack();
+    bool bTakeRunAttack = (!bTakeAttack && IsTakeRunAttack());
+    bool bMoveRefused = ((ThinkOrder().GetOrder()  == CAIThinkOrder::ORDER_MOVE) &&
+                         (ThinkOrder().GetAnswer() == CAIThinkOrder::RESULT_REFUSE));
+
+    AITRACE(Event(&EnemyCharacter(), CEnemyAITrace::EV_ELIGIBLE,
+                  (bTakeAttack ? CEnemyAITrace::ELIGIBLE_ATTACK : 0) |
+                  (bTakeRunAttack ? CEnemyAITrace::ELIGIBLE_RUN_ATTACK : 0) |
+                  (bMoveRefused ? CEnemyAITrace::ELIGIBLE_MOVE_REFUSED : 0),
+                  0.0f, 0.0f, (bTakeAttack || bTakeRunAttack)));
+
+    if (bTakeAttack || bTakeRunAttack)
        return CAIThinkOrder::ORDER_ATTACK;
 
-    if ((ThinkOrder().GetOrder()  == CAIThinkOrder::ORDER_MOVE) &&
-        (ThinkOrder().GetAnswer() == CAIThinkOrder::RESULT_REFUSE))
+    if (bMoveRefused)
         return CAIThinkOrder::ORDER_WAIT;
 
     return CAIThinkOrder::ORDER_MOVE;
@@ -97,10 +119,20 @@ CBaseGrapplerAI::CBaseGrapplerAI(CEnemyCharacter* pEnemyChr)
     float fDist = CAIUtils::CalcMovePointEscapeObstacle(&vecPos, &EnemyCharacter(), &vecPos, 1.0f, fRadiusOfActivity);
 
     float fRand = Math::RandFloat();
+
+    AITRACE(Event(&EnemyCharacter(), CEnemyAITrace::EV_WAIT_MOVE, iNo, fRatioOfMove, fRand,
+                  !((fRand >= fRatioOfMove) || (fDist < 0.0f))));
+    if (fDist < 0.0f)
+        AITRACE(Event(&EnemyCharacter(), CEnemyAITrace::EV_WAIT_NOPOINT, iNo, 0.0f, 0.0f, false));
+
     if ((fRand >= fRatioOfMove) || (fDist < 0.0f))
     {
         float fRatioOfActivity = Characteristic().m_fRatioOfActivity;
         fRand = Math::RandFloat();
+
+        AITRACE(Event(&EnemyCharacter(), CEnemyAITrace::EV_WAIT_ACTIVITY, iNo, fRatioOfActivity, fRand,
+                      !(fRand >= fRatioOfActivity)));
+
         if (fRand >= fRatioOfActivity)
             return true;
 
@@ -146,7 +178,10 @@ CBaseGrapplerAI::CBaseGrapplerAI(CEnemyCharacter* pEnemyChr)
 {
     CPlayerCharacter* pPlayerChr = CAIUtils::GetActivePlayer(iNo);
     if (!pPlayerChr)
+    {
+        AITRACE(Event(&EnemyCharacter(), CEnemyAITrace::EV_MOVE_FAIL, CEnemyAITrace::MOVEFAIL_NO_PLAYER, 0.0f, 0.0f, false));
         return false;
+    };
 
     RwV3d vecFootPosPlayer = Math::VECTOR3_ZERO;
     pPlayerChr->GetFootPosition(&vecFootPosPlayer);
@@ -158,19 +193,31 @@ CBaseGrapplerAI::CBaseGrapplerAI(CEnemyCharacter* pEnemyChr)
     float fDist = CAIUtils::CalcMovePointEscapeObstacle(&vecPos, &EnemyCharacter(), &vecPos, 1.0f, fRadiusOfAction);
 
     if (fDist < 0.0f)
+    {
+        AITRACE(Event(&EnemyCharacter(), CEnemyAITrace::EV_MOVE_FAIL, CEnemyAITrace::MOVEFAIL_NO_PATH, 0.0f, 0.0f, false));
         return false;
+    };
 
     if (fDist >= fRadiusOfAction)
+    {
+        AITRACE(Event(&EnemyCharacter(), CEnemyAITrace::EV_MOVE_FAIL, CEnemyAITrace::MOVEFAIL_TOO_FAR, fDist, 0.0f, false));
         return false;
+    };
 
     float fRand = Math::RandFloat();
     float fRatioOfMove = Characteristic().m_fRatioOfMove;
+
+    AITRACE(Event(&EnemyCharacter(), CEnemyAITrace::EV_MOVE_ROLL, iNo, fRatioOfMove, fRand, (fRand <= fRatioOfMove)));
+
     if (fRand <= fRatioOfMove)
     {
         if ((fRadiusOfAction * 0.5f) > fDist)
         {
             float fRatioOfActivity = Characteristic().m_fRatioOfActivity;
             fRand = Math::RandFloat();
+
+            AITRACE(Event(&EnemyCharacter(), CEnemyAITrace::EV_MOVE_ACTIVITY, iNo, fRatioOfActivity, fRand,
+                          !(fRand >= fRatioOfActivity)));
 
             if (fRand >= fRatioOfActivity)
             {
@@ -198,7 +245,10 @@ CBaseGrapplerAI::CBaseGrapplerAI(CEnemyCharacter* pEnemyChr)
     float fFrontView = (fRatioOfFrontView * MATH_DEG2RAD(36.0f));
 
     if (fFrontView >= fDirDiff)
+    {
+        AITRACE(Event(&EnemyCharacter(), CEnemyAITrace::EV_MOVE_FAIL, CEnemyAITrace::MOVEFAIL_FACING, 0.0f, 0.0f, false));
         return false;
+    };
 
     AIOT::SetMoveOrder(ThinkOrder(), AIOT::MoveTurn, 1.0f, iNo);
 
@@ -220,13 +270,22 @@ CBaseGrapplerAI::CBaseGrapplerAI(CEnemyCharacter* pEnemyChr)
 /*virtual*/ bool CBaseGrapplerAI::OnActionOfAttack(int32 iNo) /*override*/
 {
     if (!CAIUtils::GetActivePlayer(iNo))
+    {
+        AITRACE(Event(&EnemyCharacter(), CEnemyAITrace::EV_ATTACK_BLOCKED, 0, 0.0f, 0.0f, false));
         return false;
+    };
 
     if (m_targetInfo.TestState(CAIUtils::PLAYER_STATE_IMPOSSIBLE))
+    {
+        AITRACE(Event(&EnemyCharacter(), CEnemyAITrace::EV_ATTACK_BLOCKED, 1, 0.0f, 0.0f, false));
         return false;
+    };
 
     if (m_targetInfo.TestState(CAIUtils::PLAYER_STATE_DOWN))
+    {
+        AITRACE(Event(&EnemyCharacter(), CEnemyAITrace::EV_ATTACK_BLOCKED, 2, 0.0f, 0.0f, false));
         return false;
+    };
 
     bool bResult = true;
 
@@ -342,6 +401,8 @@ CBaseGrapplerAI::CBaseGrapplerAI(CEnemyCharacter* pEnemyChr)
 
     if (IsTakeGuard())
     {
+        AITRACE(Event(&EnemyCharacter(), CEnemyAITrace::EV_GUARD_REACT, 0, 0.0f, 0.0f, true));
+
         int32 iNo = m_targetInfo.Get();
         if (OnActionOfDefence(iNo))
             return UNDERACTIONS_FORCE_CHANGED;
@@ -355,6 +416,10 @@ CBaseGrapplerAI::CBaseGrapplerAI(CEnemyCharacter* pEnemyChr)
     {
         float fRatioOfActivity = Characteristic().m_fRatioOfActivity;
         float fRand = Math::RandFloat();
+
+        AITRACE(Event(&EnemyCharacter(), CEnemyAITrace::EV_UNDERWAIT, iNo, fRatioOfActivity, fRand,
+                      (fRand < fRatioOfActivity)));
+
         if (fRand < fRatioOfActivity)
         {
             order = ThinkOrder().GetOrder();

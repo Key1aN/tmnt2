@@ -4,6 +4,7 @@
 
 #include "Game/ProcessList.hpp"
 #include "Game/Component/CombatLab/CombatLab.hpp"
+#include "Game/Component/Enemy/AITrace.hpp"
 #include "Game/Component/GameData/GamePlayResult.hpp"
 #include "Game/Sequence/Test/DebugUtils.hpp"
 #include "Game/Component/Enemy/Enemy.hpp"
@@ -60,6 +61,7 @@ namespace
         PAGE_HITBOXES,
         PAGE_TELEMETRY,
         PAGE_COMBATLAB,
+        PAGE_AIVIEW,
 
         PAGE_NUM,
     };
@@ -76,6 +78,7 @@ namespace
         "Hitboxes",
         "Telemetry",
         "COMBAT LAB",
+        "AI VIEW",
     };
 
 
@@ -252,6 +255,24 @@ namespace
     static const int32 MENU_VISIBLE_ITEMS = 14;
 
 
+    enum AIITEM
+    {
+        AIITEM_ENABLE = 0,
+        AIITEM_SIX_NINJAS,
+        AIITEM_RADAR_RANGE,
+        AIITEM_TIMELINE,
+        AIITEM_TIMELINE_SPAN,
+        AIITEM_FREEZE,
+        AIITEM_SELECT,
+        AIITEM_DECISIONS,
+        AIITEM_RECORD,
+        AIITEM_SUMMARY,
+        AIITEM_CLEAR,
+
+        AIITEM_NUM,
+    };
+
+
     static bool IsCombatLabShortcut(void)
     {
         // Ctrl + Shift + L. L, Ctrl and the Shift+Ctrl chord have no retail
@@ -268,7 +289,7 @@ namespace
 
     // ---- v1.2.10 menu renderer (game font + flat panels) ----
 
-    static const char* MENU_VERSION = "v1.2.10";
+    static const char* MENU_VERSION = "v1.2.11";
 
     enum MENUSIZE
     {
@@ -395,6 +416,18 @@ namespace
             case LABITEM_AI_MODE:       return "ENEMY AI";
             case LABITEM_OVERLAY:       return "DIAGNOSTICS";
             case LABITEM_RULESET:       return "COMBAT RULES";
+            default: return nullptr;
+            };
+        };
+
+        if (page == PAGE_AIVIEW)
+        {
+            switch (index)
+            {
+            case AIITEM_ENABLE:      return "ENEMY AI VISUALIZER";
+            case AIITEM_RADAR_RANGE: return "DISPLAY";
+            case AIITEM_SELECT:      return "DECISION HISTORY";
+            case AIITEM_RECORD:      return "RECORDING";
             default: return nullptr;
             };
         };
@@ -688,6 +721,12 @@ public:
     , m_iNavFrames(0)
     , m_iMenuSize(MENUSIZE_NORMAL)
     , m_aiScroll()
+    , m_iAISelected(-1)
+    , m_fAIRadarRange(8.0f)
+    , m_fAITimelineSpan(12.0f)
+    , m_bAITimeline(true)
+    , m_bAIDecisionPanel(true)
+    , m_iLastMenuBottom(0)
     , m_bLabEnterArmed(false)
     , m_bLabAIPresetStored(false)
     , m_labAIPreset()
@@ -697,7 +736,7 @@ public:
         std::memset(m_aTracked, 0x00, sizeof(m_aTracked));
         std::memset(m_aMoveEvent, 0x00, sizeof(m_aMoveEvent));
         m_szPlayerMotion[0] = '\0';
-        m_moveLog.Write("SESSION  TMNT2 Debug Tools v1.2.10 move telemetry (bosses always; all enemies when labels = ALL)");
+        m_moveLog.Write("SESSION  TMNT2 Debug Tools v1.2.11 move telemetry (bosses always; all enemies when labels = ALL)");
         m_moveLog.Flush();
 
         // v1.2.7: the session header (with GPU and display mode) is written at
@@ -716,11 +755,13 @@ public:
         CGameStageDebug::CAMERA_MENU_CONTROL = false;
         SetEnemyAIPaused(false);
         SetGodMode(false);
+        CEnemyAITrace::SetEnabled(false);
     };
 
 
     void Move(CDebugToolsProcess& owner)
     {
+        CEnemyAITrace::Update();
         UpdatePerformance();
         UpdateMoveTracking();
         UpdateStep(owner);
@@ -862,6 +903,7 @@ public:
         case PAGE_CAMERA:     return (selected == 0);
         case PAGE_TELEMETRY:  return ((selected == 4) || (selected == 7) || (selected == 8));
         case PAGE_COMBATLAB:  return (selected == LABITEM_ENEMY_COUNT);
+        case PAGE_AIVIEW:     return ((selected == AIITEM_RADAR_RANGE) || (selected == AIITEM_TIMELINE_SPAN));
         default:              return false;
         };
     };
@@ -880,7 +922,10 @@ public:
         if (m_bOpen)
         {
             int32 menuBottom = DrawMenu();
-            if ((menuBottom + 150) <= CScreen::Height())
+            m_iLastMenuBottom = menuBottom;
+            // The AI VIEW tab uses the space below the menu for its decision panel.
+            if (((menuBottom + 150) <= CScreen::Height()) &&
+                !((m_page == PAGE_AIVIEW) && CEnemyAITrace::IsEnabled() && m_bAIDecisionPanel))
                 DrawTelemetryCompact(12, menuBottom + 8);
         }
         else
@@ -893,7 +938,10 @@ public:
         // Right-hand panel; with the menu open it is shown only on the
         // COMBAT LAB tab and only when the screen is wide enough not to
         // overlap the menu text.
-        if (CCombatLab::IsPlaying() && CCombatLab::IsOverlayEnabled() &&
+        DrawAIView();
+
+        // The AI radar takes the right-hand column while it is enabled.
+        if (CCombatLab::IsPlaying() && CCombatLab::IsOverlayEnabled() && !CEnemyAITrace::IsEnabled() &&
             (!m_bOpen || ((m_page == PAGE_COMBATLAB) && (CScreen::Width() >= 1280))))
         {
             // With the menu open the frame graph moves to the right edge.
@@ -1083,6 +1131,10 @@ private:
             AdjustLabItem(selected, direction, multiplier);
             break;
 
+        case PAGE_AIVIEW:
+            AdjustAIViewItem(selected, direction, multiplier);
+            break;
+
         default:
             break;
         };
@@ -1193,6 +1245,10 @@ private:
             ActivateLabItem(owner, selected);
             break;
 
+        case PAGE_AIVIEW:
+            ActivateAIViewItem(selected);
+            break;
+
         default:
             break;
         };
@@ -1252,6 +1308,10 @@ private:
             ResetLabItem(selected);
             break;
 
+        case PAGE_AIVIEW:
+            ResetAIViewItem(selected);
+            break;
+
         default:
             break;
         };
@@ -1297,6 +1357,11 @@ private:
 
         case PAGE_COMBATLAB:
             CCombatLab::RestoreDefaults();
+            break;
+
+        case PAGE_AIVIEW:
+            for (int32 i = 0; i < AIITEM_NUM; ++i)
+                ResetAIViewItem(i);
             break;
 
         default:
@@ -1666,6 +1731,7 @@ private:
         case PAGE_HITBOXES:   return 3;
         case PAGE_TELEMETRY:  return 9;
         case PAGE_COMBATLAB:  return LABITEM_NUM;
+        case PAGE_AIVIEW:     return AIITEM_NUM;
         default:              return 0;
         };
     };
@@ -2273,6 +2339,10 @@ private:
             FormatLabItem(index, buffer, capacity);
             break;
 
+        case PAGE_AIVIEW:
+            FormatAIViewItem(index, buffer, capacity);
+            break;
+
         default:
             break;
         };
@@ -2389,6 +2459,10 @@ private:
 
         case PAGE_COMBATLAB:
             GetLabItemHelp(index, scope, description);
+            break;
+
+        case PAGE_AIVIEW:
+            GetAIViewItemHelp(index, scope, description);
             break;
 
         default:
@@ -2933,6 +3007,678 @@ private:
                          pEnemy->GetHP(), pEnemy->GetHPMax());
             y += lineH;
             ++shown;
+        };
+    };
+
+
+    // ---- AI VIEW tab: live enemy AI visualizer (CEnemyAITrace) ----
+
+    int32 GetAISelectedSlot(void) const
+    {
+        const CEnemyAITrace::SLOT* pSlot = CEnemyAITrace::GetSlot(m_iAISelected);
+        if (pSlot)
+            return m_iAISelected;
+
+        // fall back to the lowest-numbered live enemy
+        int32 best = -1;
+        int32 bestLabel = 1 << 30;
+        for (int32 i = 0; i < CEnemyAITrace::GetSlotNum(); ++i)
+        {
+            const CEnemyAITrace::SLOT* pAny = CEnemyAITrace::GetSlot(i);
+            if (pAny && (pAny->m_iLabel < bestLabel))
+            {
+                best = i;
+                bestLabel = pAny->m_iLabel;
+            };
+        };
+        return best;
+    };
+
+
+    void CycleAISelection(int32 direction)
+    {
+        // order slots by their display number and step through them
+        int32 aOrder[CEnemyAITrace::SLOT_MAX];
+        int32 n = 0;
+        for (int32 label = 1; label <= CEnemyAITrace::SLOT_MAX; ++label)
+        {
+            for (int32 i = 0; i < CEnemyAITrace::GetSlotNum(); ++i)
+            {
+                const CEnemyAITrace::SLOT* pSlot = CEnemyAITrace::GetSlot(i);
+                if (pSlot && (pSlot->m_iLabel == label))
+                    aOrder[n++] = i;
+            };
+        };
+
+        if (n == 0)
+            return;
+
+        int32 current = GetAISelectedSlot();
+        int32 pos = 0;
+        for (int32 k = 0; k < n; ++k)
+        {
+            if (aOrder[k] == current)
+                pos = k;
+        };
+
+        m_iAISelected = aOrder[InvClamp(pos + direction, 0, n - 1)];
+    };
+
+
+    void AdjustAIViewItem(int32 selected, int32 direction, int32 multiplier)
+    {
+        switch (selected)
+        {
+        case AIITEM_ENABLE:
+            CEnemyAITrace::SetEnabled(!CEnemyAITrace::IsEnabled());
+            break;
+        case AIITEM_RADAR_RANGE:
+            m_fAIRadarRange = Clamp(m_fAIRadarRange + static_cast<float>(direction * multiplier), 3.0f, 40.0f);
+            break;
+        case AIITEM_TIMELINE:
+            m_bAITimeline = !m_bAITimeline;
+            break;
+        case AIITEM_TIMELINE_SPAN:
+            m_fAITimelineSpan = Clamp(m_fAITimelineSpan + static_cast<float>(direction * multiplier), 4.0f, 60.0f);
+            break;
+        case AIITEM_FREEZE:
+            CEnemyAITrace::SetTimelinePaused(!CEnemyAITrace::IsTimelinePaused());
+            break;
+        case AIITEM_SELECT:
+            CycleAISelection(direction);
+            break;
+        case AIITEM_DECISIONS:
+            m_bAIDecisionPanel = !m_bAIDecisionPanel;
+            break;
+        case AIITEM_RECORD:
+            CEnemyAITrace::SetFileRecording(!CEnemyAITrace::IsFileRecording());
+            break;
+        default:
+            break;
+        };
+    };
+
+
+    void ActivateAIViewItem(int32 selected)
+    {
+        switch (selected)
+        {
+        case AIITEM_SUMMARY:
+            CEnemyAITrace::WriteSummary("manual");
+            break;
+
+        case AIITEM_CLEAR:
+            CEnemyAITrace::Clear();
+            break;
+
+        case AIITEM_SIX_NINJAS:
+            if (CCombatLab::IsPlaying())
+            {
+                if (!CEnemyAITrace::IsEnabled())
+                    CEnemyAITrace::SetEnabled(true);
+                CCombatLab::SelectEnemyType(0);
+                CCombatLab::SetEnemyCount(CCombatLab::SPAWN_MAX);
+                CCombatLab::ResetScenario();
+                CEnemyAITrace::Clear();
+                ResetShowcaseCamera();
+            };
+            break;
+
+        default:
+            AdjustAIViewItem(selected, 1, 1);
+            break;
+        };
+    };
+
+
+    void ResetAIViewItem(int32 selected)
+    {
+        switch (selected)
+        {
+        case AIITEM_ENABLE:        CEnemyAITrace::SetEnabled(false); break;
+        case AIITEM_RADAR_RANGE:   m_fAIRadarRange = 8.0f; break;
+        case AIITEM_TIMELINE:      m_bAITimeline = true; break;
+        case AIITEM_TIMELINE_SPAN: m_fAITimelineSpan = 12.0f; break;
+        case AIITEM_FREEZE:        CEnemyAITrace::SetTimelinePaused(false); break;
+        case AIITEM_DECISIONS:     m_bAIDecisionPanel = true; break;
+        case AIITEM_RECORD:        CEnemyAITrace::SetFileRecording(false); break;
+        default: break;
+        };
+    };
+
+
+    void FormatAIViewItem(int32 index, char* buffer, size_t capacity) const
+    {
+        switch (index)
+        {
+        case AIITEM_ENABLE:
+            std::snprintf(buffer, capacity, "AI visualizer                 %s", CEnemyAITrace::IsEnabled() ? "ON" : "OFF");
+            break;
+        case AIITEM_RADAR_RANGE:
+            std::snprintf(buffer, capacity, "Radar range                   %.0f units", m_fAIRadarRange);
+            break;
+        case AIITEM_TIMELINE:
+            std::snprintf(buffer, capacity, "Timeline                      %s", m_bAITimeline ? "ON" : "OFF");
+            break;
+        case AIITEM_TIMELINE_SPAN:
+            std::snprintf(buffer, capacity, "Timeline length               %.0f s", m_fAITimelineSpan);
+            break;
+        case AIITEM_FREEZE:
+            std::snprintf(buffer, capacity, "Freeze timeline               %s", CEnemyAITrace::IsTimelinePaused() ? "ON" : "OFF");
+            break;
+        case AIITEM_SELECT:
+            {
+                int32 slot = GetAISelectedSlot();
+                const CEnemyAITrace::SLOT* pSlot = CEnemyAITrace::GetSlot(slot);
+                if (pSlot)
+                {
+                    char name[48];
+                    FormatEnemyName(pSlot->m_id, name, sizeof(name));
+                    std::snprintf(buffer, capacity, "Inspect enemy                 #%d %s", pSlot->m_iLabel, name);
+                }
+                else
+                {
+                    std::snprintf(buffer, capacity, "Inspect enemy                 none");
+                };
+            }
+            break;
+        case AIITEM_DECISIONS:
+            std::snprintf(buffer, capacity, "Decision history panel        %s", m_bAIDecisionPanel ? "ON" : "OFF");
+            break;
+        case AIITEM_RECORD:
+            std::snprintf(buffer, capacity, "Record to TMNT2_aitrace.jsonl  %s", CEnemyAITrace::IsFileRecording() ? "ON" : "OFF");
+            break;
+        case AIITEM_SUMMARY:
+            std::snprintf(buffer, capacity, "Write overlap summary to file");
+            break;
+        case AIITEM_CLEAR:
+            std::snprintf(buffer, capacity, "Clear recorded data");
+            break;
+        case AIITEM_SIX_NINJAS:
+            std::snprintf(buffer, capacity, "Six Foot Ninjas test%s", CCombatLab::IsPlaying() ? "" : "  (in Combat Lab)");
+            break;
+        default:
+            break;
+        };
+    };
+
+
+    void GetAIViewItemHelp(int32 index, const char*& scope, const char*& description) const
+    {
+        switch (index)
+        {
+        case AIITEM_ENABLE:
+            scope = "DIAGNOSTICS - OFF BY DEFAULT";
+            description = "Records what each enemy's AI really evaluated: every roll with its threshold, the action checks and the order chosen. Read-only: no extra RNG calls, no AI calls, no behaviour change.";
+            break;
+        case AIITEM_RADAR_RANGE:
+            scope = "DISPLAY";
+            description = "Top-down radar centred on P1, world-aligned (up = +Z). Inner ring = Foot Ninja attack distance (2.0).";
+            break;
+        case AIITEM_TIMELINE:
+        case AIITEM_TIMELINE_SPAN:
+            scope = "DISPLAY";
+            description = "One row per enemy, coloured by its real status category over the last seconds. Colours: red attack, yellow guard, blue move, gray wait, orange back-away, purple hit/down.";
+            break;
+        case AIITEM_FREEZE:
+            scope = "DISPLAY";
+            description = "Stops the timeline view so a moment can be read. Recording continues; unfreeze to see new data.";
+            break;
+        case AIITEM_SELECT:
+        case AIITEM_DECISIONS:
+            scope = "DECISION HISTORY";
+            description = "Shows the selected enemy's last decisions: why it re-decided, every roll (value vs threshold, retail vs current), checks, and the order it took. Left/Right picks the enemy.";
+            break;
+        case AIITEM_RECORD:
+        case AIITEM_SUMMARY:
+            scope = "FILE - TMNT2_aitrace.jsonl";
+            description = "Writes multipliers, status changes, decisions with rolls, 10 Hz positions and overlap summaries. Open it in tools/AIVisualizer/ai_replay.html for replay and statistics.";
+            break;
+        case AIITEM_CLEAR:
+            scope = "DIAGNOSTICS";
+            description = "Clears histories, timelines and the overlap statistics.";
+            break;
+        default:
+            scope = "COMBAT LAB";
+            description = "Spawns six Foot Ninjas (sword) in the Foot Clan arena with a fixed seed and clears the statistics. Pick AI mode and multipliers first.";
+            break;
+        };
+    };
+
+
+    // Thin quad from (x0,y0) to (x1,y1), screen pixels.
+    static void Im2DLine(IM2DBATCH& batch, float x0, float y0, float x1, float y1, float width, const RwRGBA& color)
+    {
+        if ((batch.m_nVertex + 6) > IM2DBATCH::VERTEX_MAX)
+            return;
+
+        float dx = x1 - x0;
+        float dy = y1 - y0;
+        float len = std::sqrt((dx * dx) + (dy * dy));
+        if (len < 0.001f)
+            return;
+
+        float nx = (-dy / len) * (width * 0.5f);
+        float ny = (dx / len) * (width * 0.5f);
+        const float ax[6] = { x0 + nx, x1 + nx, x0 - nx, x0 - nx, x1 + nx, x1 - nx };
+        const float ay[6] = { y0 + ny, y1 + ny, y0 - ny, y0 - ny, y1 + ny, y1 - ny };
+        for (int32 i = 0; i < 6; ++i)
+        {
+            RwIm2DVertex* pVertex = &batch.m_aVertex[batch.m_nVertex++];
+            RwIm2DVertexSetScreenX(pVertex, ax[i]);
+            RwIm2DVertexSetScreenY(pVertex, ay[i]);
+            RwIm2DVertexSetScreenZ(pVertex, batch.m_fZ);
+            RwIm2DVertexSetIntRGBA(pVertex, color.red, color.green, color.blue, color.alpha);
+            RwIm2DVertexSetU(pVertex, 0.0f, batch.m_fRhw);
+            RwIm2DVertexSetV(pVertex, 0.0f, batch.m_fRhw);
+            RwIm2DVertexSetRecipCameraZ(pVertex, batch.m_fRhw);
+        };
+    };
+
+
+    static void Im2DRing(IM2DBATCH& batch, float cx, float cy, float radius, float width, const RwRGBA& color)
+    {
+        const int32 SEGMENTS = 40;
+        float px = cx + radius;
+        float py = cy;
+        for (int32 i = 1; i <= SEGMENTS; ++i)
+        {
+            float a = (static_cast<float>(i) / static_cast<float>(SEGMENTS)) * MATH_PI2;
+            float nx = cx + (Math::Cos(a) * radius);
+            float ny = cy + (Math::Sin(a) * radius);
+            Im2DLine(batch, px, py, nx, ny, width, color);
+            px = nx;
+            py = ny;
+        };
+    };
+
+
+    static RwRGBA CategoryRGBA(int32 category, uint8 alpha)
+    {
+        uint8 rgb[3];
+        CEnemyAITrace::CategoryColor(category, rgb);
+        RwRGBA color = { rgb[0], rgb[1], rgb[2], alpha };
+        return color;
+    };
+
+
+    // Draws radar, overview, timeline and the decision panel.
+    void DrawAIView(void) const
+    {
+        RwCamera* pCamera = CCamera::CameraCurrent();
+        if (!CEnemyAITrace::IsEnabled() || !pCamera)
+            return;
+
+        IGamePlayer* pPlayer = (CGameProperty::GetPlayerNum() > 0 ? CGameProperty::Player(0) : nullptr);
+        if (!pPlayer || !pPlayer->IsAlive())
+            return;
+
+        static IM2DBATCH s_batch;
+        s_batch.m_nVertex = 0;
+        s_batch.m_fZ = RwIm2DGetNearScreenZ();
+        s_batch.m_fRhw = 1.0f / RwCameraGetNearClipPlane(pCamera);
+
+        const float SW = static_cast<float>(CScreen::Width());
+        const float SH = static_cast<float>(CScreen::Height());
+        const float px = MaxF(1.0f, SH / 480.0f);
+
+        // ---- radar (right side, below the frame graph) ----
+        float size = MinF(SH * 0.40f, SW * 0.26f);
+        float rx1 = SW - (12.0f * px);
+        float rx0 = rx1 - size;
+        float ry0 = (m_bFrameGraph ? (88.0f * px) : (12.0f * px));
+        float ry1 = ry0 + size;
+        float cx = (rx0 + rx1) * 0.5f;
+        float cy = (ry0 + ry1) * 0.5f;
+        float scale = (size * 0.5f) / m_fAIRadarRange;
+
+        RwV3d vPlayer = Math::VECTOR3_ZERO;
+        pPlayer->GetPosition(&vPlayer);
+        float fPlayerDir = pPlayer->GetRotY();
+
+        Im2DQuad(s_batch, rx0, ry0, rx1, ry1, { 0x06, 0x0A, 0x12, 0xD0 });
+        Im2DLine(s_batch, rx0, ry0, rx1, ry0, 1.5f, { 0x3A, 0x9C, 0xD8, 0xFF });
+        Im2DLine(s_batch, rx0, ry1, rx1, ry1, 1.5f, { 0x3A, 0x9C, 0xD8, 0xFF });
+        Im2DLine(s_batch, rx0, ry0, rx0, ry1, 1.5f, { 0x3A, 0x9C, 0xD8, 0xFF });
+        Im2DLine(s_batch, rx1, ry0, rx1, ry1, 1.5f, { 0x3A, 0x9C, 0xD8, 0xFF });
+        for (float r = 5.0f; r <= m_fAIRadarRange; r += 5.0f)
+            Im2DRing(s_batch, cx, cy, r * scale, 1.0f, { 0xFF, 0xFF, 0xFF, 0x22 });
+        Im2DRing(s_batch, cx, cy, 2.0f * scale, 1.2f, { 0xFF, 0x60, 0x60, 0x60 });
+
+        auto toScreen = [&](const RwV3d& v, float& sx, float& sy)
+        {
+            sx = cx + ((v.x - vPlayer.x) * scale);
+            sy = cy - ((v.z - vPlayer.z) * scale);
+        };
+
+        auto inside = [&](float sx, float sy) -> bool
+        {
+            return ((sx >= rx0 + 2.0f) && (sx <= rx1 - 2.0f) && (sy >= ry0 + 2.0f) && (sy <= ry1 - 2.0f));
+        };
+
+        // player: white triangle pointing where P1 faces
+        {
+            float fx = Math::Sin(fPlayerDir);
+            float fy = -Math::Cos(fPlayerDir);
+            float tip = 9.0f * px;
+            Im2DLine(s_batch, cx - (fy * tip * 0.6f) - (fx * tip * 0.5f), cy + (fx * tip * 0.6f) - (fy * tip * 0.5f),
+                     cx + (fx * tip), cy + (fy * tip), 2.0f * px, { 0xFF, 0xFF, 0xFF, 0xFF });
+            Im2DLine(s_batch, cx + (fy * tip * 0.6f) - (fx * tip * 0.5f), cy - (fx * tip * 0.6f) - (fy * tip * 0.5f),
+                     cx + (fx * tip), cy + (fy * tip), 2.0f * px, { 0xFF, 0xFF, 0xFF, 0xFF });
+            Im2DQuad(s_batch, cx - (2.5f * px), cy - (2.5f * px), cx + (2.5f * px), cy + (2.5f * px), { 0xFF, 0xFF, 0xFF, 0xFF });
+        };
+
+        struct LABEL { float x; float y; int32 label; bool bSel; };
+        LABEL aLabel[CEnemyAITrace::SLOT_MAX];
+        int32 nLabel = 0;
+        int32 selectedSlot = GetAISelectedSlot();
+
+        for (int32 i = 0; i < CEnemyAITrace::GetSlotNum(); ++i)
+        {
+            const CEnemyAITrace::SLOT* pSlot = CEnemyAITrace::GetSlot(i);
+            if (!pSlot)
+                continue;
+
+            CGameObject* pObject = CGameObjectManager::GetObject(pSlot->m_hEnemy);
+            if (!pObject || (pObject->GetType() != GAMEOBJECTTYPE::ENEMY))
+                continue;
+
+            CEnemy* pEnemy = static_cast<CEnemy*>(pObject);
+            RwV3d vPos = Math::VECTOR3_ZERO;
+            pEnemy->GetPosition(&vPos);
+
+            float sx = 0.0f;
+            float sy = 0.0f;
+            toScreen(vPos, sx, sy);
+            bool bInside = inside(sx, sy);
+            if (!bInside)
+            {
+                // clamp to the border so off-radar enemies stay visible
+                sx = Clamp(sx, rx0 + (5.0f * px), rx1 - (5.0f * px));
+                sy = Clamp(sy, ry0 + (5.0f * px), ry1 - (5.0f * px));
+            };
+
+            RwRGBA color = CategoryRGBA(pSlot->m_category, 0xFF);
+
+            if ((pSlot->m_target >= 0) && bInside)
+                Im2DLine(s_batch, sx, sy, cx, cy, 1.0f, { color.red, color.green, color.blue, 0x50 });
+
+            float dir = pEnemy->Character().Compositor().GetDirection();
+            float fx = Math::Sin(dir);
+            float fy = -Math::Cos(dir);
+            float half = 4.5f * px;
+            if (pSlot->m_bInRange)
+                Im2DQuad(s_batch, sx - half - (2.0f * px), sy - half - (2.0f * px), sx + half + (2.0f * px), sy + half + (2.0f * px),
+                         { 0xFF, 0xFF, 0xFF, 0xD0 });
+            if (i == selectedSlot)
+                Im2DRing(s_batch, sx, sy, half * 2.4f, 1.5f * px, { 0xFF, 0xD0, 0x60, 0xFF });
+            Im2DQuad(s_batch, sx - half, sy - half, sx + half, sy + half, color);
+            Im2DLine(s_batch, sx, sy, sx + (fx * half * 2.6f), sy + (fy * half * 2.6f), 1.8f * px, color);
+
+            if (nLabel < CEnemyAITrace::SLOT_MAX)
+            {
+                aLabel[nLabel].x = sx + half + (2.0f * px);
+                aLabel[nLabel].y = sy - half - (6.0f * px);
+                aLabel[nLabel].label = pSlot->m_iLabel;
+                aLabel[nLabel].bSel = (i == selectedSlot);
+                ++nLabel;
+            };
+        };
+
+        // ---- timeline (bottom) ----
+        const CEnemyAITrace::OVERVIEW& ov = CEnemyAITrace::Overview();
+        float tx0 = 12.0f * px;
+        float tx1 = SW - (12.0f * px);
+        float rowH = 7.0f * px;
+        int32 nRow = 0;
+        int32 aRowSlot[CEnemyAITrace::SLOT_MAX];
+        for (int32 label = 1; label <= CEnemyAITrace::SLOT_MAX; ++label)
+        {
+            for (int32 i = 0; i < CEnemyAITrace::GetSlotNum(); ++i)
+            {
+                const CEnemyAITrace::SLOT* pSlot = CEnemyAITrace::GetSlot(i);
+                if (pSlot && (pSlot->m_iLabel == label) && (nRow < 8))
+                    aRowSlot[nRow++] = i;
+            };
+        };
+
+        float ty1 = SH - (10.0f * px);
+        float ty0 = ty1 - (static_cast<float>(nRow) * (rowH + (1.0f * px))) - (2.0f * px);
+        float labelW = 26.0f * px;
+        float now = CEnemyAITrace::TimelineNow();
+        float span = m_fAITimelineSpan;
+        if (m_bAITimeline && (nRow > 0))
+        {
+            Im2DQuad(s_batch, tx0, ty0 - (2.0f * px), tx1, ty1 + (2.0f * px), { 0x06, 0x0A, 0x12, 0xC8 });
+            float gx0 = tx0 + labelW;
+            float gw = tx1 - gx0 - (4.0f * px);
+            for (int32 r = 0; r < nRow; ++r)
+            {
+                const CEnemyAITrace::SLOT* pSlot = CEnemyAITrace::GetSlot(aRowSlot[r]);
+                float y0 = ty0 + (static_cast<float>(r) * (rowH + (1.0f * px)));
+                float y1 = y0 + rowH;
+                int32 count = (pSlot->m_nSegment < CEnemyAITrace::SEGMENT_HISTORY ? pSlot->m_nSegment : CEnemyAITrace::SEGMENT_HISTORY);
+                for (int32 k = 0; k < count; ++k)
+                {
+                    int32 index = pSlot->m_nSegment - 1 - k;
+                    const CEnemyAITrace::SEGMENT& rSeg = pSlot->m_aSegment[index % CEnemyAITrace::SEGMENT_HISTORY];
+                    float segEnd = now;
+                    if (k > 0)
+                        segEnd = pSlot->m_aSegment[(index + 1) % CEnemyAITrace::SEGMENT_HISTORY].m_fStart;
+                    if (segEnd < (now - span))
+                        break;
+                    float segStart = MaxF(rSeg.m_fStart, now - span);
+                    if (segStart >= segEnd)
+                        continue;
+                    float x0 = gx0 + (((segStart - (now - span)) / span) * gw);
+                    float x1 = gx0 + (((segEnd - (now - span)) / span) * gw);
+                    Im2DQuad(s_batch, x0, y0, MaxF(x0 + 1.0f, x1), y1, CategoryRGBA(rSeg.m_category, 0xE8));
+                };
+            };
+
+            // one tick per second
+            for (float t = 0.0f; t <= span; t += 1.0f)
+            {
+                float x = gx0 + gw - ((t / span) * gw);
+                Im2DLine(s_batch, x, ty0 - (2.0f * px), x, ty0, 1.0f, { 0xFF, 0xFF, 0xFF, 0x60 });
+            };
+        };
+
+        CSystem2D::PushRenderState();
+        RwRenderStateSet(rwRENDERSTATETEXTURERASTER, nullptr);
+        RwIm2DRenderPrimitive(rwPRIMTYPETRILIST, s_batch.m_aVertex, s_batch.m_nVertex);
+        CSystem2D::PopRenderState();
+
+        // ---- text ----
+        m_font.Background({ 0x00, 0x00, 0x00, 0x00 });
+        for (int32 n = 0; n < nLabel; ++n)
+        {
+            m_font.Color(aLabel[n].bSel ? RwRGBA{ 0xFF, 0xD0, 0x60, 0xFF } : RwRGBA{ 0xFF, 0xFF, 0xFF, 0xFF });
+            m_font.Position(static_cast<int32>(aLabel[n].x), static_cast<int32>(aLabel[n].y));
+            m_font.Print("%d", aLabel[n].label);
+        };
+
+        m_font.Background({ 0x06, 0x0A, 0x12, 0xD0 });
+        m_font.Color({ 0x78, 0xD8, 0xFF, 0xFF });
+        m_font.Position(static_cast<int32>(rx0), static_cast<int32>(ry0) - 16);
+        m_font.Print("AI VIEW  r=%.0f  %s", m_fAIRadarRange, CEnemyAITrace::IsTimelinePaused() ? "FROZEN" : "");
+
+        int32 oy = static_cast<int32>(ry1) + 4;
+        int32 ox = static_cast<int32>(rx0);
+        m_font.Color({ 0xE8, 0xEE, 0xF8, 0xFF });
+        m_font.Position(ox, oy);
+        m_font.Print("Active %d  attack %d  in range %d", ov.m_nActive, ov.m_nAttacking, ov.m_nInRange);
+        m_font.Position(ox, oy + 16);
+        m_font.Print("guard %d  move %d  wait %d  hit %d  back %d",
+                     ov.m_anCategory[CEnemyAITrace::CAT_GUARD], ov.m_anCategory[CEnemyAITrace::CAT_MOVE],
+                     ov.m_anCategory[CEnemyAITrace::CAT_WAIT], ov.m_anCategory[CEnemyAITrace::CAT_HIT],
+                     ov.m_anCategory[CEnemyAITrace::CAT_SPECIAL]);
+        {
+            float overlapSec = 0.0f;
+            for (int32 k = 2; k <= CEnemyAITrace::SLOT_MAX; ++k)
+                overlapSec += ov.m_afAttackingTime[k];
+            float pct = (ov.m_fSpan > 0.0f ? (overlapSec / ov.m_fSpan) * 100.0f : 0.0f);
+            int32 startPct = (ov.m_nAttackStarts > 0 ? (ov.m_nAttackStartsOverlapping * 100) / ov.m_nAttackStarts : 0);
+            m_font.Position(ox, oy + 32);
+            m_font.Print("Max at once %d  2+ attacking %.0f%% of %.0fs", ov.m_nMaxAttacking, pct, ov.m_fSpan);
+            m_font.Position(ox, oy + 48);
+            m_font.Print("Attack starts %d, %d%% while another attacked", ov.m_nAttackStarts, startPct);
+        };
+
+        if (m_bAITimeline && (nRow > 0))
+        {
+            m_font.Background({ 0x00, 0x00, 0x00, 0x00 });
+            m_font.Color({ 0xE8, 0xEE, 0xF8, 0xFF });
+            for (int32 r = 0; r < nRow; ++r)
+            {
+                const CEnemyAITrace::SLOT* pSlot = CEnemyAITrace::GetSlot(aRowSlot[r]);
+                float y0 = ty0 + (static_cast<float>(r) * (rowH + (1.0f * px)));
+                m_font.Position(static_cast<int32>(tx0 + (3.0f * px)), static_cast<int32>(y0 + (rowH * 0.5f)) - 8);
+                m_font.Print("#%d", pSlot->m_iLabel);
+            };
+            m_font.Background({ 0x06, 0x0A, 0x12, 0xC8 });
+            m_font.Color({ 0xA0, 0xAC, 0xC0, 0xFF });
+            m_font.Position(static_cast<int32>(tx0), static_cast<int32>(ty0) - 20);
+            m_font.Print("Timeline last %.0fs (now at right)  red attack  yellow guard  blue move  gray wait  orange back-away  purple hit", span);
+        };
+
+        // ---- decision panel ----
+        if (m_bAIDecisionPanel)
+        {
+            int32 panelX = 12;
+            int32 panelY = (m_bOpen ? m_iLastMenuBottom + 8 : 30);
+            int32 panelBottom = static_cast<int32>(m_bAITimeline && (nRow > 0) ? ty0 - (24.0f * px) : SH - 12.0f);
+            if (!m_bOpen || (m_page == PAGE_AIVIEW))
+                DrawAIDecisionPanel(panelX, panelY, panelBottom);
+        };
+    };
+
+
+    void DrawAIDecisionPanel(int32 x, int32 y, int32 bottom) const
+    {
+        const CEnemyAITrace::SLOT* pSlot = CEnemyAITrace::GetSlot(GetAISelectedSlot());
+        if (!pSlot || ((y + 40) > bottom))
+            return;
+
+        CGameObject* pObject = CGameObjectManager::GetObject(pSlot->m_hEnemy);
+        if (!pObject || (pObject->GetType() != GAMEOBJECTTYPE::ENEMY))
+            return;
+
+        CEnemy* pEnemy = static_cast<CEnemy*>(pObject);
+        const CEnemyCharacter& rChr = pEnemy->Character();
+        const ENEMYTYPES::CHARACTERISTIC& rNow = rChr.AICharacteristic();
+        const ENEMYTYPES::CHARACTERISTIC& rBase = rChr.GetDebugBaseAICharacteristic();
+
+        const int32 LINE = 16;
+        int32 maxLines = (bottom - y) / LINE;
+        int32 line = 0;
+        char text[256];
+
+        auto print = [&](const RwRGBA& color, const char* pszText)
+        {
+            if (line >= maxLines)
+                return;
+            m_font.Color(color);
+            m_font.Position(x, y + (line * LINE));
+            m_font.Print("%s", pszText);
+            ++line;
+        };
+
+        const RwRGBA HEAD = { 0x78, 0xD8, 0xFF, 0xFF };
+        const RwRGBA TEXT = { 0xE8, 0xEE, 0xF8, 0xFF };
+        const RwRGBA DIM  = { 0xA0, 0xAC, 0xC0, 0xFF };
+        const RwRGBA SEL  = { 0xFF, 0xD0, 0x60, 0xFF };
+
+        m_font.Background({ 0x06, 0x0A, 0x12, 0xD8 });
+
+        char name[48];
+        char status[32];
+        FormatEnemyName(pSlot->m_id, name, sizeof(name));
+        FormatEnemyStatus(pSlot->m_status, status, sizeof(status));
+        std::snprintf(text, sizeof(text), "#%d %s   %s (%s) for %.1fs   HP %d/%d", pSlot->m_iLabel, name, status,
+                      CEnemyAITrace::CategoryName(pSlot->m_category), CEnemyAITrace::Now() - pSlot->m_fStatusStart,
+                      pEnemy->GetHP(), pEnemy->GetHPMax());
+        print(SEL, text);
+
+        if (!pSlot->m_bGeneralAI)
+        {
+            print(DIM, "This enemy does not use the General AI; only its status is shown.");
+            return;
+        };
+
+        if (pSlot->m_target >= 0)
+            std::snprintf(text, sizeof(text), "Target P%d at %.1f   attack distance %.1f, front cone %.0f deg   %s",
+                          pSlot->m_target + 1, pSlot->m_fTargetDist, rNow.m_fDistanceOfSuitable,
+                          rNow.m_fRatioOfFrontView * 36.0f * 2.0f, (pSlot->m_bInRange ? "IN RANGE + FACING" : "not in range"));
+        else
+            std::snprintf(text, sizeof(text), "No target (player not seen, out of radius, or activity roll failed)");
+        print(TEXT, text);
+
+        std::snprintf(text, sizeof(text), "Think every %.3fs (%.2f since)%s", pSlot->m_fThinkInterval, pSlot->m_fSinceThink,
+                      pSlot->m_bHasBackAway ?
+                      (pSlot->m_fBackAwayCooldown > 0.0f ? "   back-away cooldown" : "   back-away READY") : "");
+        if (pSlot->m_bHasBackAway && (pSlot->m_fBackAwayCooldown > 0.0f))
+        {
+            char cd[32];
+            std::snprintf(cd, sizeof(cd), " %.1fs", pSlot->m_fBackAwayCooldown);
+            strcat_s(text, sizeof(text), cd);
+        };
+        print(TEXT, text);
+
+        std::snprintf(text, sizeof(text), "AI now (retail): activity %.0f%% (%.0f%%)  think %.0f%% (%.0f%%)  move %.0f%%  view %.1f/%.1f (%.1f/%.1f)",
+                      rNow.m_fRatioOfActivity * 100.0f, rBase.m_fRatioOfActivity * 100.0f,
+                      rNow.m_fThinkingFrequency * 100.0f, rBase.m_fThinkingFrequency * 100.0f,
+                      rNow.m_fRatioOfMove * 100.0f,
+                      rNow.m_fRatioOfFrontView, rNow.m_fRatioOfRearView,
+                      rBase.m_fRatioOfFrontView, rBase.m_fRatioOfRearView);
+        print(DIM, text);
+
+        {
+            const uint8* pBaseRow = nullptr;
+            const uint8* pNowRow = nullptr;
+            int32 count = 0;
+            if (rChr.GetDebugFrequencyRows(&pBaseRow, &pNowRow, &count) && (count > 11))
+            {
+                std::snprintf(text, sizeof(text),
+                              "Attack%% A %d(%d) AA %d(%d) AAA %d(%d) B %d(%d) C %d(%d) run %d(%d)   Guard%% vs A %d(%d) B %d(%d) shot %d(%d) jump %d(%d)",
+                              pNowRow[0], pBaseRow[0], pNowRow[1], pBaseRow[1], pNowRow[2], pBaseRow[2],
+                              pNowRow[3], pBaseRow[3], pNowRow[4], pBaseRow[4], pNowRow[5], pBaseRow[5],
+                              pNowRow[6], pBaseRow[6], pNowRow[7], pBaseRow[7], pNowRow[8], pBaseRow[8],
+                              pNowRow[9], pBaseRow[9]);
+                print(DIM, text);
+            };
+        };
+
+        // newest decision in full, then one line each for older ones
+        for (int32 ago = 0; ago < CEnemyAITrace::DECISION_HISTORY; ++ago)
+        {
+            const CEnemyAITrace::DECISION* pDecision = CEnemyAITrace::GetDecision(*pSlot, ago);
+            if (!pDecision)
+                break;
+
+            const char* pszType = CEnemyAITrace::TypeName(pDecision->m_order, pDecision->m_typeId);
+            std::snprintf(text, sizeof(text), "%s %.1fs ago: %s%s%s%s   (%s; prev order ran %.1fs, %d wait checks, %d activity fails, %d no-target)",
+                          (ago == 0 ? "LAST" : "    "),
+                          CEnemyAITrace::Now() - pDecision->m_fTime,
+                          CEnemyAITrace::OrderName(pDecision->m_order),
+                          (pszType[0] ? " " : ""), pszType,
+                          (pDecision->m_target >= 0 ? (pDecision->m_target == 0 ? " -> P1" : " -> P2+") : ""),
+                          CEnemyAITrace::ReasonName(pDecision->m_reason), pDecision->m_fPrevOrderSec,
+                          pDecision->m_nWaitChecks, pDecision->m_nWaitActivityFail, pDecision->m_nWaitNoTarget);
+            print(ago == 0 ? HEAD : DIM, text);
+
+            if (ago == 0)
+            {
+                for (int32 e = 0; e < pDecision->m_nEvent; ++e)
+                {
+                    char event[200];
+                    CEnemyAITrace::FormatEvent(pDecision->m_aEvent[e], &rChr, event, sizeof(event));
+                    std::snprintf(text, sizeof(text), "   %s", event);
+                    print(TEXT, text);
+                };
+                if (pDecision->m_bEventOverflow)
+                    print(DIM, "   (more checks than the panel stores)");
+            };
         };
     };
 
@@ -3838,6 +4584,12 @@ private:
     int32 m_iNavFrames;
     int32 m_iMenuSize;
     mutable int32 m_aiScroll[PAGE_NUM];
+    int32 m_iAISelected;
+    float m_fAIRadarRange;
+    float m_fAITimelineSpan;
+    bool m_bAITimeline;
+    bool m_bAIDecisionPanel;
+    mutable int32 m_iLastMenuBottom;
     bool m_bLabEnterArmed;
     bool m_bLabAIPresetStored;
     CDebugDifficulty::SNAPSHOT m_labAIPreset;

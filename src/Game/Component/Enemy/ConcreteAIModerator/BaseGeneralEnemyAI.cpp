@@ -7,6 +7,8 @@
 #include "Game/Component/GameMain/GameProperty.hpp"
 #include "Game/Component/GameMain/GamePlayer.hpp"
 
+#include "Game/Component/Enemy/AITrace.hpp"
+
 #ifdef _DEBUG
 #include "Game/Component/Enemy/EnemyDebug.hpp"
 #include "Game/System/Misc/DebugShape.hpp"
@@ -872,6 +874,8 @@ void CBaseGeneralEnemyAIModerator::Run(void)
 {
     m_fTimer += CGameProperty::GetElapsedTime();
 
+    AITRACE(RunBegin(&EnemyCharacter()));
+
     m_targetInfo.Update();
 
     if (m_pSpecialityConsider)
@@ -889,17 +893,30 @@ void CBaseGeneralEnemyAIModerator::Run(void)
         {
             UNDERACTION underAction = UnderThinking();
             if (underAction == UNDERACTIONS_THINKOVER)
+            {
                 Thinking();
+                AITRACE(Commit(&EnemyCharacter(), CEnemyAITrace::REASON_THINKOVER, ThinkOrder()));
+            }
+            else if (underAction == UNDERACTIONS_FORCE_CHANGED)
+            {
+                AITRACE(Commit(&EnemyCharacter(), CEnemyAITrace::REASON_FORCED, ThinkOrder()));
+            }
+            else
+            {
+                AITRACE(Discard(&EnemyCharacter()));
+            };
         };
         break;
 
     case CAIThinkOrder::RESULT_ACCEPT:
         Thinking();
+        AITRACE(Commit(&EnemyCharacter(), CEnemyAITrace::REASON_ACCEPT, ThinkOrder()));
         break;
 
     case CAIThinkOrder::RESULT_REFUSE:
         m_targetInfo.Reset();
         Thinking();
+        AITRACE(Commit(&EnemyCharacter(), CEnemyAITrace::REASON_REFUSE, ThinkOrder()));
         break;
 
     default:
@@ -907,6 +924,9 @@ void CBaseGeneralEnemyAIModerator::Run(void)
         ThinkOrder().SetAnswer(CAIThinkOrder::RESULT_WAITING);
         break;
     };
+
+    AITRACE(RunEnd(&EnemyCharacter(), m_targetInfo.GetDistance(), m_targetInfo.GetAngle(),
+                   m_fThinkElapseTime, m_fTimer - m_fThinkBeforeTime));
 };
 
 
@@ -1194,6 +1214,7 @@ void CBaseGeneralEnemyAIModerator::Thinking(void)
     int32 playerNo = SearchTarget();
 
     CAIThinkOrder::ORDER order = ActionSelector(playerNo);
+    AITRACE(Event(&EnemyCharacter(), CEnemyAITrace::EV_SELECT, order, 0.0f, 0.0f, true));
 
     m_bActionRun = false;
 
@@ -1216,6 +1237,7 @@ void CBaseGeneralEnemyAIModerator::Thinking(void)
                 if (OnActionOfMove(playerNo))
                     return;
                 
+                AITRACE(Event(&EnemyCharacter(), CEnemyAITrace::EV_FALLBACK, order, 0.0f, 0.0f, false));
                 order = CAIThinkOrder::ORDER_WAIT;
             }
             break;
@@ -1228,6 +1250,7 @@ void CBaseGeneralEnemyAIModerator::Thinking(void)
                     return;
                 };
 
+                AITRACE(Event(&EnemyCharacter(), CEnemyAITrace::EV_FALLBACK, order, 0.0f, 0.0f, false));
                 order = CAIThinkOrder::ORDER_WAIT;
             }
             break;
@@ -1237,6 +1260,7 @@ void CBaseGeneralEnemyAIModerator::Thinking(void)
                 if (OnActionOfAttack(playerNo))
                     return;
 
+                AITRACE(Event(&EnemyCharacter(), CEnemyAITrace::EV_FALLBACK, order, 0.0f, 0.0f, false));
                 order = CAIThinkOrder::ORDER_WAIT;
             }
             break;
@@ -1246,6 +1270,7 @@ void CBaseGeneralEnemyAIModerator::Thinking(void)
                 if (OnActionOfDefence(playerNo))
                     return;
 
+                AITRACE(Event(&EnemyCharacter(), CEnemyAITrace::EV_FALLBACK, order, 0.0f, 0.0f, false));
                 order = CAIThinkOrder::ORDER_WAIT;
             }
             break;
@@ -1287,6 +1312,9 @@ bool CBaseGeneralEnemyAIModerator::IsSatifyFrequency(int32 no) const
     uint8 freq = AIFreqParam().GetFrequency(no);
     uint8 rnd = static_cast<uint8>(Math::RandRange(0, 100));
 
+    AITRACE(Event(&EnemyCharacter(), CEnemyAITrace::EV_FREQ, no,
+                  static_cast<float>(freq), static_cast<float>(rnd), (freq > rnd)));
+
     return (freq > rnd);
 };
 
@@ -1324,13 +1352,22 @@ int32 CBaseGeneralEnemyAIModerator::SearchTarget(void)
         float fRatioOfActivity = Characteristic().m_fRatioOfActivity;
         float fRand = Math::RandFloat();
 
+        AITRACE(Event(&EnemyCharacter(), CEnemyAITrace::EV_TARGET, no, fRatioOfActivity, fRand,
+                      (fRand < fRatioOfActivity)));
+
         if (fRand < fRatioOfActivity)
             newTarget = no;
     }
     else if (beforeTarget >= 0)
     {
+        AITRACE(Event(&EnemyCharacter(), CEnemyAITrace::EV_TARGET, -1, 0.0f, 0.0f, false));
+        AITRACE(Event(&EnemyCharacter(), CEnemyAITrace::EV_TARGET_RESULT, -1, static_cast<float>(beforeTarget), 0.0f, false));
         m_targetInfo.Set(-1);
         return -1;
+    }
+    else
+    {
+        AITRACE(Event(&EnemyCharacter(), CEnemyAITrace::EV_TARGET, -1, 0.0f, 0.0f, false));
     };
 	
     if ((beforeTarget < 0) || (newTarget < 0))
@@ -1343,10 +1380,15 @@ int32 CBaseGeneralEnemyAIModerator::SearchTarget(void)
         float fRatioOfImpulsiveness = Characteristic().m_fRatioOfImpulsiveness;
         float fRand = Math::RandFloat();
 
+        AITRACE(Event(&EnemyCharacter(), CEnemyAITrace::EV_TARGET_KEEP, beforeTarget, fRatioOfImpulsiveness, fRand,
+                      !(fRatioOfImpulsiveness < fRand)));
+
         if (fRatioOfImpulsiveness < fRand)
             newTarget = beforeTarget;
     };
 	
+    AITRACE(Event(&EnemyCharacter(), CEnemyAITrace::EV_TARGET_RESULT, newTarget, static_cast<float>(beforeTarget), 0.0f,
+                  (newTarget >= 0)));
     m_targetInfo.Set(newTarget);
 
     return newTarget;

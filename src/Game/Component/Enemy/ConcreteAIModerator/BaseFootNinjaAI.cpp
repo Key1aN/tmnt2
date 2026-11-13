@@ -1,4 +1,5 @@
 #include "BaseFootNinjaAI.hpp"
+#include "Game/Component/Enemy/AITrace.hpp"
 
 #include "Game/Component/Enemy/AIUtils.hpp"
 #include "Game/Component/Enemy/EnemyParameter.hpp"
@@ -40,11 +41,13 @@ CBaseFootNinjaAI::CBaseFootNinjaAI(CEnemyCharacter* pEnemyChr)
 
     if (IsTakeBackAway())
     {
+        AITRACE(Event(&EnemyCharacter(), CEnemyAITrace::EV_BACKAWAY, iNo, m_fBackAwayTimer, 0.0f, true));
         m_bBackAwayRequest = true;
         order = CAIThinkOrder::ORDER_ATTACK;
     }
     else if (IsTakeJumpAttack())
     {
+        AITRACE(Event(&EnemyCharacter(), CEnemyAITrace::EV_ELIGIBLE, CEnemyAITrace::ELIGIBLE_JUMP_ATTACK, 0.0f, 0.0f, true));
         m_bJumpAttackRequest = true;
         order = CAIThinkOrder::ORDER_ATTACK;
     }
@@ -90,6 +93,7 @@ CBaseFootNinjaAI::CBaseFootNinjaAI(CEnemyCharacter* pEnemyChr)
 /*virtual*/ CBaseFootNinjaAI::UNDERACTION CBaseFootNinjaAI::OnUnderAllActions(void) /*override*/
 {
     m_fBackAwayTimer -= CGameProperty::GetElapsedTime();
+    AITRACE(BackAwayTimer(&EnemyCharacter(), m_fBackAwayTimer));
 
     return CBaseGrapplerAI::OnUnderAllActions();
 };
@@ -98,10 +102,16 @@ CBaseFootNinjaAI::CBaseFootNinjaAI(CEnemyCharacter* pEnemyChr)
 /*virtual*/ CBaseFootNinjaAI::UNDERACTION CBaseFootNinjaAI::OnUnderWait(void) /*override*/
 {
     if (IsTakeBackAway())
+    {
+        AITRACE(Event(&EnemyCharacter(), CEnemyAITrace::EV_BACKAWAY, -1, m_fBackAwayTimer, 0.0f, true));
         m_bBackAwayRequest = true;
+    };
     
     if (IsTakeJumpAttack())
+    {
+        AITRACE(Event(&EnemyCharacter(), CEnemyAITrace::EV_ELIGIBLE, CEnemyAITrace::ELIGIBLE_JUMP_ATTACK, 0.0f, 0.0f, true));
         m_bJumpAttackRequest = true;
+    };
 
     if (m_bBackAwayRequest || m_bJumpAttackRequest)
     {
