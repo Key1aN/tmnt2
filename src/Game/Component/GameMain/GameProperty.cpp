@@ -106,6 +106,12 @@ static inline CGamePropertyObject& GamePropertyObject(void)
 };
 
 
+/*static*/ bool CGameProperty::IsCameraViewAvailable(void)
+{
+    return (s_pGamePropertyObject && s_pGamePropertyObject->GetRwCamera());
+};
+
+
 /*static*/ void CGameProperty::GetCameraViewMatrix(RwMatrix* pMatrix)
 {
     GamePropertyObject().GetCameraViewMatrix(pMatrix);

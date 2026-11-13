@@ -26,6 +26,7 @@ public:
 	static void SetMapCamera(CMapCamera* pMapCamera);
 	static CMapCamera* GetMapCamera(void);
 	static void GetCameraViewMatrix(RwMatrix* pMatrix);
+	static bool IsCameraViewAvailable(void); // false while no stage camera is set (e.g. during stage loading)
 	static void GetCameraFrameMatrix(RwMatrix* pMatrix);
 	static bool AdjustWithinMoveBoundary(RwV3d* pvOut, RwV3d* pvIn);
 	static void SetCameraVibration(float fPower, float fTime, int32 nFreq);

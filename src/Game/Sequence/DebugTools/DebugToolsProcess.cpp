@@ -302,7 +302,7 @@ namespace
 
     // ---- v1.2.10 menu renderer (game font + flat panels) ----
 
-    static const char* MENU_VERSION = "v1.2.12";
+    static const char* MENU_VERSION = "v1.2.13";
 
     enum MENUSIZE
     {
@@ -521,6 +521,9 @@ namespace
 
     static bool ProjectToNormalized(const RwV3d& world, float& normalizedX, float& normalizedY)
     {
+        if (!CGameProperty::IsCameraViewAvailable())
+            return false;
+
         RwMatrix matrixView;
         RwMatrixSetIdentity(&matrixView);
         CGameProperty::GetCameraViewMatrix(&matrixView);
@@ -753,7 +756,7 @@ public:
         std::memset(m_aTracked, 0x00, sizeof(m_aTracked));
         std::memset(m_aMoveEvent, 0x00, sizeof(m_aMoveEvent));
         m_szPlayerMotion[0] = '\0';
-        m_moveLog.Write("SESSION  TMNT2 Debug Tools v1.2.12 move telemetry (bosses always; all enemies when labels = ALL)");
+        m_moveLog.Write("SESSION  TMNT2 Debug Tools v1.2.13 move telemetry (bosses always; all enemies when labels = ALL)");
         m_moveLog.Flush();
 
         // v1.2.7: the session header (with GPU and display mode) is written at
@@ -3277,7 +3280,7 @@ private:
             return;
 
         RwCamera* pCamera = CCamera::CameraCurrent();
-        if (!pCamera || !CGameStage::GetCurrent())
+        if (!pCamera || !CGameStage::GetCurrent() || !CGameProperty::IsCameraViewAvailable())
             return;
 
         static IM2DBATCH s_batch;
@@ -3801,7 +3804,7 @@ private:
     void DrawAIView(void) const
     {
         RwCamera* pCamera = CCamera::CameraCurrent();
-        if (!CEnemyAITrace::IsEnabled() || !pCamera)
+        if (!CEnemyAITrace::IsEnabled() || !pCamera || !CGameStage::GetCurrent() || !CGameProperty::IsCameraViewAvailable())
             return;
 
         IGamePlayer* pPlayer = (CGameProperty::GetPlayerNum() > 0 ? CGameProperty::Player(0) : nullptr);

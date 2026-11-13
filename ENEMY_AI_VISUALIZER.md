@@ -1,4 +1,4 @@
-# Live Enemy AI Visualizer (Combat Lab v1.2.0 / Debug Tools v1.2.12, US)
+# Live Enemy AI Visualizer (Combat Lab v1.2.0 / Debug Tools v1.2.13, US)
 
 This build adds a read-only view of what each enemy's AI actually evaluates. It does not change
 enemy behaviour, timing or random numbers. It is off by default, and turning it on adds no RNG

@@ -40,6 +40,8 @@ jobs:
             "src/Game/Component/Enemy/EnemyCharacter.hpp",
             "src/Game/Component/GameMain/DebugDifficulty.cpp",
             "src/Game/Component/GameMain/DebugDifficulty.hpp",
+            "src/Game/Component/GameMain/GameProperty.cpp",
+            "src/Game/Component/GameMain/GameProperty.hpp",
             "src/Game/ProcessList.cpp",
             "src/Game/ProcessList.hpp",
             "src/Game/Sequence/CombatLab/CombatLabSequence.cpp",
