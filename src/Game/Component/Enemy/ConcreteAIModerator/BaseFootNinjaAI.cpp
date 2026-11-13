@@ -25,7 +25,9 @@ CBaseFootNinjaAI::CBaseFootNinjaAI(CEnemyCharacter* pEnemyChr)
 , m_fBackAwayTimer(0.0f)
 , m_bJumpAttackRequest(false)
 {
-    ;
+#if defined(TMNT2_DEBUG_TOOLS)
+    pEnemyChr->SetDebugAIKind(CEnemyCharacter::DEBUGAIKIND_FOOTNINJA);
+#endif /* defined(TMNT2_DEBUG_TOOLS) */
 };
 
 

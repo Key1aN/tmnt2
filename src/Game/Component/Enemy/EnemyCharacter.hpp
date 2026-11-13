@@ -212,6 +212,17 @@ public:
     bool GetDebugFrequencyRows(const uint8** ppBaseRow, const uint8** ppNowRow, int32* pnCount) const;
     const ENEMYTYPES::CHARACTERISTIC& GetDebugBaseAICharacteristic(void) const;
     bool IsDebugBaseIncludingAggression(void) const;
+
+    // Which AI family drives this enemy (set by the AI constructors, debug view only).
+    enum DEBUGAIKIND
+    {
+        DEBUGAIKIND_OTHER = 0,
+        DEBUGAIKIND_GENERAL,      // CBaseGeneralEnemyAIModerator (not a grappler)
+        DEBUGAIKIND_GRAPPLER,     // CBaseGrapplerAI
+        DEBUGAIKIND_FOOTNINJA,    // CBaseFootNinjaAI
+    };
+    void SetDebugAIKind(DEBUGAIKIND kind) { m_debugAIKind = kind; };
+    DEBUGAIKIND GetDebugAIKind(void) const { return m_debugAIKind; };
 #endif /* defined(TMNT2_DEBUG_TOOLS) */
     CCharacterCompositor& Compositor(void);
     const CCharacterCompositor& Compositor(void) const;
@@ -236,6 +247,7 @@ private:
     int32                           m_iDebugFrequencyMax;
     bool                            m_bDebugFrequencyBaseIncludesAggression;
     ENEMYTYPES::CHARACTERISTIC      m_debugBaseAICharacteristic;
+    DEBUGAIKIND                     m_debugAIKind;
 #endif /* defined(TMNT2_DEBUG_TOOLS) */
     bool                            m_bRunning;
     bool                            m_bRunningAI;

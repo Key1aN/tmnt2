@@ -80,7 +80,7 @@ jobs:
           if ($main -notmatch [regex]::Escape("CCombatLab::ConsumeLaunchRequest()")) { throw "Direct launch branch missing." }
           if ($chr -notmatch [regex]::Escape("CCombatLab::OnCatchAttack(*this, *pAttack, attackresult, iDamage);")) { throw "Damage instrumentation hook missing." }
           # AI visualizer: hooks are trace-only and present.
-          foreach ($required in @("PAGE_AIVIEW", '"AI VIEW"', "CEnemyAITrace::Update()", "CEnemyAITrace::SetEnabled(false)", "DrawAIView")) {
+          foreach ($required in @("PAGE_AIVIEW", '"AI VIEW"', "CEnemyAITrace::Update()", "CEnemyAITrace::SetEnabled(false)", "DrawAIView", "DrawAwarenessZones", "ZoneViewReach")) {
             if ($tools -notmatch [regex]::Escape($required)) { throw "AI visualizer integration missing: $required" }
           }
           $trace = Get-Content "src/Game/Component/Enemy/AITrace.hpp" -Raw

@@ -5,6 +5,7 @@
 #include "Game/ProcessList.hpp"
 #include "Game/Component/CombatLab/CombatLab.hpp"
 #include "Game/Component/Enemy/AITrace.hpp"
+#include "Game/Component/Enemy/EnemyUtils.hpp"
 #include "Game/Component/GameData/GamePlayResult.hpp"
 #include "Game/Sequence/Test/DebugUtils.hpp"
 #include "Game/Component/Enemy/Enemy.hpp"
@@ -259,6 +260,8 @@ namespace
     {
         AIITEM_ENABLE = 0,
         AIITEM_SIX_NINJAS,
+        AIITEM_ZONES,
+        AIITEM_ZONE_LABELS,
         AIITEM_RADAR_RANGE,
         AIITEM_TIMELINE,
         AIITEM_TIMELINE_SPAN,
@@ -270,6 +273,16 @@ namespace
         AIITEM_CLEAR,
 
         AIITEM_NUM,
+    };
+
+
+    enum AIZONES
+    {
+        AIZONES_OFF = 0,
+        AIZONES_ALL,
+        AIZONES_FOCUS,
+
+        AIZONES_NUM,
     };
 
 
@@ -289,7 +302,7 @@ namespace
 
     // ---- v1.2.10 menu renderer (game font + flat panels) ----
 
-    static const char* MENU_VERSION = "v1.2.11";
+    static const char* MENU_VERSION = "v1.2.12";
 
     enum MENUSIZE
     {
@@ -342,7 +355,7 @@ namespace
     {
         if (!pszText[0])
             return 0.0f;
-        return CGameFont::GetStringWidth(pszText, height);
+        return CGameFont::GetStringWidth(pszText, height) * 1.06f;
     };
 
 
@@ -425,6 +438,7 @@ namespace
             switch (index)
             {
             case AIITEM_ENABLE:      return "ENEMY AI VISUALIZER";
+            case AIITEM_ZONES:       return "IN-WORLD AWARENESS ZONES";
             case AIITEM_RADAR_RANGE: return "DISPLAY";
             case AIITEM_SELECT:      return "DECISION HISTORY";
             case AIITEM_RECORD:      return "RECORDING";
@@ -726,7 +740,10 @@ public:
     , m_fAITimelineSpan(12.0f)
     , m_bAITimeline(true)
     , m_bAIDecisionPanel(true)
+    , m_iAIZones(AIZONES_OFF)
+    , m_bAIZoneLabels(true)
     , m_iLastMenuBottom(0)
+    , m_iLastMenuRight(0)
     , m_bLabEnterArmed(false)
     , m_bLabAIPresetStored(false)
     , m_labAIPreset()
@@ -736,7 +753,7 @@ public:
         std::memset(m_aTracked, 0x00, sizeof(m_aTracked));
         std::memset(m_aMoveEvent, 0x00, sizeof(m_aMoveEvent));
         m_szPlayerMotion[0] = '\0';
-        m_moveLog.Write("SESSION  TMNT2 Debug Tools v1.2.11 move telemetry (bosses always; all enemies when labels = ALL)");
+        m_moveLog.Write("SESSION  TMNT2 Debug Tools v1.2.12 move telemetry (bosses always; all enemies when labels = ALL)");
         m_moveLog.Flush();
 
         // v1.2.7: the session header (with GPU and display mode) is written at
@@ -915,6 +932,7 @@ public:
         if (!IsGameplaySequence(currentLabel))
             return;
 
+        DrawAwarenessZones();
         DrawEnemyLabels();
         if (m_bFrameGraph)
             DrawFrameGraph();
@@ -923,10 +941,17 @@ public:
         {
             int32 menuBottom = DrawMenu();
             m_iLastMenuBottom = menuBottom;
-            // The AI VIEW tab uses the space below the menu for its decision panel.
-            if (((menuBottom + 150) <= CScreen::Height()) &&
-                !((m_page == PAGE_AIVIEW) && CEnemyAITrace::IsEnabled() && m_bAIDecisionPanel))
+
+            // Compact telemetry: below the menu only while it clears the
+            // player gauges at the bottom of the screen, otherwise beside it.
+            const int32 TELEMETRY_H = 4 * 16;
+            bool bAIPanel = ((m_page == PAGE_AIVIEW) && CEnemyAITrace::IsEnabled() && m_bAIDecisionPanel);
+            int32 hudTop = static_cast<int32>(static_cast<float>(CScreen::Height()) * 0.80f);
+            if (!bAIPanel && ((menuBottom + 8 + TELEMETRY_H) <= hudTop))
                 DrawTelemetryCompact(12, menuBottom + 8);
+            else if (!CEnemyAITrace::IsEnabled() && (m_page != PAGE_COMBATLAB) &&
+                     ((m_iLastMenuRight + 560) <= CScreen::Width()))
+                DrawTelemetryCompact(m_iLastMenuRight + 12, 12);
         }
         else
         {
@@ -1780,7 +1805,7 @@ private:
         const float HEADROW = 10.5f * S;
         const float PAD     = 6.0f * S;
         const float X0      = VX + 8.0f;
-        const float W       = MinF(340.0f * S, VW - 16.0f);
+        const float W       = MinF(384.0f * S, VW - 16.0f);
         const float X1      = X0 + W;
         const float TOP     = VY + 6.0f;
 
@@ -1856,26 +1881,64 @@ private:
         };
         y += TITLE + (4.0f * S);
 
-        // ---- tabs (flow, wraps to a second row when needed) ----
+        // ---- tabs: wrap into rows, then stretch each row to the full width
+        // so every row lines up; text is centred in its tab ----
         {
-            const float TABH = 12.5f * S;
-            const float TABT = 9.0f * S;
-            float cx = X0 + PAD;
+            const float TABH   = 15.0f * S;
+            const float TABT   = 8.4f * S;
+            const float TABGAP = 3.0f * S;
+            const float ROWGAP = 3.5f * S;
+            const float LEFT   = X0 + PAD;
+            const float AVAIL  = (X1 - PAD) - LEFT;
+
+            float aWidth[PAGE_NUM];
+            int32 aRowStart[PAGE_NUM + 1];
+            int32 nRow = 0;
+            float rowWidth = 0.0f;
             for (int32 i = 0; i < PAGE_NUM; ++i)
             {
-                float w = MenuTextWidth(s_apszPageName[i], TABT) + (8.0f * S);
-                if (((cx + w) > (X1 - PAD)) && (cx > (X0 + PAD)))
+                aWidth[i] = MenuTextWidth(s_apszPageName[i], TABT) + (12.0f * S);
+                float add = aWidth[i] + ((rowWidth > 0.0f) ? TABGAP : 0.0f);
+                if ((nRow == 0) || ((rowWidth + add) > AVAIL))
                 {
-                    cx = X0 + PAD;
-                    y += TABH + (2.0f * S);
+                    aRowStart[nRow++] = i;
+                    rowWidth = aWidth[i];
+                }
+                else
+                {
+                    rowWidth += add;
                 };
-
-                bool bActive = (i == static_cast<int32>(m_page));
-                quad(cx, y, cx + w, y + TABH, (bActive ? COL_TABON : COL_TAB));
-                text(cx + (4.0f * S), y, TABH, TABT, (bActive ? TXT_DARK : TXT_DIM), s_apszPageName[i]);
-                cx += w + (3.0f * S);
             };
-            y += TABH + (4.0f * S);
+            aRowStart[nRow] = PAGE_NUM;
+
+            for (int32 r = 0; r < nRow; ++r)
+            {
+                int32 first = aRowStart[r];
+                int32 last = aRowStart[r + 1];
+                float used = 0.0f;
+                for (int32 i = first; i < last; ++i)
+                    used += aWidth[i];
+                float gaps = TABGAP * static_cast<float>(last - first - 1);
+                float extra = MaxF(0.0f, (AVAIL - used - gaps) / static_cast<float>(last - first));
+                // the last row is only stretched when it is nearly full
+                if ((r == (nRow - 1)) && (nRow > 1) && ((used + gaps) < (AVAIL * 0.70f)))
+                    extra = MinF(extra, 10.0f * S);
+
+                float cx = LEFT;
+                for (int32 i = first; i < last; ++i)
+                {
+                    float w = aWidth[i] + extra;
+                    bool bActive = (i == static_cast<int32>(m_page));
+                    quad(cx, y, cx + w, y + TABH, (bActive ? COL_ROWSEL : COL_TAB));
+                    if (bActive)
+                        quad(cx, y + TABH - (2.2f * S), cx + w, y + TABH, COL_TABON);
+                    float textW = MenuTextWidth(s_apszPageName[i], TABT);
+                    text(cx + ((w - textW) * 0.5f), y - (0.8f * S), TABH, TABT, (bActive ? TXT_SEL : TXT_DIM), s_apszPageName[i]);
+                    cx += w + TABGAP;
+                };
+                y += TABH + ((r < (nRow - 1)) ? ROWGAP : 0.0f);
+            };
+            y += 5.0f * S;
         };
         quad(X0 + PAD, y, X1 - PAD, y + 0.8f, COL_LINE);
         y += 3.0f * S;
@@ -1965,12 +2028,12 @@ private:
                 float maximum = MaxF(CDebugDifficulty::GetEffectiveMaximum(setting), value);
                 fraction = (maximum > minimum ? Clamp((value - minimum) / (maximum - minimum), 0.0f, 1.0f) : 1.0f);
                 bAtMax = (fraction >= 0.999f);
-                sliderX0 = X0 + (W * 0.44f);
-                sliderX1 = X0 + (W * 0.60f);
+                sliderX0 = X0 + (W * 0.50f);
+                sliderX1 = X0 + (W * 0.63f);
             };
 
             float labelHeight = T;
-            float labelRoom = (fraction >= 0.0f ? sliderX0 - labelX - (3.0f * S) : W * 0.62f);
+            float labelRoom = (fraction >= 0.0f ? sliderX0 - labelX - (6.0f * S) : W * 0.62f);
             float valueWidth = (pszValue ? MenuTextWidth(pszValue, T) : 0.0f);
             if (fraction < 0.0f)
                 labelRoom = MaxF(labelRoom, (valueRight - valueWidth - (6.0f * S)) - labelX);
@@ -2068,6 +2131,7 @@ private:
             quad(X0, TOP, X1, y, COL_PANEL);
             s_batch.m_nVertex = saved;
         };
+        m_iLastMenuRight = static_cast<int32>((((X1 + 1.0f) - VX) / VW) * SW);
 
         CSystem2D::PushRenderState();
         RwRenderStateSet(rwRENDERSTATETEXTURERASTER, nullptr);
@@ -3011,6 +3075,415 @@ private:
     };
 
 
+    // ---- In-world AI awareness zones (read-only; same formulas as the AI) ----
+    //
+    //  view   : CAIUtils::IsObjectViewArea2 - reach = suitable + (radius - suitable) * view ratio,
+    //           view ratio = front + (rear - front) * |angle| / 180 deg
+    //  attack : CBaseGrapplerAI::IsTakeAttack - distance <= suitable, |angle| <= 36 deg x front view
+    //  run    : CBaseGrapplerAI::IsTakeRunAttack - 2 x suitable while running, same cone
+    //  guard  : CBaseGrapplerAI::IsTakeGuard - distance <= suitable, |angle| <= 90 deg x front view
+    //  probes : terrain checks at suitable distance ahead (attack) and behind (Foot Ninja back-away)
+    //  patrol : CAIUtils::IsInsidePatrolArea - circle at the patrol origin (no circle = unlimited)
+
+    struct ZONEDRAW
+    {
+        IM2DBATCH* m_pBatch;
+        RwMatrix m_view;
+        float m_fSW;
+        float m_fSH;
+    };
+
+
+    static void ZoneFlush(ZONEDRAW& zd)
+    {
+        if (zd.m_pBatch->m_nVertex > 0)
+            RwIm2DRenderPrimitive(rwPRIMTYPETRILIST, zd.m_pBatch->m_aVertex, zd.m_pBatch->m_nVertex);
+        zd.m_pBatch->m_nVertex = 0;
+    };
+
+
+    static void ZoneRoom(ZONEDRAW& zd, int32 need)
+    {
+        if ((zd.m_pBatch->m_nVertex + need) > IM2DBATCH::VERTEX_MAX)
+            ZoneFlush(zd);
+    };
+
+
+    static RwV3d ZoneCam(const ZONEDRAW& zd, const RwV3d& world)
+    {
+        RwV3d cam = Math::VECTOR3_ZERO;
+        RwV3dTransformPoint(&cam, &world, &zd.m_view);
+        return cam;
+    };
+
+
+    static void ZoneScreen(const ZONEDRAW& zd, const RwV3d& cam, float& sx, float& sy)
+    {
+        sx = (cam.x / cam.z) * zd.m_fSW;
+        sy = (cam.y / cam.z) * zd.m_fSH;
+    };
+
+
+    // World-space line, clipped against the camera near plane.
+    static void ZoneLine(ZONEDRAW& zd, const RwV3d& a, const RwV3d& b, float width, const RwRGBA& color)
+    {
+        RwV3d ca = ZoneCam(zd, a);
+        RwV3d cb = ZoneCam(zd, b);
+        const float NEAR_Z = 0.6f;
+        if ((ca.z < NEAR_Z) && (cb.z < NEAR_Z))
+            return;
+
+        if (ca.z < NEAR_Z)
+        {
+            float t = (NEAR_Z - ca.z) / (cb.z - ca.z);
+            ca.x += (cb.x - ca.x) * t; ca.y += (cb.y - ca.y) * t; ca.z = NEAR_Z;
+        }
+        else if (cb.z < NEAR_Z)
+        {
+            float t = (NEAR_Z - cb.z) / (ca.z - cb.z);
+            cb.x += (ca.x - cb.x) * t; cb.y += (ca.y - cb.y) * t; cb.z = NEAR_Z;
+        };
+
+        float x0, y0, x1, y1;
+        ZoneScreen(zd, ca, x0, y0);
+        ZoneScreen(zd, cb, x1, y1);
+        if ((MaxF(x0, x1) < -zd.m_fSW) || (MinF(x0, x1) > (zd.m_fSW * 2.0f)) ||
+            (MaxF(y0, y1) < -zd.m_fSH) || (MinF(y0, y1) > (zd.m_fSH * 2.0f)))
+            return;
+
+        ZoneRoom(zd, 6);
+        Im2DLine(*zd.m_pBatch, x0, y0, x1, y1, width, color);
+    };
+
+
+    // World-space triangle; dropped when any corner is behind the camera.
+    static void ZoneTri(ZONEDRAW& zd, const RwV3d& a, const RwV3d& b, const RwV3d& c, const RwRGBA& color)
+    {
+        const RwV3d aCam[3] = { ZoneCam(zd, a), ZoneCam(zd, b), ZoneCam(zd, c) };
+        for (int32 i = 0; i < 3; ++i)
+        {
+            if (aCam[i].z < 0.6f)
+                return;
+        };
+
+        ZoneRoom(zd, 3);
+        IM2DBATCH& batch = *zd.m_pBatch;
+        for (int32 i = 0; i < 3; ++i)
+        {
+            float sx, sy;
+            ZoneScreen(zd, aCam[i], sx, sy);
+            RwIm2DVertex* pVertex = &batch.m_aVertex[batch.m_nVertex++];
+            RwIm2DVertexSetScreenX(pVertex, sx);
+            RwIm2DVertexSetScreenY(pVertex, sy);
+            RwIm2DVertexSetScreenZ(pVertex, batch.m_fZ);
+            RwIm2DVertexSetIntRGBA(pVertex, color.red, color.green, color.blue, color.alpha);
+            RwIm2DVertexSetU(pVertex, 0.0f, batch.m_fRhw);
+            RwIm2DVertexSetV(pVertex, 0.0f, batch.m_fRhw);
+            RwIm2DVertexSetRecipCameraZ(pVertex, batch.m_fRhw);
+        };
+    };
+
+
+    static RwV3d ZonePoint(const RwV3d& center, float direction, float radius)
+    {
+        RwV3d point = center;
+        point.x += Math::Sin(direction) * radius;
+        point.z += Math::Cos(direction) * radius;
+        return point;
+    };
+
+
+    // Sector from -half..+half around 'direction'. 'fill' alpha 0 = outline only.
+    static void ZoneWedge(ZONEDRAW& zd, const RwV3d& center, float direction, float half, float radius,
+                          const RwRGBA& fill, const RwRGBA& line, float width)
+    {
+        if ((radius <= 0.0f) || (half <= 0.0f))
+            return;
+
+        half = MinF(half, MATH_PI);
+        int32 segments = Clamp(static_cast<int32>(half * 12.0f), 4, 36);
+        RwV3d prev = ZonePoint(center, direction - half, radius);
+        bool bFull = (half >= (MATH_PI - 0.001f));
+        if (!bFull)
+            ZoneLine(zd, center, prev, width, line);
+
+        for (int32 i = 1; i <= segments; ++i)
+        {
+            float a = direction - half + ((2.0f * half) * (static_cast<float>(i) / static_cast<float>(segments)));
+            RwV3d next = ZonePoint(center, a, radius);
+            if (fill.alpha)
+                ZoneTri(zd, center, prev, next, fill);
+            ZoneLine(zd, prev, next, width, line);
+            prev = next;
+        };
+
+        if (!bFull)
+            ZoneLine(zd, center, prev, width, line);
+    };
+
+
+    static float ZoneViewReach(const ENEMYTYPES::CHARACTERISTIC& c, float angleDiff)
+    {
+        float ratio = c.m_fRatioOfFrontView + ((c.m_fRatioOfRearView - c.m_fRatioOfFrontView) * (std::fabs(angleDiff) * MATH_INV_PI));
+        return c.m_fDistanceOfSuitable + ((c.m_fRadiusOfAction - c.m_fDistanceOfSuitable) * ratio);
+    };
+
+
+    CEnemy* FindZoneFocusEnemy(void) const
+    {
+        if (CEnemyAITrace::IsEnabled())
+        {
+            const CEnemyAITrace::SLOT* pSlot = CEnemyAITrace::GetSlot(GetAISelectedSlot());
+            if (pSlot)
+            {
+                CGameObject* pObject = CGameObjectManager::GetObject(pSlot->m_hEnemy);
+                if (pObject && (pObject->GetType() == GAMEOBJECTTYPE::ENEMY))
+                    return static_cast<CEnemy*>(pObject);
+            };
+        };
+
+        // Without the visualizer: the enemy nearest to P1.
+        IGamePlayer* pPlayer = (CGameProperty::GetPlayerNum() > 0 ? CGameProperty::Player(0) : nullptr);
+        if (!pPlayer)
+            return nullptr;
+
+        RwV3d vPlayer = Math::VECTOR3_ZERO;
+        pPlayer->GetPosition(&vPlayer);
+
+        CEnemy* pBest = nullptr;
+        float bestSq = FLT_MAX;
+        for (int32 i = 0; i < CGameProperty::GetEnemyMax(); ++i)
+        {
+            CEnemy* pEnemy = CGameProperty::GetEnemy(i);
+            if (!pEnemy)
+                continue;
+            RwV3d v = Math::VECTOR3_ZERO;
+            pEnemy->GetPosition(&v);
+            float dx = v.x - vPlayer.x;
+            float dz = v.z - vPlayer.z;
+            if (((dx * dx) + (dz * dz)) < bestSq)
+            {
+                bestSq = (dx * dx) + (dz * dz);
+                pBest = pEnemy;
+            };
+        };
+        return pBest;
+    };
+
+
+    void DrawAwarenessZones(void) const
+    {
+        if (m_iAIZones == AIZONES_OFF)
+            return;
+
+        RwCamera* pCamera = CCamera::CameraCurrent();
+        if (!pCamera || !CGameStage::GetCurrent())
+            return;
+
+        static IM2DBATCH s_batch;
+        ZONEDRAW zd;
+        zd.m_pBatch = &s_batch;
+        s_batch.m_nVertex = 0;
+        s_batch.m_fZ = RwIm2DGetNearScreenZ();
+        s_batch.m_fRhw = 1.0f / RwCameraGetNearClipPlane(pCamera);
+        RwMatrixSetIdentity(&zd.m_view);
+        CGameProperty::GetCameraViewMatrix(&zd.m_view);
+        zd.m_fSW = static_cast<float>(CScreen::Width());
+        zd.m_fSH = static_cast<float>(CScreen::Height());
+        const float px = MaxF(1.0f, zd.m_fSH / 480.0f);
+
+        IGamePlayer* pPlayer = (CGameProperty::GetPlayerNum() > 0 ? CGameProperty::Player(0) : nullptr);
+        bool bPlayer = (pPlayer && pPlayer->IsAlive());
+        RwV3d vPlayer = Math::VECTOR3_ZERO;
+        if (bPlayer)
+            pPlayer->GetPosition(&vPlayer);
+
+        CEnemy* pFocus = FindZoneFocusEnemy();
+
+        struct ZLABEL { RwV3d pos; char text[48]; RwRGBA color; };
+        static ZLABEL s_aLabel[64];
+        int32 nLabel = 0;
+        auto addLabel = [&](const RwV3d& pos, const RwRGBA& color, const char* pszText)
+        {
+            if (!m_bAIZoneLabels || (nLabel >= COUNT_OF(s_aLabel)))
+                return;
+            s_aLabel[nLabel].pos = pos;
+            s_aLabel[nLabel].color = color;
+            std::snprintf(s_aLabel[nLabel].text, sizeof(s_aLabel[nLabel].text), "%s", pszText);
+            ++nLabel;
+        };
+
+        CSystem2D::PushRenderState();
+        RwRenderStateSet(rwRENDERSTATETEXTURERASTER, nullptr);
+
+        for (int32 i = 0; i < CGameProperty::GetEnemyMax(); ++i)
+        {
+            CEnemy* pEnemy = CGameProperty::GetEnemy(i);
+            if (!pEnemy)
+                continue;
+            if ((m_iAIZones == AIZONES_FOCUS) && (pEnemy != pFocus))
+                continue;
+
+            const CEnemyCharacter& rChr = pEnemy->Character();
+            const ENEMYTYPES::CHARACTERISTIC& c = rChr.AICharacteristic();
+            const ENEMYTYPES::FEATURE& feature = rChr.Feature();
+            CEnemyCharacter::DEBUGAIKIND kind = rChr.GetDebugAIKind();
+            bool bGrappler = ((kind == CEnemyCharacter::DEBUGAIKIND_GRAPPLER) || (kind == CEnemyCharacter::DEBUGAIKIND_FOOTNINJA));
+            bool bFocus = (pEnemy == pFocus);
+
+            RwV3d vFoot = Math::VECTOR3_ZERO;
+            rChr.Compositor().GetFootPosition(&vFoot);
+            vFoot.y += 0.04f;
+            float dir = rChr.Compositor().GetDirection();
+            float S = c.m_fDistanceOfSuitable;
+            float lineW = (bFocus ? 2.0f : 1.4f) * px;
+
+            // where P1 is, measured the way IsObjectViewArea measures it
+            bool bInView = false;
+            bool bInAttack = false;
+            bool bInGuard = false;
+            float playerDist = 0.0f;
+            if (bPlayer)
+            {
+                RwV3d at = vPlayer;
+                at.y = vFoot.y;
+                float dx = at.x - vFoot.x;
+                float dz = at.z - vFoot.z;
+                playerDist = std::sqrt((dx * dx) + (dz * dz));
+                float diff = CEnemyUtils::RadianCorrect(Math::ATan2(dx, dz) - dir);
+                bInView = (ZoneViewReach(c, diff) > playerDist);
+                bInAttack = (playerDist <= S) && (std::fabs(diff) <= (c.m_fRatioOfFrontView * MATH_DEG2RAD(36.0f)));
+                bInGuard = (playerDist <= S) && (std::fabs(diff) <= (c.m_fRatioOfFrontView * MATH_DEG2RAD(90.0f)));
+            };
+
+            // ---- patrol area ----
+            if (feature.m_fPatrolRadius > 0.0f)
+            {
+                RwV3d origin = feature.m_vPatrolOrigin;
+                origin.y = vFoot.y;
+                ZoneWedge(zd, origin, 0.0f, MATH_PI, feature.m_fPatrolRadius,
+                          { 0, 0, 0, 0 }, { 0x60, 0xE0, 0x80, 0x90 }, 1.2f * px);
+                if (bFocus)
+                {
+                    char text[48];
+                    std::snprintf(text, sizeof(text), "patrol %.1f", feature.m_fPatrolRadius);
+                    addLabel(ZonePoint(origin, 0.0f, feature.m_fPatrolRadius), { 0x60, 0xE0, 0x80, 0xFF }, text);
+                };
+            };
+
+            // ---- view / awareness area ----
+            {
+                const int32 SEG = 48;
+                RwRGBA fill = (bInView ? RwRGBA{ 0x40, 0xC8, 0xFF, 0x30 } : RwRGBA{ 0x40, 0xC8, 0xFF, 0x18 });
+                RwRGBA line = (bInView ? RwRGBA{ 0x70, 0xE0, 0xFF, 0xE0 } : RwRGBA{ 0x40, 0xA8, 0xE0, 0x90 });
+                RwV3d prev = ZonePoint(vFoot, dir - MATH_PI, ZoneViewReach(c, -MATH_PI));
+                for (int32 s = 1; s <= SEG; ++s)
+                {
+                    float diff = -MATH_PI + (MATH_PI2 * (static_cast<float>(s) / static_cast<float>(SEG)));
+                    RwV3d next = ZonePoint(vFoot, dir + diff, ZoneViewReach(c, diff));
+                    ZoneTri(zd, vFoot, prev, next, fill);
+                    ZoneLine(zd, prev, next, lineW, line);
+                    prev = next;
+                };
+
+                char text[48];
+                std::snprintf(text, sizeof(text), "view %.1f", ZoneViewReach(c, 0.0f));
+                if (bFocus)
+                {
+                    addLabel(ZonePoint(vFoot, dir, ZoneViewReach(c, 0.0f)), { 0x70, 0xE0, 0xFF, 0xFF }, text);
+                    std::snprintf(text, sizeof(text), "rear %.1f", ZoneViewReach(c, MATH_PI));
+                    addLabel(ZonePoint(vFoot, dir + MATH_PI, ZoneViewReach(c, MATH_PI)), { 0x70, 0xE0, 0xFF, 0xFF }, text);
+                };
+            };
+
+            if (bGrappler)
+            {
+                float attackHalf = c.m_fRatioOfFrontView * MATH_DEG2RAD(36.0f);
+                float guardHalf = c.m_fRatioOfFrontView * MATH_DEG2RAD(90.0f);
+
+                // guard cone (outline), run-attack reach (outline), attack cone (filled)
+                ZoneWedge(zd, vFoot, dir, guardHalf, S, { 0, 0, 0, 0 },
+                          (bInGuard ? RwRGBA{ 0xFF, 0xE0, 0x30, 0xF0 } : RwRGBA{ 0xFF, 0xE0, 0x30, 0x80 }), lineW);
+                ZoneWedge(zd, vFoot, dir, attackHalf, S * 2.0f, { 0, 0, 0, 0 }, { 0xFF, 0x98, 0x28, 0x70 }, 1.0f * px);
+                ZoneWedge(zd, vFoot, dir, attackHalf, S,
+                          (bInAttack ? RwRGBA{ 0xFF, 0x40, 0x40, 0x70 } : RwRGBA{ 0xFF, 0x40, 0x40, 0x30 }),
+                          { 0xFF, 0x50, 0x50, 0xE0 }, lineW);
+
+                // terrain probe points
+                RwV3d probe = ZonePoint(vFoot, dir, S);
+                ZoneLine(zd, ZonePoint(probe, dir + (MATH_PI * 0.5f), 0.18f), ZonePoint(probe, dir - (MATH_PI * 0.5f), 0.18f), 2.0f * px, { 0xFF, 0xFF, 0xFF, 0xD0 });
+                if (kind == CEnemyCharacter::DEBUGAIKIND_FOOTNINJA)
+                {
+                    RwV3d back = ZonePoint(vFoot, dir + MATH_PI, S);
+                    ZoneLine(zd, vFoot, back, 1.0f * px, { 0xFF, 0x98, 0x28, 0x90 });
+                    ZoneLine(zd, ZonePoint(back, dir + (MATH_PI * 0.5f), 0.18f), ZonePoint(back, dir - (MATH_PI * 0.5f), 0.18f), 2.0f * px, { 0xFF, 0x98, 0x28, 0xE0 });
+                };
+
+                if (bFocus)
+                {
+                    char text[48];
+                    std::snprintf(text, sizeof(text), "attack %.1f / %.0f deg", S, MATH_RAD2DEG(attackHalf) * 2.0f);
+                    addLabel(ZonePoint(vFoot, dir + attackHalf, S), { 0xFF, 0x70, 0x70, 0xFF }, text);
+                    std::snprintf(text, sizeof(text), "guard %.0f deg", MATH_RAD2DEG(MinF(guardHalf, MATH_PI)) * 2.0f);
+                    addLabel(ZonePoint(vFoot, dir - guardHalf, S), { 0xFF, 0xE0, 0x30, 0xFF }, text);
+                    std::snprintf(text, sizeof(text), "run attack %.1f", S * 2.0f);
+                    addLabel(ZonePoint(vFoot, dir, S * 2.0f), { 0xFF, 0xA8, 0x40, 0xFF }, text);
+                };
+            };
+
+            // facing arrow
+            {
+                RwV3d tip = ZonePoint(vFoot, dir, MaxF(0.8f, S * 0.6f));
+                ZoneLine(zd, vFoot, tip, 2.4f * px, { 0xFF, 0xFF, 0xFF, 0xE0 });
+                ZoneLine(zd, tip, ZonePoint(tip, dir + (MATH_PI * 0.85f), 0.3f), 2.4f * px, { 0xFF, 0xFF, 0xFF, 0xE0 });
+                ZoneLine(zd, tip, ZonePoint(tip, dir - (MATH_PI * 0.85f), 0.3f), 2.4f * px, { 0xFF, 0xFF, 0xFF, 0xE0 });
+            };
+
+            // line to P1 coloured by what P1 is inside
+            if (bPlayer && bInView)
+            {
+                RwV3d at = vPlayer;
+                at.y = vFoot.y;
+                RwRGBA color = (bInAttack ? RwRGBA{ 0xFF, 0x50, 0x50, 0xC0 } : RwRGBA{ 0x70, 0xE0, 0xFF, 0x90 });
+                ZoneLine(zd, vFoot, at, 1.0f * px, color);
+            };
+
+            if (bFocus || (m_iAIZones == AIZONES_FOCUS))
+            {
+                char text[48];
+                std::snprintf(text, sizeof(text), "P1 %.1f%s%s%s", playerDist,
+                              (bInView ? "  seen" : "  not seen"),
+                              (bGrappler && bInAttack ? "  ATTACK" : ""),
+                              (bGrappler && bInGuard && !bInAttack ? "  guard" : ""));
+                if (bPlayer)
+                    addLabel(vFoot, { 0xFF, 0xFF, 0xFF, 0xFF }, text);
+            };
+        };
+
+        ZoneFlush(zd);
+        CSystem2D::PopRenderState();
+
+        // labels
+        if (nLabel > 0)
+        {
+            m_font.Background({ 0x00, 0x00, 0x00, 0xA0 });
+            for (int32 n = 0; n < nLabel; ++n)
+            {
+                RwV3d cam = ZoneCam(zd, s_aLabel[n].pos);
+                if (cam.z < 0.6f)
+                    continue;
+                float sx, sy;
+                ZoneScreen(zd, cam, sx, sy);
+                if ((sx < 0.0f) || (sy < 0.0f) || (sx > (zd.m_fSW - 40.0f)) || (sy > (zd.m_fSH - 16.0f)))
+                    continue;
+                m_font.Color(s_aLabel[n].color);
+                m_font.Position(static_cast<int32>(sx) + 4, static_cast<int32>(sy) - 8);
+                m_font.Print("%s", s_aLabel[n].text);
+            };
+        };
+    };
+
+
     // ---- AI VIEW tab: live enemy AI visualizer (CEnemyAITrace) ----
 
     int32 GetAISelectedSlot(void) const
@@ -3087,6 +3560,12 @@ private:
         case AIITEM_SELECT:
             CycleAISelection(direction);
             break;
+        case AIITEM_ZONES:
+            m_iAIZones = InvClamp(m_iAIZones + direction, 0, AIZONES_NUM - 1);
+            break;
+        case AIITEM_ZONE_LABELS:
+            m_bAIZoneLabels = !m_bAIZoneLabels;
+            break;
         case AIITEM_DECISIONS:
             m_bAIDecisionPanel = !m_bAIDecisionPanel;
             break;
@@ -3142,6 +3621,8 @@ private:
         case AIITEM_FREEZE:        CEnemyAITrace::SetTimelinePaused(false); break;
         case AIITEM_DECISIONS:     m_bAIDecisionPanel = true; break;
         case AIITEM_RECORD:        CEnemyAITrace::SetFileRecording(false); break;
+        case AIITEM_ZONES:         m_iAIZones = AIZONES_OFF; break;
+        case AIITEM_ZONE_LABELS:   m_bAIZoneLabels = true; break;
         default: break;
         };
     };
@@ -3197,6 +3678,15 @@ private:
         case AIITEM_SIX_NINJAS:
             std::snprintf(buffer, capacity, "Six Foot Ninjas test%s", CCombatLab::IsPlaying() ? "" : "  (in Combat Lab)");
             break;
+        case AIITEM_ZONES:
+            {
+                static const char* s_apszZones[] = { "OFF", "ALL ENEMIES", "INSPECTED ENEMY" };
+                std::snprintf(buffer, capacity, "Show awareness zones  %s", s_apszZones[Clamp(m_iAIZones, 0, AIZONES_NUM - 1)]);
+            }
+            break;
+        case AIITEM_ZONE_LABELS:
+            std::snprintf(buffer, capacity, "Zone labels  %s", m_bAIZoneLabels ? "ON" : "OFF");
+            break;
         default:
             break;
         };
@@ -3210,6 +3700,11 @@ private:
         case AIITEM_ENABLE:
             scope = "DIAGNOSTICS - OFF BY DEFAULT";
             description = "Records what each enemy's AI really evaluated: every roll with its threshold, the action checks and the order chosen. Read-only: no extra RNG calls, no AI calls, no behaviour change.";
+            break;
+        case AIITEM_ZONES:
+        case AIITEM_ZONE_LABELS:
+            scope = "IN-WORLD - DRAWN FROM EACH ENEMY'S LIVE VALUES";
+            description = "Blue: what the enemy can notice (view reach, longer in front, shorter behind). Red: attack cone. Yellow: guard cone. Orange: run-attack reach. Green: patrol area. Lines turn bright when P1 is inside. Uses the current multipliers. Works without the visualizer.";
             break;
         case AIITEM_RADAR_RANGE:
             scope = "DISPLAY";
@@ -4589,7 +5084,10 @@ private:
     float m_fAITimelineSpan;
     bool m_bAITimeline;
     bool m_bAIDecisionPanel;
+    int32 m_iAIZones;
+    bool m_bAIZoneLabels;
     mutable int32 m_iLastMenuBottom;
+    mutable int32 m_iLastMenuRight;
     bool m_bLabEnterArmed;
     bool m_bLabAIPresetStored;
     CDebugDifficulty::SNAPSHOT m_labAIPreset;

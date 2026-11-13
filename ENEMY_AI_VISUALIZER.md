@@ -1,4 +1,4 @@
-# Live Enemy AI Visualizer (Combat Lab v1.2.0 / Debug Tools v1.2.11, US)
+# Live Enemy AI Visualizer (Combat Lab v1.2.0 / Debug Tools v1.2.12, US)
 
 This build adds a read-only view of what each enemy's AI actually evaluates. It does not change
 enemy behaviour, timing or random numbers. It is off by default, and turning it on adds no RNG
@@ -37,6 +37,27 @@ calls and no AI calls.
 There is no "preparing to attack" colour. No status sits between choosing an attack and starting
 the attack animation, so nothing real could be shown for it. A Foot Ninja's own attack recovery is
 part of its ATTACK_* status, so it is red until the status changes.
+
+### In-world awareness zones (Debug Tools v1.2.12)
+
+AI VIEW -> **Show awareness zones** (OFF / ALL ENEMIES / INSPECTED ENEMY) draws each enemy's real
+decision geometry on the ground, from its live values (multipliers included). It works without the
+visualizer; "inspected" is the Inspect-enemy choice when the visualizer is on, otherwise the enemy
+nearest P1. **Zone labels** adds the numbers.
+
+| Shape | Colour | Code it mirrors |
+|---|---|---|
+| View / awareness area (teardrop: long in front, short behind) | blue, brighter when P1 is inside | `CAIUtils::IsObjectViewArea2`: reach = suitable + (action radius - suitable) x (front + (rear - front) x angle/180) |
+| Attack cone | red fill | `CBaseGrapplerAI::IsTakeAttack`: distance <= suitable, angle <= 36 deg x front view |
+| Run-attack reach | orange outline | `IsTakeRunAttack`: 2 x suitable, same cone, only while running |
+| Guard cone | yellow outline | `IsTakeGuard`: distance <= suitable, angle <= 90 deg x front view (plus P1 attacking and facing it) |
+| Terrain probe ticks | white ahead, orange behind | the "movable" checks at suitable distance ahead (attack) and behind (Foot Ninja back-away) |
+| Patrol area | green circle | `CAIUtils::IsInsidePatrolArea` (no circle = unlimited) |
+| Line to P1 | blue = seen, red = in attack cone | same measurement as above |
+
+Attack, run and guard shapes are only drawn for Grappler-family AI (Foot Ninjas, most grunts), where those
+checks exist. The view area is also only one of the target conditions: the enemy must also be inside
+its patrol area and have a walkable route (collision term) for P1 to become its target.
 
 ## How Foot Ninja AI works (source)
 

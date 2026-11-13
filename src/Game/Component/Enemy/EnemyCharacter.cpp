@@ -187,6 +187,7 @@ CEnemyCharacter::CEnemyCharacter(ENEMYID::VALUE idEnemy)
 , m_iDebugFrequencyMax(0)
 , m_bDebugFrequencyBaseIncludesAggression(false)
 , m_debugBaseAICharacteristic()
+, m_debugAIKind(DEBUGAIKIND_OTHER)
 #endif /* defined(TMNT2_DEBUG_TOOLS) */
 , m_bRunning(false)
 , m_bRunningAI(false)

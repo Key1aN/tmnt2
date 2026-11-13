@@ -28,6 +28,10 @@ CBaseGrapplerAI::CBaseGrapplerAI(CEnemyCharacter* pEnemyChr)
         m_targetCoordinator.RegistForHateCalculator(i, new CTarget::ICalcHateOfTurtleCharacteristic);
         m_targetCoordinator.RegistForHateCalculator(i, new CTarget::ICalcHateOfTurtleStatus);
     };
+
+#if defined(TMNT2_DEBUG_TOOLS)
+    pEnemyChr->SetDebugAIKind(CEnemyCharacter::DEBUGAIKIND_GRAPPLER);
+#endif /* defined(TMNT2_DEBUG_TOOLS) */
 };
 
 

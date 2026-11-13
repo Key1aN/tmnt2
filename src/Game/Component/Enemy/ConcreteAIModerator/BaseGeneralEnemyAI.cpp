@@ -861,6 +861,10 @@ CBaseGeneralEnemyAIModerator::CBaseGeneralEnemyAIModerator(CEnemyCharacter* pEne
 
     float fElapsedFrames = (1.0f / CGameProperty::GetElapsedTime());
     m_fThinkElapseTime = 1.0f / (fElapsedFrames * Characteristic().m_fThinkingFrequency);
+
+#if defined(TMNT2_DEBUG_TOOLS)
+    pEnemyChr->SetDebugAIKind(CEnemyCharacter::DEBUGAIKIND_GENERAL);
+#endif /* defined(TMNT2_DEBUG_TOOLS) */
 };
 
 
