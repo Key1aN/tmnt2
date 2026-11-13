@@ -98,35 +98,35 @@ namespace
 
     static const char* s_apszDifficultyDescription[CDebugDifficulty::SETTING_NUM] =
     {
-        "Scales damage applied to enemies from all incoming character attacks.",
-        "Scales maximum HP when an enemy is created; living enemy HP is preserved.",
-        "Scales final damage received by players after guard and defence modifiers.",
-        "Scales standard-enemy attack decision frequencies.",
-        "Scales standard-enemy guard decision frequencies independently of attacks.",
-        "Scales standard-enemy aiming, range-rate, and repeat-fire frequencies.",
-        "Scales the standard-enemy projectile range parameter.",
-        "Scales how quickly current and future enemies reconsider AI decisions.",
-        "Scales the chance that current and future enemies act aggressively.",
-        "Scales front and rear awareness for current and future enemies.",
-        "Scales AI attack cooldowns when each enemy next assigns its interval.",
-        "Scales damage required to knock back or stagger enemies.",
+        "Multiplies the final damage of every hit an enemy takes. A hit never does less than 1 damage.",
+        "Multiplies maximum HP when an enemy spawns. Enemies already alive keep their HP.",
+        "Multiplies the final damage of every hit a player takes, after guard and defence reductions. A hit never does less than 1.",
+        "Chance, each time an enemy decides, to use A, AA, AAA, B, C or a run attack. The percent is what the live enemies have now. Stops at 99%.",
+        "Chance to guard your A-chain, B, shuriken, jump attack, run attack and throw. A chance that is 0 in the game data stays 0. Stops at 99%.",
+        "Shooters only (Foot Archer, Mobster...): aim convergence, mid-range and repeat-fire chances. Does nothing to melee Foot Ninjas. Stops at 99%.",
+        "Shooters only: the distance they open fire from, in world units. Does nothing to melee Foot Ninjas. Stops at 255.",
+        "How often an enemy re-decides; 100% = no wait. Foot Ninjas and other grunts read it only when they spawn (Reset scenario), and a higher rate also makes their idle waits longer.",
+        "Chance, each time an enemy thinks, that it commits to a target instead of idling. Stops at 100%.",
+        "Front and rear view: how far away an enemy notices you and how wide its facing cone is (36 degrees x view). A rear view of 0 stays 0. No gain past view 5.0.",
+        "Bosses and monster-type enemies only: time between their attacks; lower = more attacks. Does nothing to Foot Ninjas and other grunts.",
+        "Bosses and elites only: damage they absorb before getting temporary super-armour; lower = they stop flinching sooner. Does nothing to Foot Ninjas.",
     };
 
 
     static const char* s_apszDifficultyScope[CDebugDifficulty::SETTING_NUM] =
     {
-        "LIVE",
-        "NEXT SPAWN",
-        "LIVE",
-        "LIVE - STANDARD ENEMIES",
-        "LIVE - STANDARD ENEMIES",
-        "LIVE - STANDARD ENEMIES",
-        "LIVE - STANDARD ENEMIES",
-        "LIVE",
-        "LIVE",
-        "LIVE",
-        "NEXT AI INTERVAL",
-        "LIVE",
+        "LIVE - ALL ENEMIES - MULTIPLIER",
+        "NEXT SPAWN - ALL ENEMIES - MULTIPLIER",
+        "LIVE - ALL PLAYERS - MULTIPLIER",
+        "LIVE - GRUNTS - PERCENT CHANCE",
+        "LIVE - GRUNTS - PERCENT CHANCE",
+        "LIVE - SHOOTERS ONLY - PERCENT CHANCE",
+        "LIVE - SHOOTERS ONLY - DISTANCE",
+        "GRUNTS: NEXT SPAWN / BOSSES: LIVE - PERCENT",
+        "LIVE - ALL ENEMIES - PERCENT CHANCE",
+        "LIVE - ALL ENEMIES - VIEW RATIO",
+        "BOSSES AND MONSTERS ONLY - MULTIPLIER",
+        "BOSSES AND ELITES ONLY - MULTIPLIER",
     };
 
 
@@ -173,13 +173,6 @@ namespace
     {
         return CController::GetDigitalTrigger(CController::CONTROLLER_LOCKED_ON_VIRTUAL) |
                CController::GetDigitalTrigger(CController::CONTROLLER_UNLOCKED_ON_VIRTUAL);
-    };
-
-
-    static uint32 ControllerDigitalRepeat(void)
-    {
-        return CController::GetDigitalRepeat(CController::CONTROLLER_LOCKED_ON_VIRTUAL) |
-               CController::GetDigitalRepeat(CController::CONTROLLER_UNLOCKED_ON_VIRTUAL);
     };
 
 
@@ -270,6 +263,150 @@ namespace
         bool bCtrl = (CPCSpecific::IsKeyDown(DIK_LCONTROL) || CPCSpecific::IsKeyDown(DIK_RCONTROL));
         bool bShift = (CPCSpecific::IsKeyDown(DIK_LSHIFT) || CPCSpecific::IsKeyDown(DIK_RSHIFT));
         return (bCtrl && bShift);
+    };
+
+
+    // ---- v1.2.10 menu renderer (game font + flat panels) ----
+
+    static const char* MENU_VERSION = "v1.2.10";
+
+    enum MENUSIZE
+    {
+        MENUSIZE_CLASSIC = 0,   // previous fixed-size text renderer
+        MENUSIZE_SMALL,
+        MENUSIZE_NORMAL,
+        MENUSIZE_LARGE,
+        MENUSIZE_XLARGE,
+
+        MENUSIZE_NUM,
+    };
+
+    static const char* s_apszMenuSizeName[MENUSIZE_NUM] = { "Classic", "Small", "Normal", "Large", "Extra large" };
+    static const float s_afMenuSizeScale[MENUSIZE_NUM] = { 1.00f, 0.88f, 1.00f, 1.14f, 1.28f };
+
+
+    struct MENUTEXT
+    {
+        float  m_fX;
+        float  m_fY;        // text baseline, virtual screen units
+        float  m_fHeight;
+        RwRGBA m_color;
+        char   m_szText[200];
+    };
+
+    enum { MENUTEXT_MAX = 128 };
+
+
+    // The game font has no glyphs for a few ASCII characters.
+    static void MenuSanitize(char* pszText)
+    {
+        for (char* p = pszText; *p; ++p)
+        {
+            switch (*p)
+            {
+            case '[': case '{': case '<': *p = '('; break;
+            case ']': case '}':           *p = ')'; break;
+            case '|': case '\\':          *p = '/'; break;
+            case '~': case '^':           *p = '-'; break;
+            case '`':                     *p = '\''; break;
+            case '$': case '#': case '@': *p = ' '; break;
+            case ';':                     *p = ','; break;
+            default: break;
+            };
+        };
+    };
+
+
+    static float MenuTextWidth(const char* pszText, float height)
+    {
+        if (!pszText[0])
+            return 0.0f;
+        return CGameFont::GetStringWidth(pszText, height);
+    };
+
+
+    // Greedy word wrap by measured width. Returns the number of lines written.
+    static int32 MenuWrap(const char* pszText, float height, float maxWidth, char aLine[][200], int32 maxLines)
+    {
+        int32 nLine = 0;
+        char current[200];
+        current[0] = '\0';
+
+        const char* p = pszText;
+        while (*p && (nLine < maxLines))
+        {
+            while (*p == ' ')
+                ++p;
+            if (!*p)
+                break;
+
+            char word[96];
+            int32 n = 0;
+            while (*p && (*p != ' ') && (n < static_cast<int32>(sizeof(word)) - 1))
+                word[n++] = *p++;
+            word[n] = '\0';
+
+            char candidate[200];
+            if (current[0])
+                std::snprintf(candidate, sizeof(candidate), "%s %s", current, word);
+            else
+                std::snprintf(candidate, sizeof(candidate), "%s", word);
+
+            if (current[0] && (MenuTextWidth(candidate, height) > maxWidth))
+            {
+                std::snprintf(aLine[nLine++], 200, "%s", current);
+                std::snprintf(current, sizeof(current), "%s", word);
+            }
+            else
+            {
+                std::snprintf(current, sizeof(current), "%s", candidate);
+            };
+        };
+
+        if (current[0] && (nLine < maxLines))
+            std::snprintf(aLine[nLine++], 200, "%s", current);
+
+        return nLine;
+    };
+
+
+    static const char* GetSectionTitle(int32 page, int32 index)
+    {
+        if (page == PAGE_DIFFICULTY)
+        {
+            switch (index)
+            {
+            case 1 + CDebugDifficulty::SETTING_PLAYER_DAMAGE_DEALT:   return "DAMAGE AND HEALTH";
+            case 1 + CDebugDifficulty::SETTING_ATTACK_FREQUENCY:      return "MELEE DECISIONS";
+            case 1 + CDebugDifficulty::SETTING_PROJECTILE_FREQUENCY:  return "SHOOTERS ONLY";
+            case 1 + CDebugDifficulty::SETTING_AI_THINKING:           return "AI BEHAVIOUR";
+            case 1 + CDebugDifficulty::SETTING_ATTACK_INTERVAL:       return "BOSSES AND MONSTERS ONLY";
+            default: return nullptr;
+            };
+        };
+
+        if (page == PAGE_COMBATLAB)
+        {
+            switch (index)
+            {
+            case LABITEM_ENTER_EXIT:    return "SCENARIO";
+            case LABITEM_ENEMY_TYPE:    return "ENEMIES";
+            case LABITEM_INF_PLAYER_HP: return "SURVIVABILITY";
+            case LABITEM_AI_MODE:       return "ENEMY AI";
+            case LABITEM_OVERLAY:       return "DIAGNOSTICS";
+            case LABITEM_RULESET:       return "COMBAT RULES";
+            default: return nullptr;
+            };
+        };
+
+        return nullptr;
+    };
+
+
+    static uint32 ControllerDigitalHeld(void)
+    {
+        return CController::GetDigital(CController::CONTROLLER_LOCKED_ON_VIRTUAL) |
+               CController::GetDigital(CController::CONTROLLER_UNLOCKED_ON_VIRTUAL);
     };
 
 
@@ -547,15 +684,20 @@ public:
     , m_aMoveEvent()
     , m_iMoveEventHead(0)
     , m_szPlayerMotion()
+    , m_uNavHeld(0)
+    , m_iNavFrames(0)
+    , m_iMenuSize(MENUSIZE_NORMAL)
+    , m_aiScroll()
     , m_bLabEnterArmed(false)
     , m_bLabAIPresetStored(false)
     , m_labAIPreset()
     {
         std::memset(m_aiSelection, 0x00, sizeof(m_aiSelection));
+        std::memset(m_aiScroll, 0x00, sizeof(m_aiScroll));
         std::memset(m_aTracked, 0x00, sizeof(m_aTracked));
         std::memset(m_aMoveEvent, 0x00, sizeof(m_aMoveEvent));
         m_szPlayerMotion[0] = '\0';
-        m_moveLog.Write("SESSION  TMNT2 Debug Tools v1.2.7 move telemetry (bosses always; all enemies when labels = ALL)");
+        m_moveLog.Write("SESSION  TMNT2 Debug Tools v1.2.10 move telemetry (bosses always; all enemies when labels = ALL)");
         m_moveLog.Flush();
 
         // v1.2.7: the session header (with GPU and display mode) is written at
@@ -626,8 +768,6 @@ public:
         if (!m_bOpen)
             return;
 
-        uint32 controllerNavigation = controllerTrigger | ControllerDigitalRepeat();
-
         if (controllerTrigger & CController::DIGITAL_START)
         {
             Close(owner);
@@ -644,6 +784,41 @@ public:
             return;
         };
 
+        // Direction input with its own hold-repeat for keyboard, D-pad and
+        // stick alike: first press acts at once, holding repeats, and a long
+        // hold on a numeric item moves it in bigger jumps.
+        enum { NAV_UP = 1, NAV_DOWN = 2, NAV_LEFT = 4, NAV_RIGHT = 8 };
+        uint32 controllerHeld = ControllerDigitalHeld();
+        uint32 navHeld = 0;
+        if (CPCSpecific::IsKeyDown(DIK_UP)    || (controllerHeld & CController::DIGITAL_LUP))    navHeld |= NAV_UP;
+        if (CPCSpecific::IsKeyDown(DIK_DOWN)  || (controllerHeld & CController::DIGITAL_LDOWN))  navHeld |= NAV_DOWN;
+        if (CPCSpecific::IsKeyDown(DIK_LEFT)  || (controllerHeld & CController::DIGITAL_LLEFT))  navHeld |= NAV_LEFT;
+        if (CPCSpecific::IsKeyDown(DIK_RIGHT) || (controllerHeld & CController::DIGITAL_LRIGHT)) navHeld |= NAV_RIGHT;
+
+        bool bNavFire = false;
+        bool bNavRepeat = false;
+        if (navHeld != m_uNavHeld)
+        {
+            m_uNavHeld = navHeld;
+            m_iNavFrames = 0;
+            bNavFire = (navHeld != 0);
+        }
+        else if (navHeld != 0)
+        {
+            ++m_iNavFrames;
+            int32 period = (m_iNavFrames > 80 ? 2 : 5);
+            bNavRepeat = ((m_iNavFrames >= 20) && (((m_iNavFrames - 20) % period) == 0));
+            bNavFire = bNavRepeat;
+        };
+
+        int32 navAccel = 1;
+        if (m_iNavFrames > 200)
+            navAccel = 8;
+        else if (m_iNavFrames > 130)
+            navAccel = 4;
+        else if (m_iNavFrames > 70)
+            navAccel = 2;
+
         // The retail PC DirectInput table exposes the physical shoulder buttons
         // as L1 (LB) and L2 (RB). Use those raw identities here so the labels
         // match the buttons the player actually presses.
@@ -653,18 +828,16 @@ public:
         else if (CPCSpecific::IsKeyTrigger(DIK_E) ||
                  (controllerTrigger & CController::DIGITAL_L2))
             ChangePage(1);
-        else if (CPCSpecific::IsKeyTrigger(DIK_UP) ||
-                 (controllerNavigation & CController::DIGITAL_LUP))
+        else if (bNavFire && (navHeld & NAV_UP))
             ChangeSelection(-1);
-        else if (CPCSpecific::IsKeyTrigger(DIK_DOWN) ||
-                 (controllerNavigation & CController::DIGITAL_LDOWN))
+        else if (bNavFire && (navHeld & NAV_DOWN))
             ChangeSelection(1);
-        else if (CPCSpecific::IsKeyTrigger(DIK_LEFT) ||
-                 (controllerNavigation & CController::DIGITAL_LLEFT))
-            AdjustSelected(-1, 1);
-        else if (CPCSpecific::IsKeyTrigger(DIK_RIGHT) ||
-                 (controllerNavigation & CController::DIGITAL_LRIGHT))
-            AdjustSelected(1, 1);
+        else if (bNavFire && (navHeld & (NAV_LEFT | NAV_RIGHT)))
+        {
+            // Toggles and actions only react to a fresh press, never to a hold.
+            if (!bNavRepeat || IsNumericItem(m_page, m_aiSelection[m_page]))
+                AdjustSelected(((navHeld & NAV_LEFT) ? -1 : 1), (bNavRepeat ? navAccel : 1));
+        }
         else if (CPCSpecific::IsKeyTrigger(DIK_PRIOR))
             AdjustSelected(1, 5);
         else if (CPCSpecific::IsKeyTrigger(DIK_NEXT))
@@ -681,6 +854,19 @@ public:
     };
 
 
+    static bool IsNumericItem(PAGE page, int32 selected)
+    {
+        switch (page)
+        {
+        case PAGE_DIFFICULTY: return ((selected >= 1) && (selected <= CDebugDifficulty::SETTING_NUM));
+        case PAGE_CAMERA:     return (selected == 0);
+        case PAGE_TELEMETRY:  return ((selected == 4) || (selected == 7) || (selected == 8));
+        case PAGE_COMBATLAB:  return (selected == LABITEM_ENEMY_COUNT);
+        default:              return false;
+        };
+    };
+
+
     void Draw(void) const
     {
         int32 currentLabel = CSequence::GetCurrently();
@@ -693,8 +879,9 @@ public:
 
         if (m_bOpen)
         {
-            DrawMenu();
-            DrawTelemetryCompact(12, 416);
+            int32 menuBottom = DrawMenu();
+            if ((menuBottom + 150) <= CScreen::Height())
+                DrawTelemetryCompact(12, menuBottom + 8);
         }
         else
         {
@@ -709,7 +896,10 @@ public:
         if (CCombatLab::IsPlaying() && CCombatLab::IsOverlayEnabled() &&
             (!m_bOpen || ((m_page == PAGE_COMBATLAB) && (CScreen::Width() >= 1280))))
         {
-            DrawCombatLabOverlay(CScreen::Width() - 344, 30);
+            // With the menu open the frame graph moves to the right edge.
+            float graphScale = MaxF(1.0f, static_cast<float>(CScreen::Height()) / 480.0f);
+            int32 overlayY = ((m_bOpen && m_bFrameGraph) ? static_cast<int32>(70.0f * graphScale) + 26 : 30);
+            DrawCombatLabOverlay(CScreen::Width() - 344, overlayY);
         };
     };
 
@@ -717,6 +907,8 @@ private:
     void Open(CDebugToolsProcess& owner, int32 label)
     {
         m_bOpen = true;
+        m_uNavHeld = 0;
+        m_iNavFrames = 0;
         m_iPausedLabel = label;
         m_iStepFrames = 0;
         owner.Mail().Send(m_iPausedLabel, PROCESSTYPES::MAIL::TYPE_MOVE_DISABLE);
@@ -821,9 +1013,9 @@ private:
             {
                 CDebugDifficulty::SETTING setting =
                     static_cast<CDebugDifficulty::SETTING>(selected - 1);
-                float delta = CDebugDifficulty::GetStep(setting) *
-                              static_cast<float>(direction * multiplier);
-                CDebugDifficulty::AdjustValue(setting, delta, difficulty);
+                // Steps grow with the value and stop where the live enemies
+                // reach the engine cap (see CDebugDifficulty::StepValue).
+                CDebugDifficulty::StepValue(setting, direction, multiplier, difficulty);
             };
             break;
 
@@ -860,6 +1052,11 @@ private:
             break;
 
         case PAGE_GRAPHICS:
+            if (selected == 1)
+            {
+                m_iMenuSize = InvClamp(m_iMenuSize + direction, 0, MENUSIZE_NUM - 1);
+            }
+            else
             {
                 int32 currentIndex = GetMSAAIndex(CPCSpecific::GetMultiSamplingSamples());
                 int32 nextIndex = Clamp(
@@ -973,7 +1170,10 @@ private:
             break;
 
         case PAGE_GRAPHICS:
-            ApplyMSAA(CPCSpecific::GetMultiSamplingSamples());
+            if (selected == 1)
+                m_iMenuSize = InvClamp(m_iMenuSize + 1, 0, MENUSIZE_NUM - 1);
+            else
+                ApplyMSAA(CPCSpecific::GetMultiSamplingSamples());
             break;
 
         case PAGE_HITBOXES:
@@ -1034,7 +1234,10 @@ private:
             break;
 
         case PAGE_GRAPHICS:
-            ApplyMSAA(0);
+            if (selected == 1)
+                m_iMenuSize = MENUSIZE_NORMAL;
+            else
+                ApplyMSAA(0);
             break;
 
         case PAGE_HITBOXES:
@@ -1078,6 +1281,7 @@ private:
 
         case PAGE_GRAPHICS:
             ApplyMSAA(0);
+            m_iMenuSize = MENUSIZE_NORMAL;
             break;
 
         case PAGE_HITBOXES:
@@ -1458,7 +1662,7 @@ private:
         case PAGE_ENEMY_AI:   return 2;
         case PAGE_STAGE:      return 5;
         case PAGE_CAMERA:     return 3;
-        case PAGE_GRAPHICS:   return 1;
+        case PAGE_GRAPHICS:   return 2;
         case PAGE_HITBOXES:   return 3;
         case PAGE_TELEMETRY:  return 9;
         case PAGE_COMBATLAB:  return LABITEM_NUM;
@@ -1476,7 +1680,346 @@ private:
     };
 
 
-    void DrawMenu(void) const
+    // Returns the bottom of the menu in screen pixels.
+    int32 DrawMenu(void) const
+    {
+        RwCamera* pCamera = CCamera::CameraCurrent();
+        if ((m_iMenuSize == MENUSIZE_CLASSIC) || !CGameFont::IsOpen() || !pCamera)
+        {
+            DrawMenuClassic();
+            return 408;
+        };
+
+        static IM2DBATCH s_batch;
+        static MENUTEXT s_aText[MENUTEXT_MAX];
+        int32 nText = 0;
+
+        s_batch.m_nVertex = 0;
+        s_batch.m_fZ = RwIm2DGetNearScreenZ();
+        s_batch.m_fRhw = 1.0f / RwCameraGetNearClipPlane(pCamera);
+
+        // Layout is done in the game's virtual screen (640x480 units), the
+        // same space the engine font and the move labels use.
+        const float VX = CSprite::m_fVirtualScreenX;
+        const float VY = CSprite::m_fVirtualScreenY;
+        const float VW = CSprite::m_fVirtualScreenW;
+        const float VH = CSprite::m_fVirtualScreenH;
+        const float SW = static_cast<float>(CScreen::Width());
+        const float SH = static_cast<float>(CScreen::Height());
+
+        const float S       = s_afMenuSizeScale[m_iMenuSize];
+        const float T       = 10.5f * S;    // item text height
+        const float TSMALL  = 8.4f * S;
+        const float ROW     = 13.0f * S;
+        const float HEADROW = 10.5f * S;
+        const float PAD     = 6.0f * S;
+        const float X0      = VX + 8.0f;
+        const float W       = MinF(340.0f * S, VW - 16.0f);
+        const float X1      = X0 + W;
+        const float TOP     = VY + 6.0f;
+
+        const RwRGBA COL_PANEL    = { 0x0A, 0x0E, 0x15, 0xEE };
+        const RwRGBA COL_BORDER   = { 0x3A, 0x9C, 0xD8, 0xFF };
+        const RwRGBA COL_TITLEBAR = { 0x14, 0x3A, 0x5C, 0xFF };
+        const RwRGBA COL_TAB      = { 0x1C, 0x26, 0x34, 0xFF };
+        const RwRGBA COL_TABON    = { 0xFF, 0xA8, 0x28, 0xFF };
+        const RwRGBA COL_ROWSEL   = { 0x1E, 0x4A, 0x74, 0xF0 };
+        const RwRGBA COL_ROWALT   = { 0xFF, 0xFF, 0xFF, 0x0A };
+        const RwRGBA COL_LINE     = { 0x3A, 0x9C, 0xD8, 0x70 };
+        const RwRGBA COL_TRACK    = { 0xFF, 0xFF, 0xFF, 0x26 };
+        const RwRGBA COL_FILL     = { 0x48, 0xC8, 0xFF, 0xE0 };
+        const RwRGBA COL_FILLMAX  = { 0xFF, 0xA8, 0x28, 0xF0 };
+        const RwRGBA TXT_TITLE    = { 0xFF, 0xFF, 0xFF, 0xFF };
+        const RwRGBA TXT_ACCENT   = { 0x78, 0xD8, 0xFF, 0xFF };
+        const RwRGBA TXT_ITEM     = { 0xE4, 0xEA, 0xF4, 0xFF };
+        const RwRGBA TXT_SEL      = { 0xFF, 0xD0, 0x60, 0xFF };
+        const RwRGBA TXT_VALUE    = { 0xB8, 0xF0, 0xFF, 0xFF };
+        const RwRGBA TXT_ON       = { 0x70, 0xF0, 0x90, 0xFF };
+        const RwRGBA TXT_OFF      = { 0x98, 0xA0, 0xB0, 0xFF };
+        const RwRGBA TXT_DIM      = { 0xA0, 0xAC, 0xC0, 0xFF };
+        const RwRGBA TXT_DARK     = { 0x10, 0x14, 0x1A, 0xFF };
+
+        auto quad = [&](float x0, float y0, float x1, float y1, const RwRGBA& color)
+        {
+            Im2DQuad(s_batch,
+                     ((x0 - VX) / VW) * SW, ((y0 - VY) / VH) * SH,
+                     ((x1 - VX) / VW) * SW, ((y1 - VY) / VH) * SH,
+                     color);
+        };
+
+        // Text is anchored on its baseline; rowTop/rowHeight centre it in a row.
+        auto text = [&](float x, float rowTop, float rowHeight, float height, const RwRGBA& color, const char* pszText)
+        {
+            if ((nText >= MENUTEXT_MAX) || !pszText[0])
+                return;
+
+            MENUTEXT& rText = s_aText[nText++];
+            rText.m_fX = x;
+            rText.m_fY = rowTop + (rowHeight * 0.5f) + (height * 0.30f);
+            rText.m_fHeight = height;
+            rText.m_color = color;
+            std::snprintf(rText.m_szText, sizeof(rText.m_szText), "%s", pszText);
+            MenuSanitize(rText.m_szText);
+        };
+
+        auto textRight = [&](float xRight, float rowTop, float rowHeight, float height, const RwRGBA& color, const char* pszText)
+        {
+            char buffer[200];
+            std::snprintf(buffer, sizeof(buffer), "%s", pszText);
+            MenuSanitize(buffer);
+            text(xRight - MenuTextWidth(buffer, height), rowTop, rowHeight, height, color, buffer);
+        };
+
+        // Two quads are reserved for the border and the panel; their size is
+        // only known once the content has been laid out.
+        int32 panelVertex = s_batch.m_nVertex;
+        quad(X0, TOP, X1, TOP + 1.0f, COL_BORDER);
+        quad(X0, TOP, X1, TOP + 1.0f, COL_PANEL);
+
+        float y = TOP;
+
+        // ---- title bar ----
+        const float TITLE = 15.0f * S;
+        quad(X0, y, X1, y + TITLE, COL_TITLEBAR);
+        text(X0 + PAD, y, TITLE, T, TXT_TITLE, "TMNT2 DEBUG TOOLS");
+        {
+            char status[64];
+            std::snprintf(status, sizeof(status), "%s   %s",
+                          (CCombatLab::IsActive() ? "COMBAT LAB" : "GAME PAUSED"), MENU_VERSION);
+            textRight(X1 - PAD, y, TITLE, TSMALL, TXT_ACCENT, status);
+        };
+        y += TITLE + (4.0f * S);
+
+        // ---- tabs (flow, wraps to a second row when needed) ----
+        {
+            const float TABH = 12.5f * S;
+            const float TABT = 9.0f * S;
+            float cx = X0 + PAD;
+            for (int32 i = 0; i < PAGE_NUM; ++i)
+            {
+                float w = MenuTextWidth(s_apszPageName[i], TABT) + (8.0f * S);
+                if (((cx + w) > (X1 - PAD)) && (cx > (X0 + PAD)))
+                {
+                    cx = X0 + PAD;
+                    y += TABH + (2.0f * S);
+                };
+
+                bool bActive = (i == static_cast<int32>(m_page));
+                quad(cx, y, cx + w, y + TABH, (bActive ? COL_TABON : COL_TAB));
+                text(cx + (4.0f * S), y, TABH, TABT, (bActive ? TXT_DARK : TXT_DIM), s_apszPageName[i]);
+                cx += w + (3.0f * S);
+            };
+            y += TABH + (4.0f * S);
+        };
+        quad(X0 + PAD, y, X1 - PAD, y + 0.8f, COL_LINE);
+        y += 3.0f * S;
+
+        // ---- item list ----
+        int32 itemCount = GetItemCount(m_page);
+        int32 selected = m_aiSelection[m_page];
+
+        // Height left for the list once the fixed parts below it are counted.
+        const float FIXED_BELOW = 96.0f * S;
+        float listBudget = MinF(246.0f * S, (VY + VH - 6.0f) - y - FIXED_BELOW);
+        if (listBudget < (ROW * 4.0f))
+            listBudget = ROW * 4.0f;
+
+        auto rowsHeight = [&](int32 first, int32 last) -> float
+        {
+            float h = 0.0f;
+            for (int32 i = first; i <= last; ++i)
+            {
+                if (GetSectionTitle(m_page, i))
+                    h += HEADROW;
+                h += ROW;
+            };
+            return h;
+        };
+
+        int32& rScroll = m_aiScroll[m_page];
+        if ((rScroll < 0) || (rScroll >= itemCount) || (rowsHeight(0, itemCount - 1) <= listBudget))
+            rScroll = 0;
+        if (selected < rScroll)
+            rScroll = selected;
+        while ((rScroll < selected) && (rowsHeight(rScroll, selected) > listBudget))
+            ++rScroll;
+
+        int32 lastShown = rScroll - 1;
+        float used = 0.0f;
+        for (int32 i = rScroll; i < itemCount; ++i)
+        {
+            const char* pszSection = GetSectionTitle(m_page, i);
+            float need = ROW + (pszSection ? HEADROW : 0.0f);
+            if ((used + need) > (listBudget + 0.01f))
+                break;
+
+            if (pszSection)
+            {
+                text(X0 + PAD, y, HEADROW, TSMALL, TXT_ACCENT, pszSection);
+                float lineX = X0 + PAD + MenuTextWidth(pszSection, TSMALL) + (5.0f * S);
+                if (lineX < (X1 - PAD))
+                    quad(lineX, y + (HEADROW * 0.5f), X1 - PAD, y + (HEADROW * 0.5f) + 0.7f, COL_LINE);
+                y += HEADROW;
+            };
+
+            bool bSelected = (i == selected);
+            if (bSelected)
+            {
+                quad(X0 + 2.0f, y, X1 - 2.0f, y + ROW, COL_ROWSEL);
+                quad(X0 + 2.0f, y, X0 + 2.0f + (2.2f * S), y + ROW, COL_TABON);
+            }
+            else if (i & 1)
+            {
+                quad(X0 + 2.0f, y, X1 - 2.0f, y + ROW, COL_ROWALT);
+            };
+
+            // "Label  value": the item formatters separate them with 2+ spaces.
+            char line[200];
+            FormatItemText(i, line, sizeof(line));
+            char* pszValue = std::strstr(line, "  ");
+            if (pszValue)
+            {
+                *pszValue = '\0';
+                ++pszValue;
+                while (*pszValue == ' ')
+                    ++pszValue;
+            };
+
+            float labelX = X0 + PAD + (4.0f * S);
+            float valueRight = X1 - PAD;
+            float sliderX0 = 0.0f;
+            float sliderX1 = 0.0f;
+            float fraction = -1.0f;
+            bool bAtMax = false;
+            if ((m_page == PAGE_DIFFICULTY) && (i >= 1) && (i <= CDebugDifficulty::SETTING_NUM))
+            {
+                CDebugDifficulty::SETTING setting = static_cast<CDebugDifficulty::SETTING>(i - 1);
+                float value = CDebugDifficulty::GetValue(setting, CGameData::Option().Play().GetDifficulty());
+                float minimum = CDebugDifficulty::GetMinimum(setting);
+                float maximum = MaxF(CDebugDifficulty::GetEffectiveMaximum(setting), value);
+                fraction = (maximum > minimum ? Clamp((value - minimum) / (maximum - minimum), 0.0f, 1.0f) : 1.0f);
+                bAtMax = (fraction >= 0.999f);
+                sliderX0 = X0 + (W * 0.44f);
+                sliderX1 = X0 + (W * 0.60f);
+            };
+
+            float labelHeight = T;
+            float labelRoom = (fraction >= 0.0f ? sliderX0 - labelX - (3.0f * S) : W * 0.62f);
+            float valueWidth = (pszValue ? MenuTextWidth(pszValue, T) : 0.0f);
+            if (fraction < 0.0f)
+                labelRoom = MaxF(labelRoom, (valueRight - valueWidth - (6.0f * S)) - labelX);
+            float labelWidth = MenuTextWidth(line, labelHeight);
+            if (labelWidth > labelRoom)
+                labelHeight = MaxF(T * 0.72f, T * (labelRoom / labelWidth));
+
+            text(labelX, y, ROW, labelHeight, (bSelected ? TXT_SEL : TXT_ITEM), line);
+
+            if (pszValue && pszValue[0])
+            {
+                RwRGBA color = TXT_VALUE;
+                if (!std::strncmp(pszValue, "ON", 2))
+                    color = TXT_ON;
+                else if (!std::strncmp(pszValue, "OFF", 3) || !std::strncmp(pszValue, "EMPTY", 5))
+                    color = TXT_OFF;
+
+                float valueHeight = T;
+                float valueRoom = valueRight - (fraction >= 0.0f ? sliderX1 + (4.0f * S) : labelX + MinF(labelWidth, labelRoom) + (6.0f * S));
+                if ((valueWidth > valueRoom) && (valueRoom > 1.0f))
+                    valueHeight = MaxF(T * 0.72f, T * (valueRoom / valueWidth));
+
+                textRight(valueRight, y, ROW, valueHeight, color, pszValue);
+            };
+
+            if (fraction >= 0.0f)
+            {
+                float barY0 = y + (ROW * 0.5f) - (1.6f * S);
+                float barY1 = y + (ROW * 0.5f) + (1.6f * S);
+                quad(sliderX0, barY0, sliderX1, barY1, COL_TRACK);
+                if (fraction > 0.0f)
+                    quad(sliderX0, barY0, sliderX0 + ((sliderX1 - sliderX0) * fraction), barY1, (bAtMax ? COL_FILLMAX : COL_FILL));
+            };
+
+            y += ROW;
+            used += need;
+            lastShown = i;
+        };
+
+        y += 3.0f * S;
+        quad(X0 + PAD, y, X1 - PAD, y + 0.8f, COL_LINE);
+        y += 3.0f * S;
+
+        // ---- help for the selected item ----
+        const char* scope = "";
+        const char* description = "";
+        GetItemHelp(selected, scope, description);
+
+        const float SCOPEROW = 11.0f * S;
+        text(X0 + PAD, y, SCOPEROW, TSMALL, TXT_ACCENT, scope);
+        if ((rScroll > 0) || (lastShown < (itemCount - 1)))
+        {
+            char range[48];
+            std::snprintf(range, sizeof(range), "items %d-%d of %d", rScroll + 1, lastShown + 1, itemCount);
+            textRight(X1 - PAD, y, SCOPEROW, TSMALL, TXT_DIM, range);
+        };
+        y += SCOPEROW;
+
+        static char s_aLine[6][200];
+        const float DESCT = 9.4f * S;
+        const float DESCROW = 11.0f * S;
+        int32 nLine = MenuWrap(description, DESCT, W - (PAD * 2.0f), s_aLine, 4);
+        for (int32 n = 0; n < nLine; ++n)
+            text(X0 + PAD, y + (DESCROW * static_cast<float>(n)), DESCROW, DESCT, TXT_ITEM, s_aLine[n]);
+        y += DESCROW * static_cast<float>(nLine < 3 ? 3 : nLine);    // stable height
+
+        y += 2.0f * S;
+        quad(X0 + PAD, y, X1 - PAD, y + 0.8f, COL_LINE);
+        y += 2.0f * S;
+
+        // ---- controls ----
+        static const char* s_apszHint[] =
+        {
+            "Keys:  Arrows move / change (hold = faster)   PgUp/PgDn x5   Enter run   Backspace reset item   Del reset tab   Q/E tab   Esc close",
+            "Pad:  D-pad or stick   LB/RB tab   A run   X reset item   Y reset tab   B close   Start pause   R-stick camera   LT/RT zoom   R3 reset",
+        };
+        const float HINTT = 7.6f * S;
+        const float HINTROW = 9.0f * S;
+        for (int32 h = 0; h < COUNT_OF(s_apszHint); ++h)
+        {
+            int32 n = MenuWrap(s_apszHint[h], HINTT, W - (PAD * 2.0f), s_aLine, 3);
+            for (int32 k = 0; k < n; ++k)
+            {
+                text(X0 + PAD, y, HINTROW, HINTT, TXT_DIM, s_aLine[k]);
+                y += HINTROW;
+            };
+        };
+        y += 3.0f * S;
+
+        // ---- patch the reserved border + panel quads to the final size ----
+        {
+            int32 saved = s_batch.m_nVertex;
+            s_batch.m_nVertex = panelVertex;
+            quad(X0 - 1.0f, TOP - 1.0f, X1 + 1.0f, y + 1.0f, COL_BORDER);
+            quad(X0, TOP, X1, y, COL_PANEL);
+            s_batch.m_nVertex = saved;
+        };
+
+        CSystem2D::PushRenderState();
+        RwRenderStateSet(rwRENDERSTATETEXTURERASTER, nullptr);
+        RwIm2DRenderPrimitive(rwPRIMTYPETRILIST, s_batch.m_aVertex, s_batch.m_nVertex);
+        for (int32 n = 0; n < nText; ++n)
+        {
+            const MENUTEXT& rText = s_aText[n];
+            CGameFont::SetHeight(rText.m_fHeight);
+            CGameFont::SetRGBA(rText.m_color);
+            CGameFont::Show(rText.m_szText, rText.m_fX, rText.m_fY);
+        };
+        CSystem2D::PopRenderState();
+
+        return static_cast<int32>((((y + 1.0f) - VY) / VH) * SH);
+    };
+
+
+    void DrawMenuClassic(void) const
     {
         m_font.Background({ 0x08, 0x0C, 0x12, 0xE8 });
         m_font.Color({ 0x78, 0xD8, 0xFF, 0xFF });
@@ -1547,6 +2090,65 @@ private:
     };
 
 
+    // "Label  x1.65   50-99%": the multiplier plus what it currently gives
+    // on the enemies that are alive, in the setting's real unit.
+    void FormatDifficultyValue(
+        CDebugDifficulty::SETTING setting,
+        GAMETYPES::DIFFICULTY difficulty,
+        char* buffer,
+        size_t capacity
+    ) const
+    {
+        float value = CDebugDifficulty::GetValue(setting, difficulty);
+        CDebugDifficulty::UNIT unit = CDebugDifficulty::GetUnit(setting);
+
+        char effect[64];
+        effect[0] = '\0';
+
+        if (unit != CDebugDifficulty::UNIT_MULTIPLIER)
+        {
+            CDebugDifficulty::LIVEINFO info;
+            if (!CDebugDifficulty::GetLiveInfo(setting, info))
+            {
+                std::snprintf(effect, sizeof(effect), "   not used here");
+            }
+            else
+            {
+                const char* pszMax = ((info.m_fNowMin >= (info.m_fCap - 0.5f)) ? " MAX" : "");
+                int32 lo = static_cast<int32>(info.m_fNowMin + 0.5f);
+                int32 hi = static_cast<int32>(info.m_fNowMax + 0.5f);
+
+                switch (unit)
+                {
+                case CDebugDifficulty::UNIT_PERCENT:
+                    if (lo == hi)
+                        std::snprintf(effect, sizeof(effect), "   %d%%%s", hi, pszMax);
+                    else
+                        std::snprintf(effect, sizeof(effect), "   %d-%d%%%s", lo, hi, pszMax);
+                    break;
+
+                case CDebugDifficulty::UNIT_DISTANCE:
+                    if (lo == hi)
+                        std::snprintf(effect, sizeof(effect), "   range %d%s", hi, pszMax);
+                    else
+                        std::snprintf(effect, sizeof(effect), "   range %d-%d%s", lo, hi, pszMax);
+                    break;
+
+                default:
+                    pszMax = ((info.m_fNowMin >= (info.m_fCap - 0.01f)) ? " MAX" : "");
+                    if ((info.m_fNowMax - info.m_fNowMin) < 0.05f)
+                        std::snprintf(effect, sizeof(effect), "   view %.1f%s", info.m_fNowMax, pszMax);
+                    else
+                        std::snprintf(effect, sizeof(effect), "   view %.1f-%.1f%s", info.m_fNowMin, info.m_fNowMax, pszMax);
+                    break;
+                };
+            };
+        };
+
+        std::snprintf(buffer, capacity, "%-30s x%.2f%s", s_apszDifficultySettingName[setting], value, effect);
+    };
+
+
     void FormatItemText(int32 index, char* buffer, size_t capacity) const
     {
         buffer[0] = '\0';
@@ -1563,15 +2165,7 @@ private:
                 CDebugDifficulty::SETTING setting =
                     static_cast<CDebugDifficulty::SETTING>(index - 1);
                 GAMETYPES::DIFFICULTY difficulty = CGameData::Option().Play().GetDifficulty();
-                float value = CDebugDifficulty::GetValue(setting, difficulty);
-                std::snprintf(
-                    buffer,
-                    capacity,
-                    "%-30s %5.2fx%s",
-                    s_apszDifficultySettingName[setting],
-                    value,
-                    (CDebugDifficulty::IsOverrideEnabled() ? " *" : "")
-                );
+                FormatDifficultyValue(setting, difficulty, buffer, capacity);
             }
             else
             {
@@ -1632,6 +2226,9 @@ private:
             break;
 
         case PAGE_GRAPHICS:
+            if (index == 1)
+                std::snprintf(buffer, capacity, "Debug menu size               %s", s_apszMenuSizeName[m_iMenuSize]);
+            else
             std::snprintf(
                 buffer,
                 capacity,
@@ -1737,8 +2334,10 @@ private:
             break;
 
         case PAGE_GRAPHICS:
-            scope = "LIVE GRAPHICS DEVICE";
-            description = "Changes MSAA Off/2X/4X/8X immediately; fullscreen and driver support are required.";
+            scope = (index == 1 ? "MENU APPEARANCE" : "LIVE GRAPHICS DEVICE");
+            description = (index == 1 ?
+                "Size of this menu. Classic is the previous small fixed-size text menu." :
+                "Changes MSAA Off/2X/4X/8X immediately; fullscreen and driver support are required.");
             break;
 
         case PAGE_HITBOXES:
@@ -2083,7 +2682,7 @@ private:
             break;
 
         case LABITEM_ENEMY_TYPE:
-            std::snprintf(buffer, capacity, "Enemy type                    %s  [%d/%d]",
+            std::snprintf(buffer, capacity, "Enemy type                    %s  (%d of %d)",
                           ENEMYID::GetName(CCombatLab::GetEnemyType()),
                           CCombatLab::GetEnemyTypeIndex() + 1,
                           CCombatLab::GetEnemyTypeNum());
@@ -2903,7 +3502,7 @@ private:
         float graphW = barW * static_cast<float>(BARS);
         float graphH = 56.0f * scale;
         float x0 = (static_cast<float>(CScreen::Width()) - graphW) * 0.5f;
-        if (m_bOpen && (CScreen::Width() < 1400))
+        if (m_bOpen)
             x0 = static_cast<float>(CScreen::Width()) - graphW - (12.0f * scale);
         float y0 = 6.0f * scale;
         const float MAX_MS = 50.0f;
@@ -3235,6 +3834,10 @@ private:
     MOVEEVENT m_aMoveEvent[MOVEEVENT_NUM];
     int32 m_iMoveEventHead;
     char m_szPlayerMotion[48];
+    uint32 m_uNavHeld;
+    int32 m_iNavFrames;
+    int32 m_iMenuSize;
+    mutable int32 m_aiScroll[PAGE_NUM];
     bool m_bLabEnterArmed;
     bool m_bLabAIPresetStored;
     CDebugDifficulty::SNAPSHOT m_labAIPreset;

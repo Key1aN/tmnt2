@@ -47,6 +47,26 @@ public:
         float m_afValue[SETTING_NUM];
     };
 
+    // What the number a setting produces means, for display.
+    enum UNIT
+    {
+        UNIT_MULTIPLIER = 0,    // plain multiplier, no engine cap
+        UNIT_PERCENT,           // result is a chance / rate in percent, capped
+        UNIT_DISTANCE,          // result is a world distance, capped
+        UNIT_VIEW,              // result is the AI view ratio, capped where it stops mattering
+    };
+
+    // Effective values on the enemies alive right now.
+    struct LIVEINFO
+    {
+        bool  m_bValid;         // at least one live enemy has a non-zero base value
+        int32 m_nEnemy;
+        float m_fNowMin;        // lowest / highest non-zero effective value
+        float m_fNowMax;
+        float m_fCap;           // engine cap in the same unit
+        float m_fSaturate;      // multiplier at which every non-zero value has reached the cap
+    };
+
 public:
     static void Initialize(void);
     static bool IsOverrideEnabled(void);
@@ -71,6 +91,10 @@ public:
     static void Snapshot(SNAPSHOT& rSnapshot);
     static void Restore(const SNAPSHOT& rSnapshot);
     static void SetCustomValue(SETTING setting, float value, GAMETYPES::DIFFICULTY difficulty);
+    static UNIT GetUnit(SETTING setting);
+    static bool GetLiveInfo(SETTING setting, LIVEINFO& rInfo);
+    static float GetEffectiveMaximum(SETTING setting);
+    static void StepValue(SETTING setting, int32 direction, int32 repeat, GAMETYPES::DIFFICULTY difficulty);
 
 private:
     static void LoadBuiltInValues(GAMETYPES::DIFFICULTY difficulty);

@@ -1386,6 +1386,31 @@ bool CEnemyCharacter::IsFrequencyParameterValid(void) const
 
 
 #if defined(TMNT2_DEBUG_TOOLS)
+bool CEnemyCharacter::GetDebugFrequencyRows(const uint8** ppBaseRow, const uint8** ppNowRow, int32* pnCount) const
+{
+    if (!m_puDebugFrequencyBase || !m_puFrequencyParam || (m_iDebugFrequencyMax <= 0))
+        return false;
+
+    int32 row = static_cast<int32>(CGameProperty::GetDifficulty()) * m_iDebugFrequencyMax;
+    *ppBaseRow = &m_puDebugFrequencyBase[row];
+    *ppNowRow = &m_puFrequencyParam[row];
+    *pnCount = m_iDebugFrequencyMax;
+    return true;
+};
+
+
+const ENEMYTYPES::CHARACTERISTIC& CEnemyCharacter::GetDebugBaseAICharacteristic(void) const
+{
+    return m_debugBaseAICharacteristic;
+};
+
+
+bool CEnemyCharacter::IsDebugBaseIncludingAggression(void) const
+{
+    return m_bDebugFrequencyBaseIncludesAggression;
+};
+
+
 void CEnemyCharacter::RefreshDebugDifficultyParameters(void)
 {
     ASSERT(m_pParameter);

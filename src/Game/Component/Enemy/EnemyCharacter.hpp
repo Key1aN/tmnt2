@@ -206,6 +206,12 @@ public:
     bool IsFrequencyParameterValid(void) const;
 #if defined(TMNT2_DEBUG_TOOLS)
     void RefreshDebugDifficultyParameters(void);
+
+    // Read-only views for the Difficulty tab's live "effective value" display.
+    // Rows are the active table-difficulty row; false when the enemy has no table.
+    bool GetDebugFrequencyRows(const uint8** ppBaseRow, const uint8** ppNowRow, int32* pnCount) const;
+    const ENEMYTYPES::CHARACTERISTIC& GetDebugBaseAICharacteristic(void) const;
+    bool IsDebugBaseIncludingAggression(void) const;
 #endif /* defined(TMNT2_DEBUG_TOOLS) */
     CCharacterCompositor& Compositor(void);
     const CCharacterCompositor& Compositor(void) const;

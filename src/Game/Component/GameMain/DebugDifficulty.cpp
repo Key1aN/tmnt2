@@ -6,6 +6,8 @@
 #include "GameProperty.hpp"
 #include "GameStage.hpp"
 
+#include "Game/Component/GameData/GameData.hpp"
+
 #include "Game/Component/Enemy/Enemy.hpp"
 #include "Game/Component/Enemy/EnemyCharacter.hpp"
 
@@ -29,15 +31,46 @@ namespace
         { 0.00f, 10.00f, 0.10f }, // player damage dealt
         { 0.10f, 10.00f, 0.10f }, // enemy HP
         { 0.00f, 10.00f, 0.10f }, // player damage received
-        { 0.00f,  3.00f, 0.05f }, // attack frequency
-        { 0.00f,  3.00f, 0.05f }, // guard frequency
-        { 0.00f,  3.00f, 0.05f }, // projectile frequency
-        { 0.10f,  3.00f, 0.05f }, // projectile range
-        { 0.10f,  3.00f, 0.05f }, // AI thinking
-        { 0.10f,  3.00f, 0.05f }, // AI activity
-        { 0.10f,  3.00f, 0.05f }, // AI awareness
+        // Capped settings: the absolute maximum is only the hard bound for a
+        // base value of 1. The usable maximum is GetEffectiveMaximum(), the
+        // multiplier at which the live enemies' values reach the engine cap.
+        { 0.00f, 99.00f, 0.05f }, // attack frequency
+        { 0.00f, 99.00f, 0.05f }, // guard frequency
+        { 0.00f, 99.00f, 0.05f }, // projectile frequency
+        { 0.10f, 25.00f, 0.05f }, // projectile range
+        { 0.10f, 20.00f, 0.05f }, // AI thinking
+        { 0.10f, 20.00f, 0.05f }, // AI activity
+        { 0.10f, 20.00f, 0.05f }, // AI awareness
         { 0.10f,  3.00f, 0.05f }, // attack interval
         { 0.10f,  3.00f, 0.05f }, // knockback threshold
+    };
+
+
+    // Engine caps (see ScaleFrequency and the AI code that consumes them).
+    static const float CAP_FREQUENCY_PERCENT = 99.0f;   // chance tables: roll 0..99 < value
+    static const float CAP_FIRE_RANGE        = 255.0f;  // uint8 world distance
+    static const float CAP_RATE_PERCENT      = 100.0f;  // thinking rate 1.0 = no wait; activity roll 0..1
+    static const float CAP_VIEW              = 5.0f;    // 36 deg x view = 180 deg facing cone
+    static const float IDLE_MAXIMUM          = 10.0f;   // capped settings when no enemy is alive
+
+
+    static bool IsCappedSetting(CDebugDifficulty::SETTING setting)
+    {
+        return (CDebugDifficulty::GetUnit(setting) != CDebugDifficulty::UNIT_MULTIPLIER);
+    };
+
+
+    static float StepAt(CDebugDifficulty::SETTING setting, float value)
+    {
+        // Bigger steps higher up so large ranges stay quick to cross.
+        float step = s_aSettingLimit[setting].step;
+        if (value >= 20.0f)
+            return step * 20.0f;
+        if (value >= 5.0f)
+            return step * 10.0f;
+        if (value >= 2.0f)
+            return step * 2.0f;
+        return step;
     };
 
 
@@ -335,6 +368,209 @@ namespace
     {
         LoadBuiltInValues(difficulty);
         m_bOverrideEnabled = true;
+    };
+
+    m_afValue[setting] = ClampSetting(setting, value);
+    m_preset = PRESET_CUSTOM;
+    RefreshLiveEnemies();
+};
+
+
+/*static*/ CDebugDifficulty::UNIT CDebugDifficulty::GetUnit(SETTING setting)
+{
+    switch (setting)
+    {
+    case SETTING_ATTACK_FREQUENCY:
+    case SETTING_GUARD_FREQUENCY:
+    case SETTING_PROJECTILE_FREQUENCY:
+    case SETTING_AI_THINKING:
+    case SETTING_AI_ACTIVITY:
+        return UNIT_PERCENT;
+
+    case SETTING_PROJECTILE_RANGE:
+        return UNIT_DISTANCE;
+
+    case SETTING_AI_AWARENESS:
+        return UNIT_VIEW;
+
+    default:
+        return UNIT_MULTIPLIER;
+    };
+};
+
+
+/*static*/ bool CDebugDifficulty::GetLiveInfo(SETTING setting, LIVEINFO& rInfo)
+{
+    rInfo.m_bValid = false;
+    rInfo.m_nEnemy = 0;
+    rInfo.m_fNowMin = 0.0f;
+    rInfo.m_fNowMax = 0.0f;
+    rInfo.m_fCap = 0.0f;
+    rInfo.m_fSaturate = 0.0f;
+
+    if (!IsCappedSetting(setting) || !CGameStage::GetCurrent())
+        return false;
+
+    GAMETYPES::DIFFICULTY optionDifficulty = CGameData::Option().Play().GetDifficulty();
+
+    int32 enemyMax = CGameProperty::GetEnemyMax();
+    for (int32 i = 0; i < enemyMax; ++i)
+    {
+        CEnemy* pEnemy = CGameProperty::GetEnemy(i);
+        if (!pEnemy)
+            continue;
+
+        const CEnemyCharacter& rChr = pEnemy->Character();
+        float baseScale = (rChr.IsDebugBaseIncludingAggression() ? GetBuiltInValue(setting, optionDifficulty) : 1.0f);
+        if (baseScale <= 0.0f)
+            baseScale = 1.0f;
+
+        // (base, now) pairs this setting drives on this enemy
+        float aBase[8];
+        float aNow[8];
+        int32 nPair = 0;
+        float cap = 0.0f;
+
+        if ((setting == SETTING_AI_THINKING) || (setting == SETTING_AI_ACTIVITY) || (setting == SETTING_AI_AWARENESS))
+        {
+            const ENEMYTYPES::CHARACTERISTIC& rBase = rChr.GetDebugBaseAICharacteristic();
+            const ENEMYTYPES::CHARACTERISTIC& rNow = rChr.AICharacteristic();
+            if (setting == SETTING_AI_THINKING)
+            {
+                aBase[0] = rBase.m_fThinkingFrequency * 100.0f;
+                aNow[0] = rNow.m_fThinkingFrequency * 100.0f;
+                cap = CAP_RATE_PERCENT;
+            }
+            else if (setting == SETTING_AI_ACTIVITY)
+            {
+                aBase[0] = rBase.m_fRatioOfActivity * 100.0f;
+                aNow[0] = rNow.m_fRatioOfActivity * 100.0f;
+                cap = CAP_RATE_PERCENT;
+            }
+            else
+            {
+                aBase[0] = rBase.m_fRatioOfFrontView;
+                aNow[0] = rNow.m_fRatioOfFrontView;
+                cap = CAP_VIEW;
+            };
+            nPair = 1;
+        }
+        else
+        {
+            const uint8* pBaseRow = nullptr;
+            const uint8* pNowRow = nullptr;
+            int32 count = 0;
+            if (!rChr.GetDebugFrequencyRows(&pBaseRow, &pNowRow, &count))
+                continue;
+
+            cap = (setting == SETTING_PROJECTILE_RANGE ? CAP_FIRE_RANGE : CAP_FREQUENCY_PERCENT);
+            for (int32 index = 0; (index < count) && (nPair < COUNT_OF(aBase)); ++index)
+            {
+                bool bMine = false;
+                switch (setting)
+                {
+                case SETTING_ATTACK_FREQUENCY:     bMine = IsAttackFrequencyIndex(index); break;
+                case SETTING_GUARD_FREQUENCY:      bMine = IsGuardFrequencyIndex(index); break;
+                case SETTING_PROJECTILE_FREQUENCY: bMine = IsProjectileFrequencyIndex(index); break;
+                case SETTING_PROJECTILE_RANGE:     bMine = (index == 19); break;
+                default: break;
+                };
+
+                if (!bMine)
+                    continue;
+
+                aBase[nPair] = static_cast<float>(pBaseRow[index]);
+                aNow[nPair] = static_cast<float>(pNowRow[index]);
+                ++nPair;
+            };
+        };
+
+        bool bCounted = false;
+        for (int32 n = 0; n < nPair; ++n)
+        {
+            if (aBase[n] <= 0.0f)
+                continue;   // a base of zero stays zero at any multiplier
+
+            float now = aNow[n];
+            if (now > cap)
+                now = cap;
+
+            if (!rInfo.m_bValid || (now < rInfo.m_fNowMin))
+                rInfo.m_fNowMin = now;
+            if (!rInfo.m_bValid || (now > rInfo.m_fNowMax))
+                rInfo.m_fNowMax = now;
+
+            float saturate = (cap * baseScale) / aBase[n];
+            if (saturate > rInfo.m_fSaturate)
+                rInfo.m_fSaturate = saturate;
+
+            rInfo.m_fCap = cap;
+            rInfo.m_bValid = true;
+            bCounted = true;
+        };
+
+        if (bCounted)
+            ++rInfo.m_nEnemy;
+    };
+
+    return rInfo.m_bValid;
+};
+
+
+/*static*/ float CDebugDifficulty::GetEffectiveMaximum(SETTING setting)
+{
+    ASSERT(setting >= 0);
+    ASSERT(setting < SETTING_NUM);
+
+    float absolute = s_aSettingLimit[setting].maximum;
+    if (!IsCappedSetting(setting))
+        return absolute;
+
+    LIVEINFO info;
+    if (!GetLiveInfo(setting, info))
+        return (absolute < IDLE_MAXIMUM ? absolute : IDLE_MAXIMUM);
+
+    // Round up to the 0.05 grid so the cap is really reached.
+    float step = s_aSettingLimit[setting].step;
+    float maximum = static_cast<float>(static_cast<int32>((info.m_fSaturate / step) + 0.999f)) * step;
+    return Clamp(maximum, s_aSettingLimit[setting].minimum, absolute);
+};
+
+
+/*static*/ void CDebugDifficulty::StepValue(
+    SETTING setting,
+    int32 direction,
+    int32 repeat,
+    GAMETYPES::DIFFICULTY difficulty
+)
+{
+    ASSERT(setting >= 0);
+    ASSERT(setting < SETTING_NUM);
+
+    if ((direction == 0) || (repeat <= 0))
+        return;
+
+    if (!m_bOverrideEnabled)
+    {
+        LoadBuiltInValues(difficulty);
+        m_bOverrideEnabled = true;
+    };
+
+    float value = m_afValue[setting];
+    float minimum = s_aSettingLimit[setting].minimum;
+
+    // Never raise past the point where nothing changes any more, but do not
+    // pull an already higher value down just because the enemies changed.
+    float maximum = GetEffectiveMaximum(setting);
+    if (maximum < value)
+        maximum = value;
+
+    for (int32 i = 0; i < repeat; ++i)
+    {
+        float step = StepAt(setting, (direction > 0 ? value : value - 0.001f));
+        float next = value + (step * static_cast<float>(direction));
+        next = static_cast<float>(static_cast<int32>((next / step) + (next >= 0.0f ? 0.5f : -0.5f))) * step;
+        value = Clamp(next, minimum, maximum);
     };
 
     m_afValue[setting] = ClampSetting(setting, value);

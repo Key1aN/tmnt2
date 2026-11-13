@@ -1,4 +1,4 @@
-# TMNT2 Core: Combat Lab v1.0.1 (US)
+# TMNT2 Core: Combat Lab v1.1.0 / Debug Tools v1.2.10 (US)
 
 Cumulative on Karai Boss Variant v1.4.1 (`224106c`), which already contains Debug Tools v1.2.7.
 EXE-only change. No retail EXE, DAT or LPAC data is added or modified. Runtime-gated by the
@@ -117,6 +117,38 @@ Outputs `TMNT2.exe` and `CombatLab.exe` in `bin/win/d3d9/release/`. CI: `.github
 
 The normal save check still runs first; logos, movies, title and menus are skipped. Exit returns to Title.
 
+## v1.1.0 / Debug Tools v1.2.10
+
+### Difficulty tab: real units and caps
+
+Each capped setting now shows the multiplier **and** what it gives on the enemies alive right now,
+in its real unit, and the slider stops where those enemies reach the engine cap.
+
+| Setting | Unit shown | Engine cap | Who it affects |
+| --- | --- | --- | --- |
+| Enemy damage received, Enemy HP, Player damage received | multiplier | none (a hit is never below 1) | everyone |
+| Attack frequency, Guard frequency | percent chance | 99% | grunts with a frequency table |
+| Projectile frequency | percent chance | 99% | shooters only |
+| Projectile range | world distance | 255 | shooters only |
+| AI thinking rate | percent (100% = no wait) | 100% | grunts at spawn, bosses live |
+| AI activity | percent chance | 100% | everyone |
+| AI awareness | view ratio | 5.0 (36 deg x view = 180 deg cone) | everyone |
+| Attack interval, Knockback threshold | multiplier | none | bosses / monsters / elites only |
+
+- Maximum = the multiplier at which every non-zero live value has reached the cap (for example
+  Foot Ninja guard 10% -> 9.90x = 99%). With no enemy alive the maximum is 10x.
+- A base value of 0 stays 0 at any multiplier and is not counted.
+- Steps grow with the value (0.05 below 2x, 0.10 to 5x, 0.50 to 20x, 1.0 above) and holding a
+  direction accelerates (x2, x4, x8). Keyboard arrows now repeat when held, like the D-pad/stick.
+- The help text of each setting says what it does not affect (Foot Ninjas, shooters, bosses).
+
+### Menu
+
+New renderer using the game font and flat panels: title bar, tab chips, section headers, selected-row
+bar, right-aligned values, slider bars on the Difficulty tab, wrapped help text. Size is set in
+Graphics > Debug menu size (Classic / Small / Normal / Large / Extra large); Classic is the previous
+renderer and is also used automatically if the game font is not available.
+
 ## v1.0.1 fix
 
 v1.0.0 crashed on every lab entry (access violation in `CGameProperty::GetEnemy`, called from
@@ -127,4 +159,6 @@ was destroyed) is fixed too.
 
 ## Status
 
-Built by CI (MSVC). v1.0.0 was run in game and crashed on entry; v1.0.1 has not been run in game yet.
+Built by CI (MSVC). Combat Lab v1.0.1 was confirmed working in game. The v1.1.0 Difficulty-tab and
+menu changes have not been run in game yet; the new menu's layout in particular was written without
+being able to see it.
