@@ -18,6 +18,10 @@ public:
     static CDefaultCameraUpdater* Instance(void);
     
     virtual void Update(CMapCamera* pMapCamera) override;  
+
+private:
+    void UpdateOriginal(CMapCamera* pMapCamera);
+    void UpdateEnhanced(CMapCamera* pMapCamera);
 };
 
 
@@ -27,4 +31,8 @@ public:
     static CBossBattleCameraUpdater* Instance(void);
 
     virtual void Update(CMapCamera* pMapCamera) override;
+
+private:
+    void UpdateOriginal(CMapCamera* pMapCamera);
+    void UpdateEnhanced(CMapCamera* pMapCamera);
 };

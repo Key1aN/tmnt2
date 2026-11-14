@@ -310,7 +310,7 @@ namespace
 
     // ---- v1.2.10 menu renderer (game font + flat panels) ----
 
-    static const char* MENU_VERSION = "v1.2.22";
+    static const char* MENU_VERSION = "v1.2.23";
 
     enum MENUSIZE
     {
@@ -829,6 +829,10 @@ public:
             if (CPCSpecific::IsKeyTrigger(DIK_F6))
                 CCombatOverhaul::SetEnabled(!CCombatOverhaul::IsEnabled());
 
+            // Camera Overhaul: F7 switches the enhanced camera / retail camera.
+            if (CPCSpecific::IsKeyTrigger(DIK_F7))
+                CMapCamera::m_tuning.m_bEnable = !CMapCamera::m_tuning.m_bEnable;
+
             if (!m_bOpen && CPCSpecific::IsKeyTrigger(DIK_T))
                 CCombatOverhaul::RequestLockOnToggle(0);
         };
@@ -960,12 +964,79 @@ public:
     };
 
 
+    //
+    //  Camera Overhaul v1.0.0 rows of the CAMERA page (after the four
+    //  existing rows). Values live in CMapCamera::m_tuning.
+    //
+    enum
+    {
+        CAMITEM_ENHANCED = 4,
+        CAMITEM_TUNE_FIRST,
+        CAMITEM_TUNE_LAST = CAMITEM_TUNE_FIRST + 4,
+        CAMITEM_TUNE_RESET,
+        CAMITEM_NUM,
+    };
+
+    struct CAMTUNE
+    {
+        const char* m_pszLabel;
+        float CMapCamera::TUNING::* m_pValue;
+        float m_fMin;
+        float m_fMax;
+        float m_fStep;
+        const char* m_pszUnit;
+        const char* m_pszHelp;
+    };
+
+    static const CAMTUNE& CameraTune(int32 selected)
+    {
+        static const CAMTUNE s_aCameraTune[] =
+        {
+            { "Max zoom-out",       &CMapCamera::TUNING::m_fZoomMax,       1.00f, 3.00f, 0.05f, "x",
+              "How far the camera may pull back to keep everyone in view (retail limit is 3.00x, but it never gets there). Lower = bigger characters, and co-op players are held closer together." },
+            { "Safe area",          &CMapCamera::TUNING::m_fSafeMargin,    0.50f, 1.00f, 0.02f, "",
+              "Players are kept inside this part of the screen (1.00 = the very edge). Lower = the camera pulls back earlier." },
+            { "Jump window",        &CMapCamera::TUNING::m_fJumpWindow,    0.00f, 4.00f, 0.10f, "",
+              "Height a jump may gain before the camera starts to follow it up. 0 = the camera follows every jump like retail. Falls are always followed at once." },
+            { "Look-ahead",         &CMapCamera::TUNING::m_fLookAheadDist, 0.00f, 3.00f, 0.10f, "",
+              "Single player only: how far the camera leads in the direction you run. 0 = off." },
+            { "Boss pull",          &CMapCamera::TUNING::m_fBossWeightMax, 0.00f, 0.50f, 0.05f, "",
+              "Boss fights: how strongly the boss pulls the camera away from the players (0.50 = half way, like retail with one player)." },
+        };
+
+        return s_aCameraTune[Clamp(selected - CAMITEM_TUNE_FIRST, 0, COUNT_OF(s_aCameraTune) - 1)];
+    };
+
+    static bool IsCameraTuneItem(int32 selected)
+    {
+        return ((selected >= CAMITEM_TUNE_FIRST) && (selected <= CAMITEM_TUNE_LAST));
+    };
+
+    static void SetCameraTune(int32 selected, float fValue)
+    {
+        const CAMTUNE& rTune = CameraTune(selected);
+        CMapCamera::TUNING& rTuning = CMapCamera::m_tuning;
+
+        rTuning.*(rTune.m_pValue) = Clamp(fValue, rTune.m_fMin, rTune.m_fMax);
+
+        // The zoom-in threshold keeps its distance to the safe area, so the
+        // dead band between the two stays as wide as it is by default.
+        const CMapCamera::TUNING& rDefault = CMapCamera::DefaultTuning();
+        rTuning.m_fReturnMargin = rTuning.m_fSafeMargin * (rDefault.m_fReturnMargin / rDefault.m_fSafeMargin);
+    };
+
+    static void ResetCameraTune(void)
+    {
+        CMapCamera::ResetTuning();
+    };
+
+
     static bool IsNumericItem(PAGE page, int32 selected)
     {
         switch (page)
         {
         case PAGE_DIFFICULTY: return ((selected >= 1) && (selected <= CDebugDifficulty::SETTING_NUM));
-        case PAGE_CAMERA:     return (selected == 0);
+        case PAGE_CAMERA:     return ((selected == 0) || IsCameraTuneItem(selected));
         case PAGE_TELEMETRY:  return ((selected == 4) || (selected == 7) || (selected == 8));
         case PAGE_COMBATLAB:  return (selected == LABITEM_ENEMY_COUNT);
         case PAGE_AIVIEW:     return ((selected == AIITEM_RADAR_RANGE) || (selected == AIITEM_TIMELINE_SPAN));
@@ -1203,6 +1274,16 @@ private:
             else if (selected == 3)
             {
                 SetManualCamera(!CGameStageDebug::CAMERA_MANUAL_ALLOWED);
+            }
+            else if (selected == CAMITEM_ENHANCED)
+            {
+                CMapCamera::m_tuning.m_bEnable = !CMapCamera::m_tuning.m_bEnable;
+            }
+            else if (IsCameraTuneItem(selected))
+            {
+                const CAMTUNE& rTune = CameraTune(selected);
+                float value = CMapCamera::m_tuning.*(rTune.m_pValue);
+                SetCameraTune(selected, value + (rTune.m_fStep * static_cast<float>(direction * multiplier)));
             };
             break;
 
@@ -1336,6 +1417,10 @@ private:
                 ResetShowcaseCamera();
             else if (selected == 3)
                 SetManualCamera(!CGameStageDebug::CAMERA_MANUAL_ALLOWED);
+            else if (selected == CAMITEM_ENHANCED)
+                CMapCamera::m_tuning.m_bEnable = !CMapCamera::m_tuning.m_bEnable;
+            else if (selected == CAMITEM_TUNE_RESET)
+                ResetCameraTune();
             break;
 
         case PAGE_GRAPHICS:
@@ -1411,6 +1496,12 @@ private:
                 CGameStageDebug::CAMERA_ZOOM_SCALE = 1.00f;
             else if (selected == 3)
                 SetManualCamera(false);
+            else if (selected == CAMITEM_ENHANCED)
+                CMapCamera::m_tuning.m_bEnable = true;
+            else if (IsCameraTuneItem(selected))
+                SetCameraTune(selected, CMapCamera::DefaultTuning().*(CameraTune(selected).m_pValue));
+            else if (selected == CAMITEM_TUNE_RESET)
+                ResetCameraTune();
             else
                 ResetShowcaseCamera();
             break;
@@ -1470,6 +1561,8 @@ private:
         case PAGE_CAMERA:
             SetManualCamera(false);
             ResetShowcaseCamera();
+            CMapCamera::m_tuning.m_bEnable = true;
+            ResetCameraTune();
             break;
 
         case PAGE_GRAPHICS:
@@ -1884,7 +1977,7 @@ private:
         case PAGE_PLAYER:     return 8;
         case PAGE_ENEMY_AI:   return 2;
         case PAGE_STAGE:      return 5;
-        case PAGE_CAMERA:     return 4;
+        case PAGE_CAMERA:     return CAMITEM_NUM;
         case PAGE_GRAPHICS:   return 3;
         case PAGE_HITBOXES:   return 3;
         case PAGE_TELEMETRY:  return 9;
@@ -2487,6 +2580,27 @@ private:
             }
             else if (index == 3)
                 std::snprintf(buffer, capacity, "Manual camera (RS, LT, RT)    %s", (CGameStageDebug::CAMERA_MANUAL_ALLOWED ? "ON" : "OFF"));
+            else if (index == CAMITEM_ENHANCED)
+            {
+                CMapCamera* pMapCamera = (CGameProperty::IsCameraViewAvailable() ? CGameProperty::GetMapCamera() : nullptr);
+                if (CMapCamera::m_tuning.m_bEnable && pMapCamera && pMapCamera->GetFrameDiag().m_bFraming)
+                {
+                    const CMapCamera::FRAMEDIAG& rDiag = pMapCamera->GetFrameDiag();
+                    std::snprintf(buffer, capacity, "Enhanced camera (F7)          ON   zoom %.2fx  view %.2fx  off-screen %d",
+                                  rDiag.m_fZoom, rDiag.m_fFovZoom, static_cast<int>(rDiag.m_nNumOutside));
+                }
+                else
+                {
+                    std::snprintf(buffer, capacity, "Enhanced camera (F7)          %s", (CMapCamera::m_tuning.m_bEnable ? "ON" : "OFF - RETAIL CAMERA"));
+                };
+            }
+            else if (IsCameraTuneItem(index))
+            {
+                const CAMTUNE& rTune = CameraTune(index);
+                std::snprintf(buffer, capacity, "  %-28s%.2f%s", rTune.m_pszLabel, CMapCamera::m_tuning.*(rTune.m_pValue), rTune.m_pszUnit);
+            }
+            else if (index == CAMITEM_TUNE_RESET)
+                std::snprintf(buffer, capacity, "  Reset enhanced camera amounts");
             else
                 std::snprintf(buffer, capacity, "Reset to default game camera");
             break;
@@ -2617,6 +2731,21 @@ private:
                 (index == 3 ?
                     "OFF (default): the camera is fully automatic; right stick, LT, RT and R3 never move it, and R3 / right stick are lock-on. ON: right stick orbits, LT / RT change distance, R3 resets the camera, and lock-on is switched off." :
                     "Returns to automatic game camera, normal zoom, and the correct player path mode.")));
+            if (index == CAMITEM_ENHANCED)
+            {
+                scope = "CAMERA OVERHAUL";
+                description = "ON: Camera Overhaul v1.0 - keeps every player on screen with only as much zoom-out as needed, steadier view while jumping, boss framing, same speed at any refresh rate. OFF: the retail camera, unchanged. F7 switches at any time. The numbers show the current pull-back, view widening and players outside the safe area.";
+            }
+            else if (IsCameraTuneItem(index))
+            {
+                scope = "CAMERA OVERHAUL";
+                description = CameraTune(index).m_pszHelp;
+            }
+            else if (index == CAMITEM_TUNE_RESET)
+            {
+                scope = "CAMERA OVERHAUL";
+                description = "Sets every enhanced camera amount back to its default.";
+            };
             break;
 
         case PAGE_GRAPHICS:

@@ -27,8 +27,65 @@ public:
         PATHMODEMAX,
     };
 
+    /*
+     *  Enhanced framing ("nice zoom" replacement).
+     *
+     *  All values are tunable at runtime (see debug menu) and m_bEnable is
+     *  the master A/B switch - when it is false every code path below
+     *  behaves exactly like the original camera.
+     */
+    struct TUNING
+    {
+        bool  m_bEnable;            /* master switch: false = original camera            */
+        float m_fSafeMargin;        /* fraction of half screen targets must stay inside  */
+        float m_fReturnMargin;      /* tighter margin that must be met before zooming in */
+        float m_fSecondaryMargin;   /* margin for secondary targets (bosses)             */
+        float m_fZoomMax;           /* max dolly multiplier for path cameras             */
+        float m_fFovZoomMax;        /* max view window widening (set/fixed/blocked)      */
+        float m_fZoomOutSpeed;      /* 1/sec, exponential                                */
+        float m_fZoomInSpeed;       /* 1/sec, exponential                                */
+        float m_fZoomInDelay;       /* sec to wait before returning to closer framing    */
+        float m_fTargetHalfHeight;  /* vertical extent of player around body position    */
+        float m_fJumpWindow;        /* height player may gain before lookat follows      */
+        float m_fGroundFollowSpeed; /* 1/sec, lookat height catch-up after landing       */
+        float m_fLookAheadDist;     /* max single player look-ahead, world units (0=off) */
+        float m_fLookAheadTime;     /* sec of movement to look ahead                     */
+        float m_fLookAheadSpeed;    /* 1/sec, exponential                                */
+        float m_fBossWeightMax;     /* max pull of bosses on the lookat point (0..1)     */
+        float m_fBossRange;         /* bosses farther than this stop pulling the lookat  */
+    };
+
+    static const int32 FRAMETARGET_MAX = 8;
+
+    struct FRAMETARGET
+    {
+        RwV3d m_vPos;
+        float m_fUp;                /* extent above m_vPos */
+        float m_fDown;              /* extent below m_vPos */
+        bool  m_bPrimary;           /* players = true, bosses = false */
+    };
+
+    /* state of last framed update, for diagnostics only */
+    struct FRAMEDIAG
+    {
+        bool  m_bFraming;
+        int32 m_nNumTarget;
+        int32 m_nNumOutside;        /* targets outside the safe area */
+        float m_fZoom;              /* current smoothed dolly zoom   */
+        float m_fZoomRequest;       /* unclamped requested zoom      */
+        float m_fFovZoom;           /* current view window scale     */
+        float m_fMoveRadius;
+        float m_afScreenX[FRAMETARGET_MAX]; /* -1..1 across the screen */
+        float m_afScreenY[FRAMETARGET_MAX];
+    };
+
 public:
     static float m_fDefaultViewSize;
+    static TUNING m_tuning;
+
+    static void ResetTuning(void);
+    static const TUNING& DefaultTuning(void);
+    static bool IsEnhanced(void);   /* m_bEnable and, on PC, Debug Tools mod is switched on */
     
     CMapCamera(void);
     virtual ~CMapCamera(void);
@@ -38,6 +95,7 @@ public:
     void WorldRemoveCamera(RpWorld* pWorld);
     void Update(const RwV3d* pvAt);
     void Update(const RwV3d* pvAt, float fZoom);
+    void UpdateFraming(const RwV3d* pvAt, const FRAMETARGET* aTarget, int32 nNumTarget, float fZoomScale);
     void PostUpdate(void);
     void UpdateMoment(const RwV3d* pvAt);
     void UpdateAutoChangeCamera(const RwV3d* pvAt);
@@ -77,8 +135,18 @@ public:
     float GetViewAreaRadius(void) const;
     bool FrustumSphereTest(const RwV3d* pos, float fRadius) const;
     bool FrustumSphereTest(const RwSphere* sphere) const;
+    const FRAMEDIAG& GetFrameDiag(void) const;
+    const char* GetCameraAreaName(void) const;
 
 private:
+    struct FRAMEBASIS;
+
+    bool IsFramingActive(void) const;
+    bool MakeFrameBasis(FRAMEBASIS* pBasis, const RwV3d* pvEye, const RwV3d* pvAt, float fViewSize) const;
+    float CalcFrameDollyZoom(const FRAMEBASIS& rBasis, float fMargin) const;
+    float CalcFrameExtent(const FRAMEBASIS& rBasis, float fDollyZoom, float fMargin, bool bDiag);
+    float CalcFrameReach(const FRAMEBASIS& rBasis, float fDollyZoom, float fFovZoom) const;
+    void StepFrameZoom(float* pfZoom, float fRequestOut, float fRequestIn, float fZoomMax);
     void IntroductionCreate(void);
     void IntroductionDestroy(void);
     void IntroductionUpdate(void);
@@ -111,4 +179,12 @@ private:
     bool m_bChangeMoment;
     CIntroduction* m_pIntroduction;
     CVibration* m_pVibration;
+    FRAMETARGET m_aFrameTarget[FRAMETARGET_MAX];
+    int32 m_nNumFrameTarget;
+    bool m_bFramingRequest;
+    float m_fFrameZoom;
+    float m_fFrameFovZoom;
+    float m_fFrameZoomHold;
+    float m_fFrameReach;
+    FRAMEDIAG m_frameDiag;
 };

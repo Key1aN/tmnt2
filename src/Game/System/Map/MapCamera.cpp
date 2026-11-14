@@ -13,25 +13,30 @@
 #include "Game/Component/GameMain/GameProperty.hpp"
 #include "Game/System/Misc/Gamepad.hpp"
 #include "System/Common/Camera.hpp"
+#include "System/Common/Configure.hpp"
 
 #if defined(_DEBUG) || defined(TMNT2_DEBUG_TOOLS)
 #include "Game/Component/GameMain/GameStageDebug.hpp"
 #endif /* defined(_DEBUG) || defined(TMNT2_DEBUG_TOOLS) */
 
 
+/*
+ *  Original camera uses fixed per-update lerp factors that were authored for 60 updates/sec.
+ *  Update rate of the game follows display refresh rate (see CScreen), so with enhanced camera
+ *  the factor is converted to its time based equivalent - at 60hz result is identical to original.
+ */
 static inline float LerpFactor(float t)
 {
-//#ifdef TARGET_WEB
-//    float dt = CGameProperty::GetElapsedTime();
-//    float framerate = 60.0f; // org
-//
-//    float xx = (1.0f - t);
-//    float yx = (dt * framerate);
-//
-//    t = (1.0f - std::pow(xx, yx));
-//    t = Clamp(t, 0.0f, 1.0f);
-//#endif /* TARGET_WEB */
-    
+    if (!CMapCamera::IsEnhanced())
+        return t;
+
+    const float fAuthoredRate = 60.0f;
+
+    float dt = Clamp(CGameProperty::GetElapsedTime(), 0.0f, 0.1f);
+
+    t = (1.0f - std::pow((1.0f - t), (dt * fAuthoredRate)));
+    t = Clamp(t, 0.0f, 1.0f);
+
     return t;
 };
 
@@ -54,6 +59,26 @@ static float NormalizeDebugControllerAnalog(int16 value)
         -static_cast<float>(value) / static_cast<float>(TYPEDEF::SINT16_MIN));
 };
 #endif /* defined(TARGET_PC) && defined(TMNT2_DEBUG_TOOLS) */
+
+
+static inline float ExpFactor(float fSpeed)
+{
+    float dt = Clamp(CGameProperty::GetElapsedTime(), 0.0f, 0.1f);
+
+    return Clamp((1.0f - std::exp(-fSpeed * dt)), 0.0f, 1.0f);
+};
+
+
+struct CMapCamera::FRAMEBASIS
+{
+    RwV3d m_vAt;
+    RwV3d m_vRight;
+    RwV3d m_vUp;
+    RwV3d m_vFront;
+    float m_fDist;  /* authored (not zoomed) distance from eye to lookat */
+    float m_fViewX; /* view window half size at unit distance            */
+    float m_fViewY;
+};
 
 
 class CMapCamera::CIntroduction
@@ -242,6 +267,57 @@ void CMapCamera::CVibration::Update(RwV3d* pvEye, RwV3d* pvAt)
 /*static*/ RwV3d CMapCamera::m_vDefaultLookat = { 0.0f, 0.0f, 0.0f };
 /*static*/ RwV3d CMapCamera::m_vDefaultEye = { 0.0f, 5.0f, -8.0f };
 
+static const CMapCamera::TUNING s_tuningDefault =
+{
+    true,   /* m_bEnable            */
+    0.80f,  /* m_fSafeMargin        */
+    0.66f,  /* m_fReturnMargin      */
+    0.92f,  /* m_fSecondaryMargin   */
+    1.6f,   /* m_fZoomMax           */
+    1.25f,  /* m_fFovZoomMax        */
+    6.0f,   /* m_fZoomOutSpeed      */
+    1.5f,   /* m_fZoomInSpeed       */
+    0.5f,   /* m_fZoomInDelay       */
+    1.0f,   /* m_fTargetHalfHeight  */
+    1.2f,   /* m_fJumpWindow        */
+    10.0f,  /* m_fGroundFollowSpeed */
+    0.8f,   /* m_fLookAheadDist     */
+    0.25f,  /* m_fLookAheadTime     */
+    2.5f,   /* m_fLookAheadSpeed    */
+    0.45f,  /* m_fBossWeightMax     */
+    13.0f,  /* m_fBossRange         */
+};
+
+
+/*static*/ CMapCamera::TUNING CMapCamera::m_tuning = s_tuningDefault;
+
+
+/*static*/ bool CMapCamera::IsEnhanced(void)
+{
+#if defined(TARGET_PC)
+    /* with Debug Tools mod switched off in the manager this EXE runs retail camera */
+    if (!CPCModFeatures::IsDebugToolsEnabled())
+        return false;
+#endif /* defined(TARGET_PC) */
+
+    return m_tuning.m_bEnable;
+};
+
+
+/*static*/ const CMapCamera::TUNING& CMapCamera::DefaultTuning(void)
+{
+    return s_tuningDefault;
+};
+
+
+/*static*/ void CMapCamera::ResetTuning(void)
+{
+    /* master switch is not a tuning value and is kept as is */
+    bool bEnable = m_tuning.m_bEnable;
+    m_tuning = s_tuningDefault;
+    m_tuning.m_bEnable = bEnable;
+};
+
 
 CMapCamera::CMapCamera(void)
 : m_pCamera(nullptr)
@@ -262,7 +338,29 @@ CMapCamera::CMapCamera(void)
 , m_bChangeMoment(false)
 , m_pIntroduction(nullptr)
 , m_pVibration(nullptr)
+, m_nNumFrameTarget(0)
+, m_bFramingRequest(false)
+, m_fFrameZoom(1.0f)
+, m_fFrameFovZoom(1.0f)
+, m_fFrameZoomHold(0.0f)
+, m_fFrameReach(0.0f)
 {
+    std::memset(m_aFrameTarget, 0, sizeof(m_aFrameTarget));
+    std::memset(&m_frameDiag, 0, sizeof(m_frameDiag));
+    m_frameDiag.m_fZoom = 1.0f;
+    m_frameDiag.m_fZoomRequest = 1.0f;
+    m_frameDiag.m_fFovZoom = 1.0f;
+
+    static bool s_bTuningInit = false;
+    if (!s_bTuningInit)
+    {
+        s_bTuningInit = true;
+
+        /* run arg "-origcam" forces original camera behavior (A/B testing in release builds) */
+        if (CConfigure::CheckArg("origcam"))
+            m_tuning.m_bEnable = false;
+    };
+
     m_pCamera = CCamera::GetCamera();
     ASSERT(m_pCamera);
 
@@ -384,6 +482,8 @@ void CMapCamera::Update(const RwV3d* pvAt, float fZoom)
     };
 
     m_fRequestZoom = fZoom;
+    m_fFrameReach = 0.0f;
+    m_frameDiag.m_bFraming = false;
 
     switch (m_mode)
     {
@@ -436,11 +536,38 @@ void CMapCamera::PostUpdate(void)
 
     m_fLookatViewAreaRadius = fDist * m_fViewSize;
 
+    /*
+     *  Original move boundary grows together with zoom, so zoom and boundary chase each other.
+     *  With framing active boundary is the area that camera is able to frame at max zoom instead.
+     */
+    if (m_frameDiag.m_bFraming && (m_fFrameReach > 0.0f))
+        m_fLookatViewAreaRadius = m_fFrameReach;
+
+    m_frameDiag.m_fMoveRadius = m_fLookatViewAreaRadius;
+
     if (!std::strncmp(m_szCameraAreaName, "f", 1) ||
         !std::strncmp(m_szCameraAreaName, "f", 1))
         m_fLookatViewAreaRadius = 1000.0f;
 
     m_bChangeMoment = false;
+};
+
+
+void CMapCamera::UpdateFraming(const RwV3d* pvAt, const FRAMETARGET* aTarget, int32 nNumTarget, float fZoomScale)
+{
+    m_nNumFrameTarget = 0;
+
+    if (aTarget)
+    {
+        for (int32 i = 0; (i < nNumTarget) && (m_nNumFrameTarget < FRAMETARGET_MAX); ++i)
+            m_aFrameTarget[m_nNumFrameTarget++] = aTarget[i];
+    };
+
+    m_bFramingRequest = (IsEnhanced() && (m_nNumFrameTarget > 0));
+
+    Update(pvAt, fZoomScale);
+
+    m_bFramingRequest = false;
 };
 
 
@@ -789,13 +916,79 @@ void CMapCamera::UpdatePathCamera(const RwV3d* pvAt, bool bExPath)
 
         m_fPrePathTime = m_fPathTime;
 
-        RwV3d vNewEye = Math::VECTOR3_ZERO;
-        vNewEye.x = m_vAt.x + ((vEye.x - m_vAt.x) * m_fRequestZoom);
-        vNewEye.y = m_vAt.y + ((vEye.y - m_vAt.y) * m_fRequestZoom);
-        vNewEye.z = m_vAt.z + ((vEye.z - m_vAt.z) * m_fRequestZoom);
+        /*
+         *  Framing: required zoom is solved against authored eye position, so result
+         *  is absolute and does not depend on how far camera is zoomed at the moment.
+         */
+        float fZoom = m_fRequestZoom;
+        float fFovZoom = 1.0f;
 
-        if ((m_fRequestZoom > 1.0f) && CWorldMap::CheckCollisionLine(&vEye, &vNewEye))
+        FRAMEBASIS basis;
+        bool bFraming = (IsFramingActive() && MakeFrameBasis(&basis, &vEye, &m_vAt, TYPEDEF::DEFAULT_VIEWWINDOW));
+        if (bFraming)
+        {
+            float fRequestOut = CalcFrameDollyZoom(basis, 1.0f);
+            float fRequestIn  = CalcFrameDollyZoom(basis, (m_tuning.m_fReturnMargin / m_tuning.m_fSafeMargin));
+
+            StepFrameZoom(&m_fFrameZoom, fRequestOut, fRequestIn, m_tuning.m_fZoomMax);
+
+            fZoom = (m_fFrameZoom * m_fRequestZoom);
+
+            m_fFrameReach = CalcFrameReach(basis, m_tuning.m_fZoomMax, 1.0f);
+            m_frameDiag.m_fZoomRequest = fRequestOut;
+        }
+        else
+        {
+            m_fFrameZoom = 1.0f;
+        };
+
+        RwV3d vNewEye = Math::VECTOR3_ZERO;
+        vNewEye.x = m_vAt.x + ((vEye.x - m_vAt.x) * fZoom);
+        vNewEye.y = m_vAt.y + ((vEye.y - m_vAt.y) * fZoom);
+        vNewEye.z = m_vAt.z + ((vEye.z - m_vAt.z) * fZoom);
+
+        if ((fZoom > 1.0f) && CWorldMap::CheckCollisionLine(&vEye, &vNewEye))
+        {
             vNewEye = *CWorldMap::GetCollisionResultClosestPoint();
+
+            if (bFraming)
+            {
+                /* keep eye slightly off the wall instead of exactly on its surface */
+                const float fWallOffset = 0.3f;
+
+                RwV3d vBack = Math::VECTOR3_ZERO;
+                Math::Vec3_Sub(&vBack, &vEye, &vNewEye);
+
+                float fBackLen = Math::Vec3_Length(&vBack);
+                if (fBackLen > fWallOffset)
+                {
+                    Math::Vec3_Scale(&vBack, &vBack, (fWallOffset / fBackLen));
+                    Math::Vec3_Add(&vNewEye, &vNewEye, &vBack);
+                }
+                else
+                {
+                    vNewEye = vEye;
+                };
+
+                /* dolly is blocked by map - widen the view for what is left (limited) */
+                RwV3d vReached = Math::VECTOR3_ZERO;
+                Math::Vec3_Sub(&vReached, &vNewEye, &m_vAt);
+
+                fZoom = (Math::Vec3_Length(&vReached) / basis.m_fDist);
+                fFovZoom = CalcFrameExtent(basis, fZoom, 1.0f, false);
+                fFovZoom = Clamp(fFovZoom, 1.0f, m_tuning.m_fFovZoomMax);
+            };
+        };
+
+        if (bFraming)
+        {
+            CalcFrameExtent(basis, fZoom, 1.0f, true);
+
+            m_fFrameFovZoom = fFovZoom;
+            m_frameDiag.m_bFraming = true;
+            m_frameDiag.m_fZoom = fZoom;
+            m_frameDiag.m_fFovZoom = fFovZoom;
+        };
 
         vEye = vNewEye;
 
@@ -810,7 +1003,7 @@ void CMapCamera::UpdatePathCamera(const RwV3d* pvAt, bool bExPath)
 
         UpdateLookat();
 
-        m_fViewSize += (TYPEDEF::DEFAULT_VIEWWINDOW - m_fViewSize) * 0.1f;
+        m_fViewSize += ((TYPEDEF::DEFAULT_VIEWWINDOW * fFovZoom) - m_fViewSize) * LerpFactor(0.1f);
         SetViewWindow(m_fViewSize);
     };
 };
@@ -853,7 +1046,35 @@ void CMapCamera::UpdateSetCamera(const RwV3d* pvAt)
 		UpdateLookat();
 
         float fFov = CCameraDataManager::GetSetCamFov(cameraId);
-        m_fViewSize += 0.1f * (Math::Tan(fFov * TYPEDEF::DEFAULT_VIEWWINDOW) - m_fViewSize);
+        float fViewSize = Math::Tan(fFov * TYPEDEF::DEFAULT_VIEWWINDOW);
+
+        /*
+         *  Eye of set camera is authored and stays where it is,
+         *  framing is corrected by widening the view only (limited).
+         */
+        FRAMEBASIS basis;
+        if (IsFramingActive() && MakeFrameBasis(&basis, &vEye, &m_vAt, fViewSize))
+        {
+            float fRequestOut = CalcFrameExtent(basis, 1.0f, 1.0f, true);
+            float fRequestIn  = CalcFrameExtent(basis, 1.0f, (m_tuning.m_fReturnMargin / m_tuning.m_fSafeMargin), false);
+
+            StepFrameZoom(&m_fFrameFovZoom, fRequestOut, fRequestIn, m_tuning.m_fFovZoomMax);
+
+            fViewSize *= m_fFrameFovZoom;
+
+            m_fFrameZoom = 1.0f;
+            m_fFrameReach = CalcFrameReach(basis, 1.0f, m_tuning.m_fFovZoomMax);
+            m_frameDiag.m_bFraming = true;
+            m_frameDiag.m_fZoom = 1.0f;
+            m_frameDiag.m_fZoomRequest = fRequestOut;
+            m_frameDiag.m_fFovZoom = m_fFrameFovZoom;
+        }
+        else
+        {
+            m_fFrameFovZoom = 1.0f;
+        };
+
+        m_fViewSize += LerpFactor(0.1f) * (fViewSize - m_fViewSize);
         
         SetViewWindow(m_fViewSize);
     };
@@ -889,8 +1110,39 @@ void CMapCamera::UpdateFixedCamera(const RwV3d* pvAt)
 
         /* update fov */
         float fFov = CCameraDataManager::GetSetCamFov(cameraId);
+        float fViewSize = Math::Tan(fFov * TYPEDEF::DEFAULT_VIEWWINDOW);
 
-        m_fViewSize = Math::Tan(fFov * TYPEDEF::DEFAULT_VIEWWINDOW);
+        /*
+         *  Fixed camera is fully authored (eye and lookat), move boundary is
+         *  left as is and only view is widened when targets leave safe area.
+         */
+        FRAMEBASIS basis;
+        if (IsFramingActive() && MakeFrameBasis(&basis, &vEye, &vAt, fViewSize))
+        {
+            float fRequestOut = CalcFrameExtent(basis, 1.0f, 1.0f, true);
+            float fRequestIn  = CalcFrameExtent(basis, 1.0f, (m_tuning.m_fReturnMargin / m_tuning.m_fSafeMargin), false);
+
+            StepFrameZoom(&m_fFrameFovZoom, fRequestOut, fRequestIn, m_tuning.m_fFovZoomMax);
+
+            fViewSize *= m_fFrameFovZoom;
+
+            m_fFrameZoom = 1.0f;
+            m_frameDiag.m_bFraming = true;
+            m_frameDiag.m_fZoom = 1.0f;
+            m_frameDiag.m_fZoomRequest = fRequestOut;
+            m_frameDiag.m_fFovZoom = m_fFrameFovZoom;
+        }
+        else
+        {
+            m_fFrameFovZoom = 1.0f;
+        };
+
+        /* original snaps view size here while eye is still gliding to its place */
+        if (IsEnhanced() && !m_bChangeMoment)
+            m_fViewSize += LerpFactor(0.1f) * (fViewSize - m_fViewSize);
+        else
+            m_fViewSize = fViewSize;
+
         m_fChangeTimer -= CGameProperty::GetElapsedTime();
 
         SetViewWindow(m_fViewSize);
@@ -1144,6 +1396,270 @@ float CMapCamera::CalcNiceZoom(RwV3d* avPos, int32 nNumPos)
         fZoom = 3.0f;
 
     return fZoom;
+};
+
+
+bool CMapCamera::IsFramingActive(void) const
+{
+    return (m_bFramingRequest && IsEnhanced() && (m_nNumFrameTarget > 0));
+};
+
+
+bool CMapCamera::MakeFrameBasis(FRAMEBASIS* pBasis, const RwV3d* pvEye, const RwV3d* pvAt, float fViewSize) const
+{
+    ASSERT(pBasis);
+
+    Math::Vec3_Sub(&pBasis->m_vFront, pvAt, pvEye);
+
+    float fDist = Math::Vec3_Length(&pBasis->m_vFront);
+    if ((fDist < 0.01f) || (fViewSize <= 0.0f))
+        return false;
+
+    Math::Vec3_Scale(&pBasis->m_vFront, &pBasis->m_vFront, (1.0f / fDist));
+
+    Math::Vec3_Cross(&pBasis->m_vRight, &Math::VECTOR3_AXIS_Y, &pBasis->m_vFront);
+
+    float fRightLen = Math::Vec3_Length(&pBasis->m_vRight);
+    if (fRightLen < 0.001f)
+        pBasis->m_vRight = Math::VECTOR3_AXIS_X; /* looking straight up or down */
+    else
+        Math::Vec3_Scale(&pBasis->m_vRight, &pBasis->m_vRight, (1.0f / fRightLen));
+
+    Math::Vec3_Cross(&pBasis->m_vUp, &pBasis->m_vFront, &pBasis->m_vRight);
+
+    /*
+     *  fViewSize is the 4:3 horizontal view size. Vertical view never depends on the
+     *  display aspect and horizontal one follows it (widescreen), so take the real
+     *  aspect from what camera is using.
+     */
+    float fAspect = TYPEDEF::DEFAULT_ASPECTRATIO;
+
+    const RwV2d* pViewWindow = RwCameraGetViewWindow(m_pCamera->GetRwCamera());
+    if (pViewWindow && (pViewWindow->x > 0.0f) && (pViewWindow->y > 0.0f))
+        fAspect = (pViewWindow->x / pViewWindow->y);
+
+    pBasis->m_vAt    = *pvAt;
+    pBasis->m_fDist  = fDist;
+    pBasis->m_fViewY = (fViewSize / TYPEDEF::DEFAULT_ASPECTRATIO);
+    pBasis->m_fViewX = (pBasis->m_fViewY * fAspect);
+
+    return true;
+};
+
+
+/*
+ *  Returns multiplier of authored eye distance that is required to have all targets inside
+ *  of the safe area. Eye moves along view axis only, so lateral offsets of targets in camera
+ *  space do not depend on zoom and inequality "|x| <= margin * view * depth(zoom)" is solved
+ *  for zoom directly.
+ */
+float CMapCamera::CalcFrameDollyZoom(const FRAMEBASIS& rBasis, float fMarginScale) const
+{
+    const float fMinDepth = 1.0f;
+
+    float fZoom = 0.0f;
+
+    for (int32 i = 0; i < m_nNumFrameTarget; ++i)
+    {
+        const FRAMETARGET& rTarget = m_aFrameTarget[i];
+
+        float fMargin = (rTarget.m_bPrimary ? m_tuning.m_fSafeMargin : m_tuning.m_fSecondaryMargin);
+        fMargin = Clamp((fMargin * fMarginScale), 0.1f, 1.0f);
+
+        for (int32 j = 0; j < 2; ++j)
+        {
+            RwV3d vPt = rTarget.m_vPos;
+            vPt.y += (j ? rTarget.m_fUp : -rTarget.m_fDown);
+
+            RwV3d vOfs = Math::VECTOR3_ZERO;
+            Math::Vec3_Sub(&vOfs, &vPt, &rBasis.m_vAt);
+
+            float x = std::fabs(Math::Vec3_Dot(&vOfs, &rBasis.m_vRight));
+            float y = std::fabs(Math::Vec3_Dot(&vOfs, &rBasis.m_vUp));
+            float z = Math::Vec3_Dot(&vOfs, &rBasis.m_vFront);
+
+            float fZoomX = (((x / (fMargin * rBasis.m_fViewX)) - z) / rBasis.m_fDist);
+            float fZoomY = (((y / (fMargin * rBasis.m_fViewY)) - z) / rBasis.m_fDist);
+            float fZoomZ = ((fMinDepth - z) / rBasis.m_fDist);
+
+            fZoom = Max(fZoom, Max(fZoomX, Max(fZoomY, fZoomZ)));
+        };
+    };
+
+    return fZoom;
+};
+
+
+/*
+ *  Returns how far the farthest target is from the screen center in units of its margin
+ *  for eye at specified zoom: 1.0 is exactly on the safe area border. This is also the
+ *  scale of the view window that is required to fit all targets without moving the eye.
+ */
+float CMapCamera::CalcFrameExtent(const FRAMEBASIS& rBasis, float fDollyZoom, float fMarginScale, bool bDiag)
+{
+    const float fMinDepth = 0.1f;
+    const float fExtentMax = 100.0f;
+
+    float fExtent = 0.0f;
+
+    if (bDiag)
+    {
+        m_frameDiag.m_nNumTarget = m_nNumFrameTarget;
+        m_frameDiag.m_nNumOutside = 0;
+    };
+
+    for (int32 i = 0; i < m_nNumFrameTarget; ++i)
+    {
+        const FRAMETARGET& rTarget = m_aFrameTarget[i];
+
+        float fMargin = (rTarget.m_bPrimary ? m_tuning.m_fSafeMargin : m_tuning.m_fSecondaryMargin);
+        fMargin = Clamp((fMargin * fMarginScale), 0.1f, 1.0f);
+
+        float fExtentTarget = 0.0f;
+        bool bBehind = false;
+
+        for (int32 j = 0; j < 2; ++j)
+        {
+            RwV3d vPt = rTarget.m_vPos;
+            vPt.y += (j ? rTarget.m_fUp : -rTarget.m_fDown);
+
+            RwV3d vOfs = Math::VECTOR3_ZERO;
+            Math::Vec3_Sub(&vOfs, &vPt, &rBasis.m_vAt);
+
+            float x = std::fabs(Math::Vec3_Dot(&vOfs, &rBasis.m_vRight));
+            float y = std::fabs(Math::Vec3_Dot(&vOfs, &rBasis.m_vUp));
+            float z = Math::Vec3_Dot(&vOfs, &rBasis.m_vFront) + (rBasis.m_fDist * fDollyZoom);
+
+            if (z < fMinDepth)
+            {
+                /* behind the eye - no view window is able to fit it, so do not try */
+                bBehind = true;
+                continue;
+            };
+
+            float fScrX = (x / (z * rBasis.m_fViewX));
+            float fScrY = (y / (z * rBasis.m_fViewY));
+
+            fExtentTarget = Max(fExtentTarget, (Max(fScrX, fScrY) / fMargin));
+        };
+
+        if (bDiag)
+        {
+            RwV3d vOfs = Math::VECTOR3_ZERO;
+            Math::Vec3_Sub(&vOfs, &rTarget.m_vPos, &rBasis.m_vAt);
+
+            float z = Math::Vec3_Dot(&vOfs, &rBasis.m_vFront) + (rBasis.m_fDist * fDollyZoom);
+            if (z < fMinDepth)
+                z = fMinDepth;
+
+            m_frameDiag.m_afScreenX[i] = (Math::Vec3_Dot(&vOfs, &rBasis.m_vRight) / (z * rBasis.m_fViewX));
+            m_frameDiag.m_afScreenY[i] = (Math::Vec3_Dot(&vOfs, &rBasis.m_vUp)    / (z * rBasis.m_fViewY));
+
+            if (bBehind || (fExtentTarget > 1.001f))
+                ++m_frameDiag.m_nNumOutside;
+        };
+
+        fExtent = Max(fExtent, fExtentTarget);
+    };
+
+    return Min(fExtent, fExtentMax);
+};
+
+
+/*
+ *  Returns radius of the circle around lookat that stays on screen for specified zoom:
+ *  limited by screen sides and, for the one who is moving towards the camera, by bottom
+ *  of the screen (feet are m_fTargetHalfHeight below the lookat level).
+ */
+float CMapCamera::CalcFrameReach(const FRAMEBASIS& rBasis, float fDollyZoom, float fFovZoom) const
+{
+    const float fEdge = 0.95f;
+
+    float fDist  = (rBasis.m_fDist * fDollyZoom);
+    float fViewX = (rBasis.m_fViewX * fFovZoom * fEdge);
+    float fViewY = (rBasis.m_fViewY * fFovZoom * fEdge);
+    float fFeet  = m_tuning.m_fTargetHalfHeight;
+
+    float fSin = std::fabs(rBasis.m_vFront.y);
+    float fCos = Math::Sqrt(Max(0.0f, (1.0f - (fSin * fSin))));
+
+    float fReachSide = (fViewX * fDist);
+    float fReachNear = (((fViewY * (fDist + (fFeet * fSin))) - (fFeet * fCos)) / Max(0.001f, (fSin + (fViewY * fCos))));
+
+    /* never up to the eye itself */
+    fReachNear = Min(fReachNear, (fDist * 0.8f));
+
+    return Max(0.0f, Min(fReachSide, fReachNear));
+};
+
+
+/*
+ *  Zooms out quickly up to fRequestOut, returns slowly and after delay down to fRequestIn.
+ *  Requests are solved for two different margins (fRequestIn >= fRequestOut), everything
+ *  in between is a dead band where zoom is not changing at all - that prevents zoom from
+ *  oscillating when targets are moving near the safe area border.
+ */
+void CMapCamera::StepFrameZoom(float* pfZoom, float fRequestOut, float fRequestIn, float fZoomMax)
+{
+    ASSERT(pfZoom);
+
+    if (fZoomMax < 1.0f)
+        fZoomMax = 1.0f;
+
+    /* request may be garbage if target positions are garbage */
+    if (!(fRequestOut == fRequestOut) || !(fRequestIn == fRequestIn))
+        return;
+
+    fRequestOut = Clamp(fRequestOut, 1.0f, fZoomMax);
+    fRequestIn  = Clamp(fRequestIn,  1.0f, fZoomMax);
+
+    if (fRequestIn < fRequestOut)
+        fRequestIn = fRequestOut;
+
+    if (m_bChangeMoment)
+    {
+        *pfZoom = fRequestOut;
+        m_fFrameZoomHold = m_tuning.m_fZoomInDelay;
+        return;
+    };
+
+    float fZoom = Clamp(*pfZoom, 1.0f, fZoomMax);
+
+    if (fZoom < fRequestOut)
+    {
+        /* far behind the request means that someone is leaving the screen right now */
+        float fSpeed = m_tuning.m_fZoomOutSpeed;
+        if (fRequestOut > (fZoom * 1.25f))
+            fSpeed *= 2.0f;
+
+        fZoom += ((fRequestOut - fZoom) * ExpFactor(fSpeed));
+        m_fFrameZoomHold = m_tuning.m_fZoomInDelay;
+    }
+    else if (fZoom > fRequestIn)
+    {
+        if (m_fFrameZoomHold > 0.0f)
+            m_fFrameZoomHold -= CGameProperty::GetElapsedTime();
+        else
+            fZoom += ((fRequestIn - fZoom) * ExpFactor(m_tuning.m_fZoomInSpeed));
+    }
+    else
+    {
+        m_fFrameZoomHold = m_tuning.m_fZoomInDelay;
+    };
+
+    *pfZoom = fZoom;
+};
+
+
+const CMapCamera::FRAMEDIAG& CMapCamera::GetFrameDiag(void) const
+{
+    return m_frameDiag;
+};
+
+
+const char* CMapCamera::GetCameraAreaName(void) const
+{
+    return m_szCameraAreaName;
 };
 
 

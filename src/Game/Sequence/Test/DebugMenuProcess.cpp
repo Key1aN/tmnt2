@@ -285,6 +285,73 @@ void CDebugMenu::InitMenu_Stage(CDebugMenuCtrl& menu)
         CGameStageDebug::CAMERA_MANUAL_SPEED = value;
     });
 
+    /*
+     *  enhanced camera (A/B switch and tuning)
+     */
+    menu.AddBool("Enhanced camera", CMapCamera::m_tuning.m_bEnable, [](bool bValue, bool bTrigger) {
+        CMapCamera::m_tuning.m_bEnable = bValue;
+    });
+
+    menu.AddBool("Camera diagnostics", CGameStageDebug::CAMERA_DIAG, [](bool bValue, bool bTrigger) {
+        CGameStageDebug::CAMERA_DIAG = bValue;
+    });
+
+    menu.AddFloat("Cam safe margin", 0.5f, 1.0f, 0.02f, CMapCamera::m_tuning.m_fSafeMargin, [](float value, bool trigger) {
+        CMapCamera::m_tuning.m_fSafeMargin = value;
+
+        /* return margin have to stay tighter than safe margin */
+        if (CMapCamera::m_tuning.m_fReturnMargin > (value - 0.04f))
+            CMapCamera::m_tuning.m_fReturnMargin = (value - 0.04f);
+    });
+
+    menu.AddFloat("Cam return margin", 0.3f, 0.96f, 0.02f, CMapCamera::m_tuning.m_fReturnMargin, [](float value, bool trigger) {
+        CMapCamera::m_tuning.m_fReturnMargin = Min(value, (CMapCamera::m_tuning.m_fSafeMargin - 0.04f));
+    });
+
+    menu.AddFloat("Cam boss margin", 0.5f, 1.0f, 0.02f, CMapCamera::m_tuning.m_fSecondaryMargin, [](float value, bool trigger) {
+        CMapCamera::m_tuning.m_fSecondaryMargin = value;
+    });
+
+    menu.AddFloat("Cam zoom max", 1.0f, 3.0f, 0.05f, CMapCamera::m_tuning.m_fZoomMax, [](float value, bool trigger) {
+        CMapCamera::m_tuning.m_fZoomMax = value;
+    });
+
+    menu.AddFloat("Cam fov zoom max", 1.0f, 2.0f, 0.05f, CMapCamera::m_tuning.m_fFovZoomMax, [](float value, bool trigger) {
+        CMapCamera::m_tuning.m_fFovZoomMax = value;
+    });
+
+    menu.AddFloat("Cam zoom out speed", 0.5f, 30.0f, 0.5f, CMapCamera::m_tuning.m_fZoomOutSpeed, [](float value, bool trigger) {
+        CMapCamera::m_tuning.m_fZoomOutSpeed = value;
+    });
+
+    menu.AddFloat("Cam zoom in speed", 0.1f, 10.0f, 0.1f, CMapCamera::m_tuning.m_fZoomInSpeed, [](float value, bool trigger) {
+        CMapCamera::m_tuning.m_fZoomInSpeed = value;
+    });
+
+    menu.AddFloat("Cam zoom in delay", 0.0f, 3.0f, 0.1f, CMapCamera::m_tuning.m_fZoomInDelay, [](float value, bool trigger) {
+        CMapCamera::m_tuning.m_fZoomInDelay = value;
+    });
+
+    menu.AddFloat("Cam jump window", 0.0f, 4.0f, 0.1f, CMapCamera::m_tuning.m_fJumpWindow, [](float value, bool trigger) {
+        CMapCamera::m_tuning.m_fJumpWindow = value;
+    });
+
+    menu.AddFloat("Cam look-ahead dist", 0.0f, 3.0f, 0.1f, CMapCamera::m_tuning.m_fLookAheadDist, [](float value, bool trigger) {
+        CMapCamera::m_tuning.m_fLookAheadDist = value;
+    });
+
+    menu.AddFloat("Cam boss weight max", 0.0f, 0.5f, 0.05f, CMapCamera::m_tuning.m_fBossWeightMax, [](float value, bool trigger) {
+        CMapCamera::m_tuning.m_fBossWeightMax = value;
+    });
+
+    menu.AddFloat("Cam boss range", 2.0f, 40.0f, 1.0f, CMapCamera::m_tuning.m_fBossRange, [](float value, bool trigger) {
+        CMapCamera::m_tuning.m_fBossRange = value;
+    });
+
+    menu.AddTrigger("Cam reset tuning (reopen menu to refresh)", [](void*) {
+        CMapCamera::ResetTuning();
+    });
+
     if (m_numFrameBreaksSent > 0)
         m_menuForceSelect = m_menu.GetSelectMax();
     
