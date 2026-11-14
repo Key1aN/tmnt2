@@ -1,8 +1,18 @@
-# TMNT2 Combat Overhaul v1.1.0 (Debug Tools v1.2.17, US)
+# TMNT2 Combat Overhaul v1.1.1 (Debug Tools v1.2.18, US)
 
 Seventeen combat changes with a BEFORE / AFTER switch, on top of Combat Lab v1.2.0 /
 Debug Tools v1.2.15 (`ea19c64`). Status: **compiles in CI; not yet played**. Every number
 is a first guess; most can now be changed live in the OVERHAUL tab.
+
+## Changes in v1.1.1
+
+- **Mikey's guard shield is orange.** The barrier texture itself is green, so tinting it only
+  darkened it. The shield now uses an orange copy of that texture made at load time (same
+  pattern and transparency). If the copy cannot be made, a plain orange sphere is drawn.
+- **Shield radius 1.2 -> 1.6** (Donatello's is 2.0).
+- **Energy projectiles are reflected too.** Gunner and mech shots are "magic" objects, not
+  shots, and had no reflect path. A small moving magic that targets players and touches the
+  raised shield is turned around once and then hits enemies. Homing is switched off on it.
 
 ## Changes in v1.1.0
 
@@ -44,7 +54,7 @@ clears gauges, locks and pending bursts. Recorded demos (pad stream) keep retail
 | # | Feature | What changes | Numbers |
 | --- | --- | --- | --- |
 | 1 | Dash dodges arrows | Shots (arrows, shuriken, kunai...) do nothing to a dashing player | whole dash + first 0.12 s of its recovery |
-| 2 | Mikey 360 guard reflect | While Michelangelo guards, an orange barrier (Donatello's module, projectiles only) reflects enemy shots from any side | radius 1.2 (Don: 2.0) |
+| 2 | Mikey 360 guard reflect | While Michelangelo guards, an orange barrier (Donatello's module, projectiles only) reflects enemy arrows, shuriken and energy shots from any side | radius 1.6 (Don: 2.0) |
 | 3 | Mikey faster combos | His ground chain (A ... AABBC) plays faster; chain windows scale with it | 1.25x (1.00 - 1.60 in the menu) |
 | 4a | Posture break | Enemy: blocked player hits fill its gauge, full = retail guard break (stagger; next hit is a counter, 2x). Player: blocked hits fill the gauge; full = guard and parry stop working until landed hits empty it | enemy 4 blocks, player 6 blocks (both adjustable); -20% per landed hit while broken; decay after 2 s |
 | 4b | Combo break | Player: hits taken fill the gauge, **Guard + Jump** blasts nearby enemies away (0.8 s invincible). Enemy: unguarded hits fill theirs; they blast free from a standing hit reaction, then 6 s cooldown | player 4 hits, enemy 8 hits (both adjustable); blast radius 3.0 / 2.5 |

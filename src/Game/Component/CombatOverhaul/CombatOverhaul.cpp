@@ -216,7 +216,7 @@ namespace
         { nullptr,
           "2. Mikey 360 guard reflect",
           "MICHELANGELO - GUARD",
-          "While Michelangelo guards, a small orange barrier surrounds him: enemy shots from any side are sent back. It only affects projectiles; enemies walk through it unharmed. Retail: only his attack swings reflect." },
+          "While Michelangelo guards, an orange barrier surrounds him: arrows, shuriken and energy shots (gunners, mechs) from any side are sent back at the enemy. It only affects projectiles; enemies walk through it unharmed. Retail: only his attack swings reflect." },
         { "COMBOS AND MOVEMENT",
           "3. Mikey faster combos",
           "MICHELANGELO - A/B CHAIN",
@@ -1894,6 +1894,39 @@ CCombatOverhaul::AdjustDefenceFlag(
     };
 
     return 1.0f;
+};
+
+
+/*static*/ bool CCombatOverhaul::TryReflectProjectile(const RwV3d& rvPosition, float fRadius)
+{
+    if (!IsOn(FEATURE_MIC_REFLECT_360) || !CGameStage::GetCurrent())
+        return false;
+
+    int32 playerNum = CGameProperty::GetPlayerNum();
+    for (int32 i = 0; i < playerNum; ++i)
+    {
+        IGamePlayer* pGamePlayer = CGameProperty::Player(i);
+        CPlayerCharacter* pPlayerChr = (pGamePlayer ? pGamePlayer->GetCurrentCharacter() : nullptr);
+        if (!pPlayerChr || (pPlayerChr->GetID() != PLAYERID::ID_MIC))
+            continue;
+
+        CBarrierModule* pShield = static_cast<CBarrierModule*>(pPlayerChr->GetModule(MODULETYPE::BARRIER));
+        if (!pShield || !pShield->IsShotReflectOnly() || !pShield->IsRaised())
+            continue;
+
+        // The shield sphere is centred on the feet, where the module's
+        // tracer (CPlayerTracer) puts it.
+        RwV3d vCentre = Math::VECTOR3_ZERO;
+        pPlayerChr->GetFootPosition(&vCentre);
+
+        RwV3d vTo = Math::VECTOR3_ZERO;
+        Math::Vec3_Sub(&vTo, &rvPosition, &vCentre);
+
+        if (Math::Vec3_Length(&vTo) <= (pShield->GetCurrentRadius() + fRadius))
+            return true;
+    };
+
+    return false;
 };
 
 

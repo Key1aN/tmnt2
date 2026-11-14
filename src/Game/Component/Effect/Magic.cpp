@@ -19,6 +19,10 @@
 #include "Game/System/Map/WorldMap.hpp"
 #include "Game/System/Sound/GameSound.hpp"
 
+#if defined(TMNT2_DEBUG_TOOLS)
+#include "Game/Component/CombatOverhaul/CombatOverhaul.hpp"
+#endif /* defined(TMNT2_DEBUG_TOOLS) */
+
 
 CMagic::CMagic(const char* pszName)
 : CEffect(pszName)
@@ -93,6 +97,37 @@ void CMagic::Run(void)
 
     if (m_fNowTime == 0.0f)
         Appearing(&vMyPosition);
+
+#if defined(TMNT2_DEBUG_TOOLS)
+    // Combat Overhaul 2: Michelangelo's guard shield turns enemy energy
+    // projectiles (gunner shots and the like) around, once. Only small,
+    // moving magics that target players and were not fired by a player.
+    if (CheckFeature(MAGICTYPES::FEATURE_ATTACK) &&
+        CheckFeature(MAGICTYPES::FEATURE_ATTACK_TO_PLAYER) &&
+        !CheckFeature(MAGICTYPES::FEATURE_ATTACK_TO_ENEMY) &&
+        (m_collisionAttack.m_fRadius <= 1.5f) &&
+        (Math::Vec3_Length(&m_movement.m_vVelocity) > 0.001f))
+    {
+        bool bPlayerParent = (m_pParent &&
+                              (m_pParent->GetType() == GAMEOBJECTTYPE::CHARACTER) &&
+                              (static_cast<CCharacter*>(m_pParent)->GetCharacterType() == CCharacter::TYPE_PLAYER));
+
+        if (!bPlayerParent &&
+            CCombatOverhaul::TryReflectProjectile(vMyPosition, m_collisionAttack.m_fRadius))
+        {
+            RwV3d vBack = Math::VECTOR3_ZERO;
+            Math::Vec3_Negate(&vBack, &m_movement.m_vVelocity);
+            SetDirection(&vBack);
+
+            uint32 uFeature = static_cast<uint32>(m_feature);
+            uFeature &= ~static_cast<uint32>(MAGICTYPES::FEATURE_ATTACK_TO_PLAYER | MAGICTYPES::FEATURE_HOMING);
+            uFeature |= static_cast<uint32>(MAGICTYPES::FEATURE_ATTACK_TO_ENEMY);
+            m_feature = static_cast<MAGICTYPES::FEATURE>(uFeature);
+
+            CEffectManager::Play(EFFECTID::ID_MIC_REFLECT, &vMyPosition);
+        };
+    };
+#endif /* defined(TMNT2_DEBUG_TOOLS) */
 
     if (m_pParticleSet)
         m_pParticleSet->Run(dt);

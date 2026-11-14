@@ -133,6 +133,9 @@ public:
     static float GetAttackMotionSpeed(const CPlayerCharacter& rPlayerChr);
     static float GetGuardBackTime(void);
 
+    // true when a projectile at this position touches a raised Michelangelo guard shield
+    static bool TryReflectProjectile(const RwV3d& rvPosition, float fRadius);
+
     // every hit, after the retail result and damage are known
     static void OnCatchAttack(
         CCharacter& rTarget,

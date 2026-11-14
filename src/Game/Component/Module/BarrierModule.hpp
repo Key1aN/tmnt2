@@ -45,6 +45,8 @@ public:
     // hits enemies nor swallows projectiles.
     void SetShotReflectOnly(const RwRGBA& rColor);
     bool IsShotReflectOnly(void) const { return m_bShotReflectOnly; };
+    float GetCurrentRadius(void) const { return (m_fRadius * m_fScale); };
+    bool IsRaised(void) const { return ((m_state == STATE_APPEAR) || (m_state == STATE_IDLE)); };
 #endif /* defined(TMNT2_DEBUG_TOOLS) */
 
 protected:
@@ -65,5 +67,6 @@ protected:
     float m_fLivetime;
 #if defined(TMNT2_DEBUG_TOOLS)
     bool m_bShotReflectOnly;
+    RwTexture* m_pTintTexture;  // recoloured copy of the barrier texture (owned)
 #endif /* defined(TMNT2_DEBUG_TOOLS) */
 };

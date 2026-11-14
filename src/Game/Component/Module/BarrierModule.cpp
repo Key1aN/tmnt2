@@ -42,6 +42,7 @@ CBarrierModule::CBarrierModule(CTracer* pTracer, CGameObject* pObject, float fRa
 , m_fLivetime(0.0f)
 #if defined(TMNT2_DEBUG_TOOLS)
 , m_bShotReflectOnly(false)
+, m_pTintTexture(nullptr)
 #endif /* defined(TMNT2_DEBUG_TOOLS) */
 {
     ASSERT(pTracer);
@@ -74,6 +75,14 @@ CBarrierModule::~CBarrierModule(void)
 {
     ASSERT(!m_listDraw.empty());
     m_listDraw.erase(&m_nodeDraw);
+
+#if defined(TMNT2_DEBUG_TOOLS)
+    if (m_pTintTexture)
+    {
+        RwTextureDestroy(m_pTintTexture);
+        m_pTintTexture = nullptr;
+    };
+#endif /* defined(TMNT2_DEBUG_TOOLS) */
 
     if (m_pBarrierSphere)
     {
@@ -298,19 +307,102 @@ void CBarrierModule::Appear(void)
 
 
 #if defined(TMNT2_DEBUG_TOOLS)
+//
+//  The barrier texture is green, so a vertex colour alone can only darken it.
+//  This makes a copy with the same pattern and alpha in another hue: every
+//  pixel keeps its brightness (strongest channel) and takes the tint colour.
+//
+static RwTexture* CreateTintedTexture(RwTexture* pSource, const RwRGBA& rTint)
+{
+    RwRaster* pSourceRaster = (pSource ? RwTextureGetRaster(pSource) : nullptr);
+    if (!pSourceRaster)
+        return nullptr;
+
+    RwInt32 width = RwRasterGetWidth(pSourceRaster);
+    RwInt32 height = RwRasterGetHeight(pSourceRaster);
+    if ((width <= 0) || (height <= 0))
+        return nullptr;
+
+    RwImage* pImage = RwImageCreate(width, height, 32);
+    if (!pImage)
+        return nullptr;
+
+    RwTexture* pResult = nullptr;
+
+    if (RwImageAllocatePixels(pImage) && RwImageSetFromRaster(pImage, pSourceRaster))
+    {
+        RwUInt8* pPixels = RwImageGetPixels(pImage);
+        RwInt32 stride = RwImageGetStride(pImage);
+
+        for (RwInt32 y = 0; y < height; ++y)
+        {
+            RwUInt8* pRow = pPixels + (y * stride);
+            for (RwInt32 x = 0; x < width; ++x)
+            {
+                // 32-bit RwImage pixels are RwRGBA: red, green, blue, alpha
+                RwUInt8* pPixel = pRow + (x * 4);
+
+                uint32 value = pPixel[0];
+                if (pPixel[1] > value) value = pPixel[1];
+                if (pPixel[2] > value) value = pPixel[2];
+
+                pPixel[0] = static_cast<RwUInt8>((static_cast<uint32>(rTint.red)   * value) / 255);
+                pPixel[1] = static_cast<RwUInt8>((static_cast<uint32>(rTint.green) * value) / 255);
+                pPixel[2] = static_cast<RwUInt8>((static_cast<uint32>(rTint.blue)  * value) / 255);
+            };
+        };
+
+        RwRaster* pRaster = RwRasterCreate(width, height, 0, rwRASTERTYPETEXTURE | rwRASTERFORMAT8888);
+        if (pRaster)
+        {
+            if (RwRasterSetFromImage(pRaster, pImage))
+                pResult = RwTextureCreate(pRaster);
+
+            if (pResult)
+            {
+                RwTextureSetFilterMode(pResult, RwTextureGetFilterMode(pSource));
+                RwTextureSetAddressingU(pResult, RwTextureGetAddressingU(pSource));
+                RwTextureSetAddressingV(pResult, RwTextureGetAddressingV(pSource));
+            }
+            else
+            {
+                RwRasterDestroy(pRaster);
+            };
+        };
+    };
+
+    RwImageDestroy(pImage);
+
+    return pResult;
+};
+
+
 void CBarrierModule::SetShotReflectOnly(const RwRGBA& rColor)
 {
     m_bShotReflectOnly = true;
 
-    // Same sphere as the constructor builds, in the requested colour.
     if (m_pBarrierSphere)
     {
         delete m_pBarrierSphere;
         m_pBarrierSphere = nullptr;
     };
 
-    m_pBarrierSphere = new CSphere(m_fRadius, 16, 16, 4, 16, rColor);
-    m_pBarrierSphere->SetTexture(m_pTexture);
+    if (!m_pTintTexture)
+        m_pTintTexture = CreateTintedTexture(m_pTexture, rColor);
+
+    if (m_pTintTexture)
+    {
+        // The colour is in the texture now; the sphere itself is the same
+        // white, half-transparent one the constructor builds.
+        m_pBarrierSphere = new CSphere(m_fRadius, 16, 16, 4, 16, { 0xFF, 0xFF, 0xFF, rColor.alpha });
+        m_pBarrierSphere->SetTexture(m_pTintTexture);
+    }
+    else
+    {
+        // The texture could not be copied on this device: a plain sphere in
+        // the requested colour (no pattern) is still the right colour.
+        m_pBarrierSphere = new CSphere(m_fRadius, 16, 16, 4, 16, rColor);
+    };
 };
 #endif /* defined(TMNT2_DEBUG_TOOLS) */
 
