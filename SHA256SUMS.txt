@@ -1,0 +1,2 @@
+33414b75665b9963151fc714fe947cdb97cea0827ce514ae3a2860d116615799  Debug_Tools_Combat_Overhaul_v1.2.18_US.t2mod
+dfe7edffd2e9dbd944224f62325cc624718c13cb97132fd83c0f9d9affdb6782  CombatLab.exe
