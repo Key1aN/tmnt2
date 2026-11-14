@@ -1,14 +1,23 @@
-# TMNT2 Combat Overhaul v1.1.4 (Debug Tools v1.2.21, US)
+# TMNT2 Combat Overhaul v1.1.5 (Debug Tools v1.2.22, US)
 
 Seventeen combat changes with a BEFORE / AFTER switch, on top of Combat Lab v1.2.0 /
 Debug Tools v1.2.15 (`ea19c64`). Status: **compiles in CI; not yet played**. Every number
 is a first guess; most can now be changed live in the OVERHAUL tab.
 
+## Changes in v1.1.5
+
+- **Each hit has its own rally window.** The faded part still adds up, but a new hit no longer
+  restarts the clock for the older losses: every hit's share drains when its own window
+  (Rally window, counted from that hit) ends. Example with a 5 s window: 30 HP lost at 0 s and
+  40 HP at 2 s; at 3 s the 30 has 2 s left and the 40 has 4 s left.
+- Health won back is taken from the oldest hit first, the one closest to running out.
+- Up to 16 hits are timed separately; beyond that the two oldest share the older clock.
+
 ## Changes in v1.1.4
 
 - **Rally hits add up.** A new hit no longer replaces the faded part of the health gauge: its
-  loss is added to what was still regainable, and the rally window starts again for the whole
-  part. (v1.1.3 replaced it, which made the faded part jump on every hit.)
+  loss is added to what was still regainable. (v1.1.3 replaced it; v1.1.4 also restarted the
+  window for the whole part, which v1.1.5 changed to one window per hit.)
 
 ## Changes in v1.1.3
 
@@ -89,7 +98,7 @@ clears gauges, locks and pending bursts. Recorded demos (pad stream) keep retail
 | 5 | Attack indicator | Mark over an enemy when it enters an attack: cyan = normal, red = heavy (B, C, run attack, throw, jump attack, AA/AAA strings, repeat fire, every boss attack) | warning 0.30 s (0 - 0.80), mark stays 0.6 s longer |
 | 6 | Parry gives a crystal | Parry (guard just before the hit) grants one random crystal power with its aura: red attack, green defence, white free shuriken, orange instant charge. Parry no longer needs the defence upgrade | 6 s (3 - 15 in the menu) |
 | 7 | Don mobile shield | After the barrier appears Donatello returns to neutral; the barrier runs its normal time around him | retail barrier time |
-| 8 | Rally | Bloodborne rally: health lost to a hit stays on the health gauge as a faded part for the rally window, then drains in 0.8 s. Landed hits return their damage x regain share, up to what is left. More hits add to the regainable part and restart the window | 5 s / 100% |
+| 8 | Rally | Bloodborne rally: health lost to a hit stays on the health gauge as a faded part for the rally window, then drains in 0.8 s. Landed hits return their damage x regain share, up to what is left. More hits add to the regainable part; each hit has its own window, and the oldest is won back first | 5 s / 100% |
 | 9 | Fast guard recovery | Block pushback 0.4 s -> 0.2 s (adjustable 0.05 - 0.40); A, dash and jump work from a held guard; any input cancels the guard-lowering motion | Guard + B is still the lift |
 | 10 | Automatic quick rise | The retail quick rise (attack/jump within 0.2 s of landing) happens by itself; wall-crash knockdowns skip the lying phase | keeps the retail 1 s invincibility |
 | 11 | Lock-on | **R3** (right stick click) or **T**: lock the enemy you face (16 units). Attacks and shuriken aim at it, brackets mark it. Right stick flick left / right moves the lock to the next enemy on that side. On defeat the lock moves to the next enemy. Off while Manual camera is ON | breaks beyond 24 units |
@@ -154,7 +163,7 @@ tab, B close.
    enemy for 8 hits (4b).
 5. Marks appear as enemies start attacks; red on strings and heavies (5).
 6. Parry: aura + PARRY text + timer (6). Don hold B, release, walk and attack (7).
-7. Take a hit: the lost health stays faded on the health gauge. Hit back within 5 s and it refills; wait and it drains; take a second hit and the faded part grows (8).
+7. Take a hit: the lost health stays faded on the health gauge. Hit back within 5 s and it refills; wait and it drains; take a second hit 2 s later and the faded part grows, then loses the first hit's share 2 s before the second's (8).
 8. Block, then A / dash / jump immediately (9). Get knocked down (10).
 9. R3 or T near enemies; attack and throw shuriken; kill the target (11).
 10. Dash with the stick sideways and backwards; dash, then B at once (12, 13).

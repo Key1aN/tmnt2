@@ -33,6 +33,7 @@ namespace
         ENEMYSTATE_MAX  = 48,
         INDICATOR_MAX   = 24,
         MARKER_MAX      = 96,
+        RALLYHIT_MAX    = 16,
     };
 
     // ---- tuning (all times in seconds, gauges are 0..1) ----
@@ -165,9 +166,12 @@ namespace
         uint32 m_uRand;
 
         // 8 rally (the team shares one health gauge, so it shares one rally)
-        float m_fRallyPool;         // health that can still be regained
-        float m_fRallyPeak;         // size of the pool when the last hit landed
-        float m_fRallyHoldUntil;    // the pool starts to drain after this
+        //   every hit keeps its own clock; index 0 is the oldest hit
+        float m_fRallyPool;         // health that can still be regained (sum of the hits below)
+        int32 m_nRallyHit;
+        float m_afRallyHitHP[RALLYHIT_MAX];     // what is left to regain from this hit
+        float m_afRallyHitPeak[RALLYHIT_MAX];   // what this hit took
+        float m_afRallyHitTime[RALLYHIT_MAX];   // when this hit landed
 
         PLAYERSTATE m_aPlayer[PLAYER_MAX];
         ENEMYSTATE  m_aEnemy[ENEMYSTATE_MAX];
@@ -234,7 +238,7 @@ namespace
         { "REWARDS",
           "8. Rally",
           "PLAYERS",
-          "Bloodborne rally: the health a hit takes stays on the health gauge as a faded part. Hit enemies before it drains away to win it back. More hits add to it and restart the window." },
+          "Bloodborne rally: the health a hit takes stays on the health gauge as a faded part. Hit enemies before it drains away to win it back. More hits add to it; each hit has its own window." },
         { "COMBOS AND MOVEMENT",
           "9. Fast guard recovery",
           "PLAYERS - GUARD",
@@ -342,7 +346,7 @@ namespace
           "6. How long the crystal power from a parry lasts (3 - 15, default 6).",
           3.0f, 15.0f, 1.0f, 6.0f },
         { "Rally window",             "%.1f s",
-          "8. How long lost health stays regainable on the health gauge before it drains away (1.0 - 10.0, default 5.0).",
+          "8. How long the health lost to a hit stays regainable, counted from that hit, before it drains away (1.0 - 10.0, default 5.0).",
           1.0f, 10.0f, 0.5f, 5.0f },
         { "Rally regain per hit",     "%.0f %%",
           "8. Health won back per hit, as a share of the damage that hit deals (25 - 300, default 100).",
@@ -421,8 +425,7 @@ namespace
         std::memset(s_ov.m_aIndicator, 0x00, sizeof(s_ov.m_aIndicator));
         s_ov.m_nMarker = 0;
         s_ov.m_fRallyPool = 0.0f;
-        s_ov.m_fRallyPeak = 0.0f;
-        s_ov.m_fRallyHoldUntil = 0.0f;
+        s_ov.m_nRallyHit = 0;
     };
 
 
@@ -979,7 +982,7 @@ namespace
 
             case FEATURE_RALLY:
                 Ov().m_fRallyPool = 0.0f;
-                Ov().m_fRallyPeak = 0.0f;
+                Ov().m_nRallyHit = 0;
                 break;
 
             case FEATURE_LOCK_ON:
@@ -1058,6 +1061,54 @@ namespace
 
 
 static_assert((ITEM_TUNE_LAST - ITEM_TUNE_FIRST + 1) == TUNE_NUM, "menu rows must match the tuning table");
+namespace
+{
+    static float RallySum(const OVERHAUL& ov)
+    {
+        float fSum = 0.0f;
+        for (int32 i = 0; i < ov.m_nRallyHit; ++i)
+        {
+            if (ov.m_afRallyHitHP[i] > 0.0f)
+                fSum += ov.m_afRallyHitHP[i];
+        };
+        return fSum;
+    };
+
+
+    //  Takes fAmount out of the regainable health, oldest hit first
+    static void RallyTrim(OVERHAUL& ov, float fAmount)
+    {
+        for (int32 i = 0; (i < ov.m_nRallyHit) && (fAmount > 0.0f); ++i)
+        {
+            if (ov.m_afRallyHitHP[i] <= 0.0f)
+                continue;
+
+            float fTake = ((ov.m_afRallyHitHP[i] < fAmount) ? ov.m_afRallyHitHP[i] : fAmount);
+            ov.m_afRallyHitHP[i] -= fTake;
+            fAmount -= fTake;
+        };
+    };
+
+
+    //  Drops the hits that have nothing left
+    static void RallyCompact(OVERHAUL& ov)
+    {
+        int32 n = 0;
+        for (int32 i = 0; i < ov.m_nRallyHit; ++i)
+        {
+            if (ov.m_afRallyHitHP[i] < 0.5f)
+                continue;
+
+            ov.m_afRallyHitHP[n]   = ov.m_afRallyHitHP[i];
+            ov.m_afRallyHitPeak[n] = ov.m_afRallyHitPeak[i];
+            ov.m_afRallyHitTime[n] = ov.m_afRallyHitTime[i];
+            ++n;
+        };
+        ov.m_nRallyHit = n;
+    };
+};
+
+
 static_assert(TUNE_NUM <= 16, "OVERHAUL::m_afTune is too small");
 
 
@@ -1284,17 +1335,22 @@ static_assert(TUNE_NUM <= 16, "OVERHAUL::m_afTune is too small");
 
     int32 playerNum = CGameProperty::GetPlayerNum();
 
-    // 8 rally: the regainable health holds for the window, then drains away
-    if (ov.m_fRallyPool > 0.0f)
+    // 8 rally: each hit's regainable health holds for the window counted
+    // from that hit, then drains away
+    if (ov.m_nRallyHit > 0)
     {
         if (!IsOn(FEATURE_RALLY))
         {
-            ov.m_fRallyPool = 0.0f;
+            ov.m_nRallyHit = 0;
         }
         else
         {
-            if (fNow > ov.m_fRallyHoldUntil)
-                ov.m_fRallyPool -= ((ov.m_fRallyPeak / RALLY_DRAIN_TIME) * dt);
+            float fWindow = Tune(TUNE_RALLY_TIME);
+            for (int32 i = 0; i < ov.m_nRallyHit; ++i)
+            {
+                if (fNow > (ov.m_afRallyHitTime[i] + fWindow))
+                    ov.m_afRallyHitHP[i] -= ((ov.m_afRallyHitPeak[i] / RALLY_DRAIN_TIME) * dt);
+            };
 
             // never more than what is actually missing (pizza, revive, death)
             IGamePlayer* pGamePlayer = ((playerNum > 0) ? CGameProperty::Player(0) : nullptr);
@@ -1302,15 +1358,15 @@ static_assert(TUNE_NUM <= 16, "OVERHAUL::m_afTune is too small");
             {
                 float fMissing = static_cast<float>(pGamePlayer->GetHPMax() - pGamePlayer->GetHP());
                 if ((pGamePlayer->GetHP() <= 0) || (fMissing <= 0.0f))
-                    ov.m_fRallyPool = 0.0f;
-                else if (ov.m_fRallyPool > fMissing)
-                    ov.m_fRallyPool = fMissing;
+                    ov.m_nRallyHit = 0;
+                else
+                    RallyTrim(ov, RallySum(ov) - fMissing);
             };
-
-            if (ov.m_fRallyPool <= 0.0f)
-                ov.m_fRallyPool = 0.0f;
         };
+
+        RallyCompact(ov);
     };
+    ov.m_fRallyPool = RallySum(ov);
     for (int32 i = 0; (i < playerNum) && (i < PLAYER_MAX); ++i)
     {
         PLAYERSTATE& p = ov.m_aPlayer[i];
@@ -1917,18 +1973,33 @@ CCombatOverhaul::AdjustDefenceFlag(
     if (!p || !pGamePlayer)
         return;
 
-    // The health this hit removes becomes regainable. Hits add up: what was
-    // still regainable from earlier hits stays, and the window starts again.
+    // The health this hit removes becomes regainable. Hits add up, and each
+    // one keeps its own window, counted from the moment it landed.
     int32 nLost = Min(nDamage, pGamePlayer->GetHP());
     if (nLost <= 0)
         return;
 
     OVERHAUL& ov = Ov();
-    if (ov.m_fRallyPool < 0.0f)
-        ov.m_fRallyPool = 0.0f;
-    ov.m_fRallyPool     += static_cast<float>(nLost);
-    ov.m_fRallyPeak      = ov.m_fRallyPool;
-    ov.m_fRallyHoldUntil = Now() + Tune(TUNE_RALLY_TIME);
+    RallyCompact(ov);
+    if (ov.m_nRallyHit >= RALLYHIT_MAX)
+    {
+        // full: the two oldest hits share one clock (the older one's)
+        ov.m_afRallyHitHP[0]   += ov.m_afRallyHitHP[1];
+        ov.m_afRallyHitPeak[0] += ov.m_afRallyHitPeak[1];
+        for (int32 i = 1; i < (ov.m_nRallyHit - 1); ++i)
+        {
+            ov.m_afRallyHitHP[i]   = ov.m_afRallyHitHP[i + 1];
+            ov.m_afRallyHitPeak[i] = ov.m_afRallyHitPeak[i + 1];
+            ov.m_afRallyHitTime[i] = ov.m_afRallyHitTime[i + 1];
+        };
+        --ov.m_nRallyHit;
+    };
+
+    int32 n = ov.m_nRallyHit++;
+    ov.m_afRallyHitHP[n]   = static_cast<float>(nLost);
+    ov.m_afRallyHitPeak[n] = static_cast<float>(nLost);
+    ov.m_afRallyHitTime[n] = Now();
+    ov.m_fRallyPool = RallySum(ov);
 };
 
 
@@ -2041,9 +2112,10 @@ CCombatOverhaul::AdjustDefenceFlag(
                 nRegain = Clamp(nRegain, 1, nPool);
 
                 pGamePlayer->AddHP(nRegain);
-                ov.m_fRallyPool -= static_cast<float>(nRegain);
-                if (ov.m_fRallyPool < 1.0f)
-                    ov.m_fRallyPool = 0.0f;
+                // the oldest hit, the one closest to running out, is won back first
+                RallyTrim(ov, static_cast<float>(nRegain));
+                RallyCompact(ov);
+                ov.m_fRallyPool = RallySum(ov);
             };
         };
     };
