@@ -310,7 +310,7 @@ namespace
 
     // ---- v1.2.10 menu renderer (game font + flat panels) ----
 
-    static const char* MENU_VERSION = "v1.2.16";
+    static const char* MENU_VERSION = "v1.2.17";
 
     enum MENUSIZE
     {
@@ -783,7 +783,7 @@ public:
         std::memset(m_aTracked, 0x00, sizeof(m_aTracked));
         std::memset(m_aMoveEvent, 0x00, sizeof(m_aMoveEvent));
         m_szPlayerMotion[0] = '\0';
-        m_moveLog.Write("SESSION  TMNT2 Debug Tools v1.2.16 move telemetry (bosses always; all enemies when labels = ALL)");
+        m_moveLog.Write("SESSION  TMNT2 Debug Tools v1.2.17 move telemetry (bosses always; all enemies when labels = ALL)");
         m_moveLog.Flush();
 
         // v1.2.7: the session header (with GPU and display mode) is written at
@@ -881,7 +881,7 @@ public:
         };
 
         if (CPCSpecific::IsKeyTrigger(DIK_ESCAPE) ||
-            (controllerTrigger & CController::DIGITAL_RLEFT))
+            (controllerTrigger & CController::DIGITAL_RRIGHT))
         {
             Close(owner);
             return;
@@ -926,14 +926,13 @@ public:
         else if (m_iNavFrames > 70)
             navAccel = 2;
 
-        // The retail PC DirectInput table exposes the physical shoulder buttons
-        // as L1 (LB) and L2 (RB). Use those raw identities here so the labels
-        // match the buttons the player actually presses.
+        // Since v1.2.17 the DirectInput table maps buttons by physical
+        // position: LB = L1, RB = R1, A = RDOWN, B = RRIGHT, X = RLEFT, Y = RUP.
         if (CPCSpecific::IsKeyTrigger(DIK_Q) ||
             (controllerTrigger & CController::DIGITAL_L1))
             ChangePage(-1);
         else if (CPCSpecific::IsKeyTrigger(DIK_E) ||
-                 (controllerTrigger & CController::DIGITAL_L2))
+                 (controllerTrigger & CController::DIGITAL_R1))
             ChangePage(1);
         else if (bNavFire && (navHeld & NAV_UP))
             ChangeSelection(-1);
@@ -953,7 +952,7 @@ public:
                  (controllerTrigger & CController::DIGITAL_RDOWN))
             ActivateSelected(owner);
         else if (CPCSpecific::IsKeyTrigger(DIK_BACK) ||
-                 (controllerTrigger & CController::DIGITAL_RRIGHT))
+                 (controllerTrigger & CController::DIGITAL_RLEFT))
             ResetSelected();
         else if (CPCSpecific::IsKeyTrigger(DIK_DELETE) ||
                  (controllerTrigger & CController::DIGITAL_RUP))
@@ -1194,8 +1193,16 @@ private:
                     0,
                     CMapCamera::MODEMAX - 1
                 );
+                // Manual mode is only reachable with the Manual camera row ON.
+                if ((m_iCameraMode == CMapCamera::MODE_MANUAL) && !CGameStageDebug::CAMERA_MANUAL_ALLOWED)
+                    m_iCameraMode = InvClamp(m_iCameraMode + (direction >= 0 ? 1 : -1), 0, CMapCamera::MODEMAX - 1);
+
                 m_bShowcaseCamera = (m_iCameraMode == CMapCamera::MODE_MANUAL);
                 ApplyCameraMode();
+            }
+            else if (selected == 3)
+            {
+                SetManualCamera(!CGameStageDebug::CAMERA_MANUAL_ALLOWED);
             };
             break;
 
@@ -1327,6 +1334,8 @@ private:
                 ApplyCameraMode();
             else if (selected == 2)
                 ResetShowcaseCamera();
+            else if (selected == 3)
+                SetManualCamera(!CGameStageDebug::CAMERA_MANUAL_ALLOWED);
             break;
 
         case PAGE_GRAPHICS:
@@ -1400,6 +1409,8 @@ private:
         case PAGE_CAMERA:
             if (selected == 0)
                 CGameStageDebug::CAMERA_ZOOM_SCALE = 1.00f;
+            else if (selected == 3)
+                SetManualCamera(false);
             else
                 ResetShowcaseCamera();
             break;
@@ -1457,6 +1468,7 @@ private:
             break;
 
         case PAGE_CAMERA:
+            SetManualCamera(false);
             ResetShowcaseCamera();
             break;
 
@@ -1768,6 +1780,15 @@ private:
     };
 
 
+    void SetManualCamera(bool bAllowed)
+    {
+        CGameStageDebug::CAMERA_MANUAL_ALLOWED = bAllowed;
+        CCombatOverhaul::SetManualCamera(bAllowed);
+        if (!bAllowed && (m_bShowcaseCamera || (m_iCameraMode == CMapCamera::MODE_MANUAL)))
+            ResetShowcaseCamera();
+    };
+
+
     void UpdateShowcaseCamera(void)
     {
         CGameStage* pStage = CGameStage::GetCurrent();
@@ -1780,6 +1801,17 @@ private:
 
         if (!pStage)
             return;
+
+        // Camera locked (default): the right stick, LT / RT and R3 never
+        // touch the camera, with the menu open or closed. Only the Manual
+        // camera row unlocks them (and then lock-on is off).
+        if (!CGameStageDebug::CAMERA_MANUAL_ALLOWED)
+        {
+            if (m_bShowcaseCamera || (m_iCameraMode == CMapCamera::MODE_MANUAL))
+                ResetShowcaseCamera();
+
+            return;
+        };
 
         uint32 controllerTrigger = ControllerDigitalTrigger();
         if (controllerTrigger & CController::DIGITAL_R3)
@@ -1852,7 +1884,7 @@ private:
         case PAGE_PLAYER:     return 8;
         case PAGE_ENEMY_AI:   return 2;
         case PAGE_STAGE:      return 5;
-        case PAGE_CAMERA:     return 3;
+        case PAGE_CAMERA:     return 4;
         case PAGE_GRAPHICS:   return 3;
         case PAGE_HITBOXES:   return 3;
         case PAGE_TELEMETRY:  return 9;
@@ -2210,7 +2242,7 @@ private:
         static const char* s_apszHint[] =
         {
             "Keys:  Arrows move / change (hold = faster)   PgUp/PgDn x5   Enter run   Backspace reset item   Del reset tab   Q/E tab   Esc close",
-            "Pad:  D-pad or stick   LB/RB tab   A run   X reset item   Y reset tab   B close   Start pause   R-stick camera   LT/RT zoom   R3 reset",
+            "Pad:  D-pad or stick   LB/RB tab   A run   X reset item   Y reset tab   B close   Start pause   (camera: only with Camera > Manual camera ON)",
         };
         const float HINTT = 7.6f * S;
         const float HINTROW = 9.0f * S;
@@ -2453,6 +2485,8 @@ private:
                     (m_bShowcaseCamera ? " * SHOWCASE" : "")
                 );
             }
+            else if (index == 3)
+                std::snprintf(buffer, capacity, "Manual camera (RS, LT, RT)    %s", (CGameStageDebug::CAMERA_MANUAL_ALLOWED ? "ON" : "OFF"));
             else
                 std::snprintf(buffer, capacity, "Reset to default game camera");
             break;
@@ -2579,8 +2613,10 @@ private:
             description = (index == 0 ?
                 "Scales automatic gameplay camera zoom without changing widescreen projection." :
                 (index == 1 ?
-                    "Right stick enters showcase orbit; LT/RT zoom while this menu is open." :
-                    "Returns to automatic game camera, normal zoom, and the correct player path mode."));
+                    "Automatic is the game's own camera. Manual (orbit with the right stick) can only be chosen while Manual camera below is ON." :
+                (index == 3 ?
+                    "OFF (default): the camera is fully automatic; right stick, LT, RT and R3 never move it, and R3 / right stick are lock-on. ON: right stick orbits, LT / RT change distance, R3 resets the camera, and lock-on is switched off." :
+                    "Returns to automatic game camera, normal zoom, and the correct player path mode.")));
             break;
 
         case PAGE_GRAPHICS:

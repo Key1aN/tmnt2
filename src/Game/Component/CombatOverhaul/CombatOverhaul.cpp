@@ -14,7 +14,12 @@
 #include "Game/System/GameObject/GameObjectManager.hpp"
 #include "Game/System/Hit/HitAttackData.hpp"
 #include "Game/System/Hit/HitAttackManager.hpp"
+#include "Game/Component/Module/BarrierModule.hpp"
 #include "Game/System/Misc/Gamepad.hpp"
+
+#if defined(TARGET_PC)
+#include "System/PC/PCModFeatures.hpp"
+#endif /* defined(TARGET_PC) */
 
 #include <cstdio>
 #include <cstring>
@@ -37,34 +42,31 @@ namespace
     static const float DODGE_FINISH_GRACE       = 0.12f;    // part of the dash recovery that still dodges
 
     // 2 Michelangelo reflect
-    static const float MIC_REFLECT_RADIUS       = 1.3f;
+    static const float MIC_SHIELD_LIVE          = 1.0e6f;   // the shield stays up while he guards
 
     // 4 posture
-    static const float PLR_POSTURE_GUARD_BASE   = 0.14f;    // per guarded hit
-    static const float PLR_POSTURE_GUARD_POWER  = 0.10f;    // extra for strong hits (power 5..20)
+    static const float PLR_POSTURE_GUARD_POWER  = 0.70f;    // strong hits (power 5..20) add up to +70%
     static const float PLR_POSTURE_DECAY_WAIT   = 2.0f;
     static const float PLR_POSTURE_DECAY        = 0.20f;    // per second, not broken
     static const float PLR_POSTURE_BROKEN_DECAY = 0.04f;    // per second while broken (safety net)
     static const float PLR_POSTURE_HIT_RECOVER  = 0.20f;    // per landed hit while broken
     static const float PLR_POSTURE_PARRY_RECOVER= 0.25f;
-    static const float ENM_POSTURE_GUARD        = 0.30f;    // per guarded player hit: breaks on the 4th
     static const float ENM_POSTURE_DECAY_WAIT   = 3.0f;
     static const float ENM_POSTURE_DECAY        = 0.25f;
 
     // 4 combo break
-    static const float PLR_BURST_PER_HIT        = 0.25f;    // 4 hits taken
     static const float PLR_BURST_DECAY_WAIT     = 4.0f;
     static const float PLR_BURST_DECAY          = 0.15f;
     static const float PLR_BURST_RADIUS         = 3.0f;
     static const float PLR_BURST_INVINCIBLE     = 0.8f;
-    static const float ENM_BURST_PER_HIT        = 0.125f;   // 8 unguarded hits
     static const float ENM_BURST_DECAY_WAIT     = 3.0f;
     static const float ENM_BURST_DECAY          = 0.20f;
     static const float ENM_BURST_RADIUS         = 2.5f;
     static const float ENM_BURST_COOLDOWN       = 6.0f;
 
     // 5 attack indicator
-    static const float INDICATOR_TIME           = 0.9f;
+    static const float INDICATOR_AFTER_TIME     = 0.6f;     // mark stays this long after the wind-up
+    static const float WINDUP_MOTION_SPEED      = 0.08f;    // enemy motion speed during the warning
 
     // 8 rally
     static const float RALLY_WINDOW             = 5.0f;
@@ -74,12 +76,11 @@ namespace
 
     // 9 guard recovery
     static const float GUARD_BACK_TIME_RETAIL   = 0.4f;
-    static const float GUARD_BACK_TIME_FAST     = 0.2f;
+    static const float GUARD_REAR_HALF_ANGLE    = MATH_DEG2RAD(15.0f);  // 30 degree blind arc behind
 
     // 11 / 14 / 15 targeting
     static const float LOCK_RANGE               = 16.0f;
     static const float LOCK_BREAK_RANGE         = 24.0f;
-    static const float SOFT_RANGE               = 5.5f;
     static const float STEER_RATE_RETAIL        = MATH_PI05;        //  90 deg/s
     static const float STEER_RATE_FREE          = MATH_PI * 3.0f;   // 540 deg/s
     static const float STEER_RATE_TARGET        = MATH_PI * 2.0f;   // 360 deg/s
@@ -124,6 +125,9 @@ namespace
 
         // 3 Michelangelo speed bookkeeping
         bool  m_bMotionSpeedApplied;
+
+        // 11 right stick flick (edge detection for target switching)
+        int32 m_iLockSwitchRequest;     // -1 screen-left, +1 screen-right
     };
 
 
@@ -136,6 +140,11 @@ namespace
         float  m_fBurstTime;
         float  m_fBurstCooldownUntil;
         bool   m_bBurstFire;
+
+        // 5 attack warning: the attack motion is held back while the mark shows
+        bool   m_bWindup;
+        float  m_fWindupUntil;
+        int32  m_iWindupStatus;
     };
 
 
@@ -160,8 +169,8 @@ namespace
     {
         bool  m_bEnabled;
         bool  m_abFeature[CCombatOverhaul::FEATURE_NUM];
-        float m_fMicSpeed;
-        float m_fCrystalTime;
+        float m_afTune[16];
+        bool  m_bManualCamera;
         bool  m_bHud;
         bool  m_bBadgeAlways;
         float m_fBadgeClock;
@@ -189,8 +198,8 @@ namespace
         ITEM_MASTER = 0,
         ITEM_FEATURE_FIRST,
         ITEM_FEATURE_LAST = ITEM_FEATURE_FIRST + CCombatOverhaul::FEATURE_NUM - 1,
-        ITEM_MIC_SPEED,
-        ITEM_CRYSTAL_TIME,
+        ITEM_TUNE_FIRST,
+        ITEM_TUNE_LAST = ITEM_TUNE_FIRST + 10,
         ITEM_HUD,
         ITEM_BADGE,
 
@@ -207,7 +216,7 @@ namespace
         { nullptr,
           "2. Mikey 360 guard reflect",
           "MICHELANGELO - GUARD",
-          "While Michelangelo guards, shots coming from any side are sent back and never hit his back. Retail: only his attack swings reflect, and guard covers the front only." },
+          "While Michelangelo guards, a small orange barrier surrounds him: enemy shots from any side are sent back. It only affects projectiles; enemies walk through it unharmed. Retail: only his attack swings reflect." },
         { "COMBOS AND MOVEMENT",
           "3. Mikey faster combos",
           "MICHELANGELO - A/B CHAIN",
@@ -223,7 +232,7 @@ namespace
         { "READABILITY",
           "5. Attack indicator",
           "ENEMIES",
-          "Shows a mark over an enemy the moment it commits to an attack: cyan = normal attack, red = heavy attack, combo, throw or any boss attack." },
+          "Shows a mark over an enemy as it commits to an attack (cyan = normal, red = heavy, combo, throw, boss) and holds the attack back for the Attack warning time below, so the mark comes before the hit." },
         { "REWARDS",
           "6. Parry gives a crystal",
           "PLAYERS - GUARD IMPACT",
@@ -247,7 +256,7 @@ namespace
         { "TARGETING",
           "11. Lock-on",
           "PLAYERS - R3 / KEY T",
-          "Press R3 (right stick click) or T to lock onto the enemy you face; attacks and shuriken aim at it and it is marked. Press again to release. When it is defeated the lock moves to the next enemy." },
+          "Press R3 (right stick click) or T to lock onto the enemy you face; attacks and shuriken aim at it. Flick the right stick left / right to move the lock to the next enemy on that side. Press R3 again to release. Off while Camera > Manual camera is ON." },
         { "COMBOS AND MOVEMENT",
           "12. Dash follows the stick",
           "PLAYERS - DASH",
@@ -255,7 +264,7 @@ namespace
         { nullptr,
           "13. Attack out of dash",
           "PLAYERS - DASH",
-          "Attack, shuriken, jump and guard work at once after a dash (a press during the dash is remembered), and the strong attack, run attack, shuriken throw and final combo hit can be dash-cancelled." },
+          "Attack, shuriken, jump and guard work at once after a dash (a press during the dash is remembered). The strong attack and its charge can be dash-cancelled at any time; run attack, shuriken throw and the final combo hit after the strike." },
         { nullptr,
           "14. Free combo steering",
           "PLAYERS - A/B CHAIN",
@@ -263,20 +272,88 @@ namespace
         { "TARGETING",
           "15. Smart targeting",
           "PLAYERS - ATTACKS",
-          "Each attack turns to the best enemy: in front of you, in reach and closest to where you aim. After a defeat the next hit glides to a new target. The stick always has priority." },
+          "Each attack turns to the best enemy: in front of you, in reach and closest to where you aim. Shuriken do the same over a much longer range. After a defeat the next hit glides to a new target. The stick always has priority." },
+        { nullptr,
+          "16. Guard faces the attacker",
+          "PLAYERS - GUARD",
+          "While you guard, a hit from any side except a 30 degree arc straight behind you is blocked and your character turns to face it. Retail: guard covers the front only." },
+        { nullptr,
+          "17. Wider combo window",
+          "PLAYERS - A/B CHAIN",
+          "The next combo press (weak-weak, AAB, AAC...) is still accepted for the Combo window time below after the normal moment. Retail checks one single instant, so a slightly late press is dropped." },
+    };
+
+
+    enum TUNE
+    {
+        TUNE_ENM_POSTURE_HITS = 0,
+        TUNE_PLR_POSTURE_HITS,
+        TUNE_PLR_BURST_HITS,
+        TUNE_ENM_BURST_HITS,
+        TUNE_WARN_TIME,
+        TUNE_GUARD_BACK,
+        TUNE_SOFT_RANGE,
+        TUNE_SHOT_RANGE,
+        TUNE_COMBO_WINDOW,
+        TUNE_MIC_SPEED,
+        TUNE_CRYSTAL_TIME,
+
+        TUNE_NUM,
+    };
+
+
+    struct TUNEINFO
+    {
+        const char* m_pszName;
+        const char* m_pszFormat;    // printf format of the value
+        const char* m_pszHelp;
+        float m_fMin;
+        float m_fMax;
+        float m_fStep;
+        float m_fDefault;
+    };
+
+
+    static const TUNEINFO s_aTuneInfo[TUNE_NUM] =
+    {
+        { "Posture: enemy blocks",    "%.0f hits",
+          "4a. How many of your hits an enemy can block before its guard breaks (2 - 10, default 4). Lower = breaks faster.",
+          2.0f, 10.0f, 1.0f, 4.0f },
+        { "Posture: your blocks",     "%.0f hits",
+          "4a. How many normal hits you can block before your posture breaks (3 - 20, default 6). Heavy hits count for more.",
+          3.0f, 20.0f, 1.0f, 6.0f },
+        { "Combo break: hits taken",  "%.0f hits",
+          "4b. Hits you must take in a row before Guard + Jump is ready (2 - 12, default 4).",
+          2.0f, 12.0f, 1.0f, 4.0f },
+        { "Combo break: enemy hits",  "%.0f hits",
+          "4b. Unblocked hits in a row an enemy takes before it blasts free (4 - 30, default 8).",
+          4.0f, 30.0f, 1.0f, 8.0f },
+        { "Attack warning time",      "%.2f s",
+          "5. How long an enemy is held at the start of its attack while the mark shows, so the mark comes before the hit (0.00 - 0.80, default 0.30). 0 = mark only, no delay.",
+          0.0f, 0.80f, 0.05f, 0.30f },
+        { "Block pushback time",      "%.2f s",
+          "9. How long a blocked hit pushes you back before you can act (0.05 - 0.40, retail 0.40, default 0.20).",
+          0.05f, 0.40f, 0.05f, 0.20f },
+        { "Smart targeting range",    "%.1f",
+          "15. How far a melee attack looks for an enemy to turn to (3.0 - 12.0, default 5.5).",
+          3.0f, 12.0f, 0.5f, 5.5f },
+        { "Shuriken targeting range", "%.0f",
+          "15. How far a shuriken throw looks for an enemy to aim at (5 - 40, default 20).",
+          5.0f, 40.0f, 1.0f, 20.0f },
+        { "Combo window",             "%.2f s",
+          "17. How long after the normal moment the next combo press is still accepted (0.00 - 0.60, default 0.30).",
+          0.0f, 0.60f, 0.05f, 0.30f },
+        { "Mikey combo speed",        "%.2fx",
+          "3. Animation speed of Michelangelo's ground combo (1.00 - 1.60, default 1.25).",
+          1.0f, 1.60f, 0.05f, 1.25f },
+        { "Parry crystal time",       "%.0f s",
+          "6. How long the crystal power from a parry lasts (3 - 15, default 6).",
+          3.0f, 15.0f, 1.0f, 6.0f },
     };
 
 
     static const ITEMINFO s_aExtraInfo[] =
     {
-        { "TUNING",
-          "Mikey combo speed",
-          "LIVE SETTING",
-          "Animation speed of Michelangelo's ground combo while feature 3 is on (1.00 - 1.60, default 1.25)." },
-        { nullptr,
-          "Parry crystal time",
-          "LIVE SETTING",
-          "How long the crystal power from a parry lasts, in seconds (3 - 15, default 6)." },
         { "DISPLAY",
           "Gauges and markers",
           "DISPLAY TOGGLE",
@@ -295,8 +372,29 @@ namespace
     };
 
 
+    // Enemies held in an attack wind-up get their motion speed back before
+    // their state is dropped.
+    static void ReleaseWindups(void)
+    {
+        for (int32 i = 0; i < ENEMYSTATE_MAX; ++i)
+        {
+            ENEMYSTATE& e = s_ov.m_aEnemy[i];
+            if (!e.m_hChr || !e.m_bWindup)
+                continue;
+
+            e.m_bWindup = false;
+
+            CGameObject* pObj = CGameObjectManager::GetObject(e.m_hChr);
+            if (pObj && (pObj->GetType() == GAMEOBJECTTYPE::CHARACTER))
+                static_cast<CCharacter*>(pObj)->ClearMotionCtrlTime();
+        };
+    };
+
+
     static void ResetRuntime(void)
     {
+        ReleaseWindups();
+
         for (int32 i = 0; i < PLAYER_MAX; ++i)
             ResetPlayerState(s_ov.m_aPlayer[i]);
 
@@ -309,11 +407,16 @@ namespace
     static void SetDefaults(void)
     {
         s_ov.m_bEnabled = true;
+#if defined(TARGET_PC)
+        // The overhaul ships inside the Debug Tools mod: with that mod
+        // switched off in the manager this EXE plays retail combat.
+        s_ov.m_bEnabled = CPCModFeatures::IsDebugToolsEnabled();
+#endif /* defined(TARGET_PC) */
         for (int32 i = 0; i < CCombatOverhaul::FEATURE_NUM; ++i)
             s_ov.m_abFeature[i] = true;
 
-        s_ov.m_fMicSpeed    = 1.25f;
-        s_ov.m_fCrystalTime = 6.0f;
+        for (int32 i = 0; i < TUNE_NUM; ++i)
+            s_ov.m_afTune[i] = s_aTuneInfo[i].m_fDefault;
         s_ov.m_bHud         = true;
         s_ov.m_bBadgeAlways = false;
     };
@@ -338,6 +441,26 @@ namespace
     static float Now(void)
     {
         return Ov().m_fNow;
+    };
+
+
+    static float Tune(TUNE tune)
+    {
+        return Ov().m_afTune[tune];
+    };
+
+
+    // "N hits fill the gauge" -> gain per hit.
+    static float PerHit(TUNE tune)
+    {
+        float fHits = Tune(tune);
+        return (fHits > 0.5f ? (1.0f / fHits) : 1.0f);
+    };
+
+
+    static float IndicatorTime(void)
+    {
+        return (Tune(TUNE_WARN_TIME) + INDICATOR_AFTER_TIME);
     };
 
 
@@ -574,6 +697,77 @@ namespace
     };
 
 
+    // Enemy next to the locked one on screen: side > 0 = to its right,
+    // side < 0 = to its left. With nobody on that side it wraps around to
+    // the farthest enemy on the other side.
+    static uint32 PickLockNeighbour(const CPlayerCharacter& rPlayerChr, uint32 hCurrent, int32 side)
+    {
+        CEnemy* pCurrent = EnemyFromHandle(hCurrent);
+        if (!pCurrent)
+            return 0;
+
+        RwV3d vPlayer = Math::VECTOR3_ZERO;
+        rPlayerChr.GetPosition(&vPlayer);
+
+        RwV3d vCurrent = Math::VECTOR3_ZERO;
+        pCurrent->GetPosition(&vCurrent);
+
+        // The camera frame's right vector points to screen-left (the same
+        // convention the movement stick uses).
+        RwMatrix matCamera;
+        CGameProperty::GetCameraFrameMatrix(&matCamera);
+        RwV3d vScreenRight = matCamera.right;
+        vScreenRight.y = 0.0f;
+        if (Math::Vec3_Length(&vScreenRight) <= 0.0001f)
+            return 0;
+
+        Math::Vec3_Normalize(&vScreenRight, &vScreenRight);
+        Math::Vec3_Negate(&vScreenRight, &vScreenRight);
+
+        uint32 hNear = 0;
+        float fNear = 1.0e9f;
+        uint32 hWrap = 0;
+        float fWrap = 0.0f;
+
+        int32 enemyMax = CGameProperty::GetEnemyMax();
+        for (int32 i = 0; i < enemyMax; ++i)
+        {
+            CEnemy* pEnemy = CGameProperty::GetEnemy(i);
+            if (!IsEnemyTargetable(pEnemy) || (pEnemy == pCurrent))
+                continue;
+
+            RwV3d vEnemy = Math::VECTOR3_ZERO;
+            pEnemy->GetPosition(&vEnemy);
+
+            RwV3d vFromPlayer = Math::VECTOR3_ZERO;
+            Math::Vec3_Sub(&vFromPlayer, &vEnemy, &vPlayer);
+            vFromPlayer.y = 0.0f;
+            if (Math::Vec3_Length(&vFromPlayer) > LOCK_RANGE)
+                continue;
+
+            RwV3d vOffset = Math::VECTOR3_ZERO;
+            Math::Vec3_Sub(&vOffset, &vEnemy, &vCurrent);
+            float fSide = Math::Vec3_Dot(&vOffset, &vScreenRight) * static_cast<float>(side);
+
+            if (fSide > 0.0f)
+            {
+                if (fSide < fNear)
+                {
+                    fNear = fSide;
+                    hNear = pEnemy->GetHandle();
+                };
+            }
+            else if (fSide < fWrap)
+            {
+                fWrap = fSide;
+                hWrap = pEnemy->GetHandle();
+            };
+        };
+
+        return (hNear ? hNear : hWrap);
+    };
+
+
     static bool IsGroundChainStatus(PLAYERTYPES::STATUS status)
     {
         return ((status >= PLAYERTYPES::STATUS_ATTACK_A) && (status <= PLAYERTYPES::STATUS_ATTACK_AABBC));
@@ -795,7 +989,10 @@ namespace
         };
 
         if (feature == FEATURE_ATTACK_INDICATOR)
+        {
+            ReleaseWindups();
             std::memset(ov.m_aIndicator, 0x00, sizeof(ov.m_aIndicator));
+        };
     };
 };
 
@@ -803,6 +1000,9 @@ namespace
 /*static*/ bool CCombatOverhaul::IsOn(FEATURE feature)
 {
     OVERHAUL& ov = Ov();
+    if ((feature == FEATURE_LOCK_ON) && ov.m_bManualCamera)
+        return false;
+
     return (ov.m_bEnabled && (feature >= 0) && (feature < FEATURE_NUM) && ov.m_abFeature[feature]);
 };
 
@@ -835,9 +1035,13 @@ namespace
 };
 
 
+static_assert((ITEM_TUNE_LAST - ITEM_TUNE_FIRST + 1) == TUNE_NUM, "menu rows must match the tuning table");
+static_assert(TUNE_NUM <= 16, "OVERHAUL::m_afTune is too small");
+
+
 /*static*/ bool CCombatOverhaul::IsNumericItem(int32 index)
 {
-    return ((index == ITEM_MIC_SPEED) || (index == ITEM_CRYSTAL_TIME));
+    return ((index >= ITEM_TUNE_FIRST) && (index <= ITEM_TUNE_LAST));
 };
 
 
@@ -847,7 +1051,7 @@ namespace
     {
     case ITEM_MASTER:        return "BEFORE / AFTER";
     case ITEM_FEATURE_FIRST: return "FEATURES (NUMBERED AS IN THE IDEA LIST)";
-    case ITEM_MIC_SPEED:     return "TUNING";
+    case ITEM_TUNE_FIRST:    return "AMOUNTS (THE NUMBER IS THE FEATURE IT BELONGS TO)";
     case ITEM_HUD:           return "DISPLAY";
     default:                 return nullptr;
     };
@@ -858,6 +1062,8 @@ namespace
 {
     OVERHAUL& ov = Ov();
 
+    // Label and value are separated by two or more spaces and a switch value
+    // is exactly ON / OFF: the Debug Tools menu relies on both.
     if (index == ITEM_MASTER)
     {
         std::snprintf(pszBuffer, capacity, "Combat (F6)                    %s",
@@ -866,27 +1072,24 @@ namespace
     else if ((index >= ITEM_FEATURE_FIRST) && (index <= ITEM_FEATURE_LAST))
     {
         int32 f = index - ITEM_FEATURE_FIRST;
-        // Label and value are separated by two or more spaces and the value
-        // is exactly ON / OFF: the Debug Tools menu relies on both.
         std::snprintf(pszBuffer, capacity, "%-29s  %s",
                       s_aFeatureInfo[f].m_pszName,
                       ov.m_abFeature[f] ? "ON" : "OFF");
     }
-    else if (index == ITEM_MIC_SPEED)
+    else if ((index >= ITEM_TUNE_FIRST) && (index <= ITEM_TUNE_LAST))
     {
-        std::snprintf(pszBuffer, capacity, "%-29s  %.2fx", s_aExtraInfo[0].m_pszName, ov.m_fMicSpeed);
-    }
-    else if (index == ITEM_CRYSTAL_TIME)
-    {
-        std::snprintf(pszBuffer, capacity, "%-29s  %.0f s", s_aExtraInfo[1].m_pszName, ov.m_fCrystalTime);
+        int32 t = index - ITEM_TUNE_FIRST;
+        char szValue[32];
+        std::snprintf(szValue, sizeof(szValue), s_aTuneInfo[t].m_pszFormat, ov.m_afTune[t]);
+        std::snprintf(pszBuffer, capacity, "%-29s  %s", s_aTuneInfo[t].m_pszName, szValue);
     }
     else if (index == ITEM_HUD)
     {
-        std::snprintf(pszBuffer, capacity, "%-29s  %s", s_aExtraInfo[2].m_pszName, ov.m_bHud ? "ON" : "OFF");
+        std::snprintf(pszBuffer, capacity, "%-29s  %s", s_aExtraInfo[0].m_pszName, ov.m_bHud ? "ON" : "OFF");
     }
     else if (index == ITEM_BADGE)
     {
-        std::snprintf(pszBuffer, capacity, "%-29s  %s", s_aExtraInfo[3].m_pszName,
+        std::snprintf(pszBuffer, capacity, "%-29s  %s", s_aExtraInfo[1].m_pszName,
                       ov.m_bBadgeAlways ? "ALWAYS" : "ON SWITCH");
     }
     else if (capacity > 0)
@@ -908,10 +1111,15 @@ namespace
         rpszScope = s_aFeatureInfo[index - ITEM_FEATURE_FIRST].m_pszScope;
         rpszDescription = s_aFeatureInfo[index - ITEM_FEATURE_FIRST].m_pszHelp;
     }
-    else if ((index > ITEM_FEATURE_LAST) && (index < ITEM_NUM))
+    else if ((index >= ITEM_TUNE_FIRST) && (index <= ITEM_TUNE_LAST))
     {
-        rpszScope = s_aExtraInfo[index - ITEM_MIC_SPEED].m_pszScope;
-        rpszDescription = s_aExtraInfo[index - ITEM_MIC_SPEED].m_pszHelp;
+        rpszScope = "LIVE AMOUNT";
+        rpszDescription = s_aTuneInfo[index - ITEM_TUNE_FIRST].m_pszHelp;
+    }
+    else if ((index == ITEM_HUD) || (index == ITEM_BADGE))
+    {
+        rpszScope = s_aExtraInfo[index - ITEM_HUD].m_pszScope;
+        rpszDescription = s_aExtraInfo[index - ITEM_HUD].m_pszHelp;
     };
 };
 
@@ -929,13 +1137,16 @@ namespace
         FEATURE feature = static_cast<FEATURE>(index - ITEM_FEATURE_FIRST);
         SetFeatureSwitch(feature, !ov.m_abFeature[feature]);
     }
-    else if (index == ITEM_MIC_SPEED)
+    else if ((index >= ITEM_TUNE_FIRST) && (index <= ITEM_TUNE_LAST))
     {
-        ov.m_fMicSpeed = Clamp(ov.m_fMicSpeed + (0.05f * static_cast<float>(direction * multiplier)), 1.0f, 1.6f);
-    }
-    else if (index == ITEM_CRYSTAL_TIME)
-    {
-        ov.m_fCrystalTime = Clamp(ov.m_fCrystalTime + static_cast<float>(direction * multiplier), 3.0f, 15.0f);
+        int32 t = index - ITEM_TUNE_FIRST;
+        const TUNEINFO& rInfo = s_aTuneInfo[t];
+
+        // Snap to the step grid so repeated presses never drift.
+        float fValue = ov.m_afTune[t] + (rInfo.m_fStep * static_cast<float>(direction * multiplier));
+        float fSteps = (fValue - rInfo.m_fMin) / rInfo.m_fStep;
+        fSteps = static_cast<float>(static_cast<int32>(fSteps + (fSteps >= 0.0f ? 0.5f : -0.5f)));
+        ov.m_afTune[t] = Clamp(rInfo.m_fMin + (fSteps * rInfo.m_fStep), rInfo.m_fMin, rInfo.m_fMax);
     }
     else if (index == ITEM_HUD)
     {
@@ -956,10 +1167,8 @@ namespace
         SetEnabled(true);
     else if ((index >= ITEM_FEATURE_FIRST) && (index <= ITEM_FEATURE_LAST))
         SetFeatureSwitch(static_cast<FEATURE>(index - ITEM_FEATURE_FIRST), true);
-    else if (index == ITEM_MIC_SPEED)
-        ov.m_fMicSpeed = 1.25f;
-    else if (index == ITEM_CRYSTAL_TIME)
-        ov.m_fCrystalTime = 6.0f;
+    else if ((index >= ITEM_TUNE_FIRST) && (index <= ITEM_TUNE_LAST))
+        ov.m_afTune[index - ITEM_TUNE_FIRST] = s_aTuneInfo[index - ITEM_TUNE_FIRST].m_fDefault;
     else if (index == ITEM_HUD)
         ov.m_bHud = true;
     else if (index == ITEM_BADGE)
@@ -971,6 +1180,37 @@ namespace
 {
     for (int32 i = 0; i < ITEM_NUM; ++i)
         ResetItem(i);
+};
+
+
+/*static*/ void CCombatOverhaul::SetManualCamera(bool bManual)
+{
+    OVERHAUL& ov = Ov();
+    ov.m_bManualCamera = bManual;
+
+    if (bManual)
+    {
+        // The right stick belongs to the camera now: drop every lock.
+        for (int32 i = 0; i < PLAYER_MAX; ++i)
+        {
+            ov.m_aPlayer[i].m_bLockOn = false;
+            ov.m_aPlayer[i].m_hLockTarget = 0;
+            ov.m_aPlayer[i].m_bLockToggleRequest = false;
+            ov.m_aPlayer[i].m_iLockSwitchRequest = 0;
+        };
+    };
+};
+
+
+/*static*/ bool CCombatOverhaul::IsManualCamera(void)
+{
+    return Ov().m_bManualCamera;
+};
+
+
+/*static*/ float CCombatOverhaul::GetComboLateWindow(void)
+{
+    return (IsOn(FEATURE_COMBO_WINDOW) ? Tune(TUNE_COMBO_WINDOW) : 0.0f);
 };
 
 
@@ -1049,6 +1289,7 @@ namespace
             p.m_bLockOn = false;
             p.m_hLockTarget = 0;
             p.m_bLockToggleRequest = false;
+            p.m_iLockSwitchRequest = 0;
             continue;
         };
 
@@ -1081,6 +1322,17 @@ namespace
                 };
             };
         };
+
+        // Right stick flick: move the lock to the next enemy on that side
+        // of the current one, as seen on screen.
+        if (p.m_bLockOn && (p.m_iLockSwitchRequest != 0))
+        {
+            uint32 hNext = PickLockNeighbour(*pPlayerChr, p.m_hLockTarget, p.m_iLockSwitchRequest);
+            if (hNext)
+                p.m_hLockTarget = hNext;
+        };
+
+        p.m_iLockSwitchRequest = 0;
 
         if (p.m_bLockOn)
         {
@@ -1132,7 +1384,7 @@ namespace
                 e.m_fBurst = 0.0f;
         };
 
-        if ((e.m_fPosture <= 0.0f) && (e.m_fBurst <= 0.0f) && !e.m_bBurstFire &&
+        if ((e.m_fPosture <= 0.0f) && (e.m_fBurst <= 0.0f) && !e.m_bBurstFire && !e.m_bWindup &&
             (fNow > e.m_fBurstCooldownUntil))
         {
             e.m_hChr = 0;
@@ -1143,7 +1395,7 @@ namespace
     for (int32 i = 0; i < INDICATOR_MAX; ++i)
     {
         INDICATOR& ind = ov.m_aIndicator[i];
-        if (ind.m_hOwner && ((fNow - ind.m_fStart) > INDICATOR_TIME))
+        if (ind.m_hOwner && ((fNow - ind.m_fStart) > IndicatorTime()))
             ind.m_hOwner = 0;
     };
 };
@@ -1175,6 +1427,24 @@ namespace
     PLAYERSTATE* p = PlayerState(nPlayerNo);
     if (p)
         p->m_bLockToggleRequest = true;
+};
+
+
+/*static*/ void CCombatOverhaul::RequestLockSwitch(int32 nPlayerNo, int32 side)
+{
+    if (!IsOn(FEATURE_LOCK_ON) || (side == 0))
+        return;
+
+    PLAYERSTATE* p = PlayerState(nPlayerNo);
+    if (p && p->m_bLockOn)
+        p->m_iLockSwitchRequest = (side > 0 ? 1 : -1);
+};
+
+
+/*static*/ bool CCombatOverhaul::IsLockedOn(int32 nPlayerNo)
+{
+    PLAYERSTATE* p = PlayerState(nPlayerNo);
+    return (p && p->m_bLockOn && IsOn(FEATURE_LOCK_ON));
 };
 
 
@@ -1272,11 +1542,11 @@ namespace
     {
         RwV3d vTo = Math::VECTOR3_ZERO;
         float fDist = 0.0f;
-        if (!VectorToEnemy(rPlayerChr, p->m_hSoftTarget, vTo, &fDist) || (fDist > (SOFT_RANGE + 1.0f)))
+        if (!VectorToEnemy(rPlayerChr, p->m_hSoftTarget, vTo, &fDist) || (fDist > (Tune(TUNE_SOFT_RANGE) + 1.0f)))
         {
             RwV3d vFacing = Math::VECTOR3_ZERO;
             FacingVector(rPlayerChr, vFacing);
-            p->m_hSoftTarget = PickTarget(rPlayerChr, vFacing, SOFT_RANGE, 0.0f, 0);
+            p->m_hSoftTarget = PickTarget(rPlayerChr, vFacing, Tune(TUNE_SOFT_RANGE), 0.0f, 0);
             if (!VectorToEnemy(rPlayerChr, p->m_hSoftTarget, vTo, &fDist))
                 return true;
         };
@@ -1311,7 +1581,7 @@ namespace
                        IsGroundChainStatus(status));
     if (bWantSpeed)
     {
-        rPlayerChr.SetMotionSpeed(ov.m_fMicSpeed);
+        rPlayerChr.SetMotionSpeed(Tune(TUNE_MIC_SPEED));
         rPlayerChr.SetCharacterFlag(CHARACTERTYPES::FLAG_MOTION_SPEED_CTRL);
         p->m_bMotionSpeedApplied = true;
     }
@@ -1325,35 +1595,31 @@ namespace
         };
     };
 
+    // 2 Michelangelo: his guard shows a small orange barrier (the same
+    // module as Donatello's, in its shot-reflect-only mode). It is lowered
+    // here too when the feature or the overhaul is switched off.
+    if (rPlayerChr.GetID() == PLAYERID::ID_MIC)
+    {
+        CBarrierModule* pShield = static_cast<CBarrierModule*>(rPlayerChr.GetModule(MODULETYPE::BARRIER));
+        if (pShield && pShield->IsShotReflectOnly())
+        {
+            bool bWant = (IsOn(FEATURE_MIC_REFLECT_360) && IsGuardStatus(status));
+            CBarrierModule::STATE shieldState = pShield->GetState();
+
+            if (bWant && ((shieldState == CBarrierModule::STATE_SLEEP) || (shieldState == CBarrierModule::STATE_DISAPPEAR)))
+            {
+                pShield->SetLive(MIC_SHIELD_LIVE);
+                pShield->Appear();
+            }
+            else if (!bWant && ((shieldState == CBarrierModule::STATE_APPEAR) || (shieldState == CBarrierModule::STATE_IDLE)))
+            {
+                pShield->Disappear();
+            };
+        };
+    };
+
     if (!ov.m_bEnabled)
         return;
-
-    // 2 Michelangelo: a shot-only reflect sphere around him while guarding.
-    if (IsOn(FEATURE_MIC_REFLECT_360) &&
-        (rPlayerChr.GetID() == PLAYERID::ID_MIC) &&
-        IsGuardStatus(status))
-    {
-        RwV3d vBody = Math::VECTOR3_ZERO;
-        rPlayerChr.GetBodyPosition(&vBody);
-
-        RwSphere sphere = {};
-        sphere.center = vBody;
-        sphere.radius = MIC_REFLECT_RADIUS;
-
-        CHitAttackData hitAttack;
-        hitAttack.SetObject(rPlayerChr.GetHandle());
-        hitAttack.SetObjectPos(&vBody);
-        hitAttack.SetShape(CHitAttackData::SHAPE_SPHERE);
-        hitAttack.SetSphere(&sphere);
-        hitAttack.SetPower(0);
-        hitAttack.SetTarget(CHitAttackData::TARGET_SHOT);
-        hitAttack.SetAntiguard(CHitAttackData::ANTIGUARD_ENABLE);
-        hitAttack.SetMotion("OvReflect");
-        hitAttack.SetStatus(CHitAttackData::STATUS_KNOCK);
-        hitAttack.SetFlagReflectShot(true);
-
-        CHitAttackManager::RegistAttack(&hitAttack);
-    };
 
     // 4 combo break: the blast is registered from the character's own Run
     // so it is part of this frame's hit pass.
@@ -1365,7 +1631,7 @@ namespace
 };
 
 
-/*static*/ void CCombatOverhaul::OnAttackStart(CPlayerCharacter& rPlayerChr)
+/*static*/ void CCombatOverhaul::OnAttackStart(CPlayerCharacter& rPlayerChr, bool bShot)
 {
     bool bLock  = IsOn(FEATURE_LOCK_ON);
     bool bFree  = IsOn(FEATURE_FREE_COMBO_STEER);
@@ -1395,9 +1661,18 @@ namespace
     {
         // Stick held: only enemies close to where the stick points (about
         // 50 degrees each side). Neutral stick: anything in the front arc.
+        // A shuriken looks much farther, in a narrower cone.
         float fCosCone = (p->m_bMove ? 0.64f : 0.17f);
-        uint32 hTarget = PickTarget(rPlayerChr, vDesired, SOFT_RANGE, fCosCone, p->m_hSoftTarget);
-        p->m_hSoftTarget = hTarget;
+        float fRange = Tune(TUNE_SOFT_RANGE);
+        if (bShot)
+        {
+            fCosCone = (p->m_bMove ? 0.80f : 0.50f);
+            fRange = Tune(TUNE_SHOT_RANGE);
+        };
+
+        uint32 hTarget = PickTarget(rPlayerChr, vDesired, fRange, fCosCone, (bShot ? 0 : p->m_hSoftTarget));
+        if (!bShot)
+            p->m_hSoftTarget = hTarget;
 
         if (hTarget && VectorToEnemy(rPlayerChr, hTarget, vTo, nullptr))
         {
@@ -1435,6 +1710,38 @@ CCombatOverhaul::AdjustDefenceFlag(
         IsShotAttack(rAttack))
     {
         defenceFlag |= CHARACTERTYPES::DEFENCERSTATUSFLAG_GUARD_ALLRANGE;
+    };
+
+    // 16 guard covers every side except a 30 degree arc straight behind,
+    // and the character turns to face what it blocks
+    if (IsOn(FEATURE_GUARD_AUTOFACE) && IsGuardStatus(status) && rAttack.GetObjectPos())
+    {
+        RwV3d vPos = Math::VECTOR3_ZERO;
+        rPlayerChr.GetPosition(&vPos);
+
+        RwV3d vTo = Math::VECTOR3_ZERO;
+        Math::Vec3_Sub(&vTo, rAttack.GetObjectPos(), &vPos);
+        vTo.y = 0.0f;
+
+        if (Math::Vec3_Length(&vTo) > 0.05f)
+        {
+            float fAngle = SignedAngleTo(rPlayerChr, vTo);
+            float fAbs = (fAngle < 0.0f ? -fAngle : fAngle);
+            if (fAbs <= (MATH_PI - GUARD_REAR_HALF_ANGLE))
+            {
+                defenceFlag |= CHARACTERTYPES::DEFENCERSTATUSFLAG_GUARD_ALLRANGE;
+
+                // Guard statuses fix the direction; lift that just for this turn.
+                bool bFixed = rPlayerChr.TestCharacterFlag(CHARACTERTYPES::FLAG_FIXED_DIRECTION);
+                if (bFixed)
+                    rPlayerChr.ClearCharacterFlag(CHARACTERTYPES::FLAG_FIXED_DIRECTION);
+
+                rPlayerChr.SetDirection(rPlayerChr.GetDirection() + fAngle);
+
+                if (bFixed)
+                    rPlayerChr.SetCharacterFlag(CHARACTERTYPES::FLAG_FIXED_DIRECTION);
+            };
+        };
     };
 
     // 4 a broken posture cannot guard or parry
@@ -1487,10 +1794,10 @@ CCombatOverhaul::AdjustDefenceFlag(
             int32 nPower = rAttack.GetPower();
             float fRatio = Clamp(static_cast<float>(nPower - 5) / 15.0f, 0.0f, 1.0f);
 
-            p->m_fPosture += (PLR_POSTURE_GUARD_BASE + (PLR_POSTURE_GUARD_POWER * fRatio));
+            p->m_fPosture += (PerHit(TUNE_PLR_POSTURE_HITS) * (1.0f + (PLR_POSTURE_GUARD_POWER * fRatio)));
             p->m_fPostureTime = fNow;
 
-            if (p->m_fPosture >= 1.0f)
+            if (p->m_fPosture >= 0.999f)
                 BreakPlayerPosture(rPlayerChr, *p);
         };
         break;
@@ -1506,10 +1813,10 @@ CCombatOverhaul::AdjustDefenceFlag(
         if (IsOn(FEATURE_PARRY_CRYSTAL))
         {
             int32 iCrystal = static_cast<int32>(OvRand() % 4u);
-            rPlayerChr.ApplyParryCrystal(iCrystal, ov.m_fCrystalTime);
+            rPlayerChr.ApplyParryCrystal(iCrystal, Tune(TUNE_CRYSTAL_TIME));
 
             p->m_iCrystal = iCrystal;
-            p->m_fCrystalUntil = fNow + ov.m_fCrystalTime;
+            p->m_fCrystalUntil = fNow + Tune(TUNE_CRYSTAL_TIME);
         };
         break;
 
@@ -1519,8 +1826,8 @@ CCombatOverhaul::AdjustDefenceFlag(
     case CHARACTERTYPES::ATTACKRESULTTYPE_STUN:
         if (IsOn(FEATURE_COMBO_BREAK))
         {
-            p->m_fBurst += PLR_BURST_PER_HIT;
-            if (p->m_fBurst > 1.0f)
+            p->m_fBurst += PerHit(TUNE_PLR_BURST_HITS);
+            if (p->m_fBurst >= 0.999f)
                 p->m_fBurst = 1.0f;
 
             p->m_fBurstTime = fNow;
@@ -1583,7 +1890,7 @@ CCombatOverhaul::AdjustDefenceFlag(
         (rPlayerChr.GetID() == PLAYERID::ID_MIC) &&
         IsGroundChainStatus(rPlayerChr.GetStatus()))
     {
-        return Ov().m_fMicSpeed;
+        return Tune(TUNE_MIC_SPEED);
     };
 
     return 1.0f;
@@ -1592,7 +1899,7 @@ CCombatOverhaul::AdjustDefenceFlag(
 
 /*static*/ float CCombatOverhaul::GetGuardBackTime(void)
 {
-    return (IsOn(FEATURE_GUARD_RECOVERY) ? GUARD_BACK_TIME_FAST : GUARD_BACK_TIME_RETAIL);
+    return (IsOn(FEATURE_GUARD_RECOVERY) ? Tune(TUNE_GUARD_BACK) : GUARD_BACK_TIME_RETAIL);
 };
 
 
@@ -1667,10 +1974,10 @@ CCombatOverhaul::AdjustDefenceFlag(
             ENEMYSTATE* e = EnemyState(rTarget.GetHandle(), true);
             if (e && (fNow > e->m_fBurstCooldownUntil) && !e->m_bBurstFire)
             {
-                e->m_fBurst += ENM_BURST_PER_HIT;
+                e->m_fBurst += PerHit(TUNE_ENM_BURST_HITS);
                 e->m_fBurstTime = fNow;
 
-                if (e->m_fBurst >= 1.0f)
+                if (e->m_fBurst >= 0.999f)
                 {
                     e->m_fBurst = 1.0f;
                     e->m_bBurstFire = true;
@@ -1698,10 +2005,10 @@ CCombatOverhaul::AdjustDefenceFlag(
     if (!e)
         return false;
 
-    e->m_fPosture += ENM_POSTURE_GUARD;
+    e->m_fPosture += PerHit(TUNE_ENM_POSTURE_HITS);
     e->m_fPostureTime = Now();
 
-    if (e->m_fPosture < 1.0f)
+    if (e->m_fPosture < 0.999f)
         return false;
 
     // Posture broken: the caller turns this guard into a guard break
@@ -1781,8 +2088,27 @@ CCombatOverhaul::AdjustDefenceFlag(
         break;
     };
 
-    if (bShow)
-        AddIndicator(rEnemyChr.GetOwner(), bHeavy);
+    if (!bShow)
+        return;
+
+    AddIndicator(rEnemyChr.GetOwner(), bHeavy);
+
+    // Hold the attack back for the warning time by nearly freezing its
+    // motion (hit timing follows motion time). Enemies that drive their own
+    // motion speed in this status are left alone.
+    float fWarn = Tune(TUNE_WARN_TIME);
+    CCharacterCompositor& rCompositor = rEnemyChr.Compositor();
+    if ((fWarn > 0.0f) && !rCompositor.TestCharacterFlag(CHARACTERTYPES::FLAG_MOTION_SPEED_CTRL))
+    {
+        ENEMYSTATE* e = EnemyState(rCompositor.GetHandle(), true);
+        if (e)
+        {
+            e->m_bWindup = true;
+            e->m_fWindupUntil = Now() + fWarn;
+            e->m_iWindupStatus = static_cast<int32>(statusNow);
+            rCompositor.SetMotionCtrlTime(WINDUP_MOTION_SPEED);
+        };
+    };
 };
 
 
@@ -1790,11 +2116,20 @@ CCombatOverhaul::AdjustDefenceFlag(
 {
     Period();
 
-    if (!IsOn(FEATURE_COMBO_BREAK))
+    ENEMYSTATE* e = EnemyState(rEnemyChr.Compositor().GetHandle(), false);
+    if (!e)
         return;
 
-    ENEMYSTATE* e = EnemyState(rEnemyChr.Compositor().GetHandle(), false);
-    if (!e || !e->m_bBurstFire)
+    // 5 end of the attack warning: give the motion its speed back when the
+    // time is up or the enemy left the announced status (hit, guard break...)
+    if (e->m_bWindup &&
+        ((Now() >= e->m_fWindupUntil) || (static_cast<int32>(rEnemyChr.GetStatus()) != e->m_iWindupStatus)))
+    {
+        e->m_bWindup = false;
+        rEnemyChr.Compositor().ClearMotionCtrlTime();
+    };
+
+    if (!IsOn(FEATURE_COMBO_BREAK) || !e->m_bBurstFire)
         return;
 
     if (rEnemyChr.TestFlag(ENEMYTYPES::FLAG_DEATH_STATUS))
@@ -1865,7 +2200,7 @@ CCombatOverhaul::AdjustDefenceFlag(
         EnemyHeadPosition(pEnemy, vHead, vBody);
         vHead.y += 0.35f;
 
-        float fAge = Clamp((fNow - ind.m_fStart) / INDICATOR_TIME, 0.0f, 1.0f);
+        float fAge = Clamp((fNow - ind.m_fStart) / IndicatorTime(), 0.0f, 1.0f);
         PushMarker((ind.m_bHeavy ? MARKER_ATTACK_HEAVY : MARKER_ATTACK_LIGHT), vHead, fAge, 0.0f);
     };
 

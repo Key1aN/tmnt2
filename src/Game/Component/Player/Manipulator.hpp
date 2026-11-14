@@ -153,6 +153,8 @@ protected:
     // Combat Overhaul 13: attack pressed during a dash, used when it ends.
     ATTACK m_ovBufferedAttack;
     float m_fOvBufferedTime;
+    // Combat Overhaul 11: right stick side last frame (flick detection).
+    int32 m_iOvRightStickSide;
 #endif /* defined(TMNT2_DEBUG_TOOLS) */
 #if defined(TARGET_PC)
     // A+B (C) chord window: seconds since each button's last press.

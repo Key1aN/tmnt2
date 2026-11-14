@@ -1370,9 +1370,16 @@ PLAYERTYPES::FLAG CPlayerCharacter::CheckAttackConnect(PLAYERTYPES::FLAG mask)
             // Combo Assist: retail evaluates the chain once, exactly at the connect
             // time, so a press that lands after it is dropped. Keep the chain open
             // for COMBO_LATE_WINDOW seconds after the connect time.
-            bool bKeepOpen = (CPCModFeatures::IsComboAssistEnabled() &&
+            float fLateWindow = (CPCModFeatures::IsComboAssistEnabled() ? COMBO_LATE_WINDOW : 0.0f);
+#if defined(TMNT2_DEBUG_TOOLS)
+            // Combat Overhaul 17: the same rule with an adjustable window; the
+            // longer of the two applies.
+            if (CCombatOverhaul::GetComboLateWindow() > fLateWindow)
+                fLateWindow = CCombatOverhaul::GetComboLateWindow();
+#endif /* defined(TMNT2_DEBUG_TOOLS) */
+            bool bKeepOpen = ((fLateWindow > 0.0f) &&
                               ((static_cast<uint32>(m_pflag) & static_cast<uint32>(mask) & static_cast<uint32>(PLAYERTYPES::FLAG_REQUEST_ATTACK_MASK)) == 0) &&
-                              (fStatusDuration < (fChainMotionConnectTime + COMBO_LATE_WINDOW)) &&
+                              (fStatusDuration < (fChainMotionConnectTime + fLateWindow)) &&
                               !IsMotionEnd());
             if (bKeepOpen)
                 return PLAYERTYPES::FLAG_NONE;

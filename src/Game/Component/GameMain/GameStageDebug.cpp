@@ -7,6 +7,7 @@
 /*static*/ float CGameStageDebug::CAMERA_MANUAL_SPEED = 20.0f;
 /*static*/ bool CGameStageDebug::CAMERA_MENU_CONTROL = false;
 /*static*/ bool CGameStageDebug::CAMERA_SUPPRESS_SWITCH_TRIGGER = false;
+/*static*/ bool CGameStageDebug::CAMERA_MANUAL_ALLOWED = false;
 /*static*/ int32 CGameStageDebug::STAGE_TICK = 0;
 /*static*/ int32 CGameStageDebug::COUNTER = 0;
 

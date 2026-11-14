@@ -39,6 +39,13 @@ public:
     void Appear(void);
     void Disappear(void);
     STATE GetState(void) const;
+#if defined(TMNT2_DEBUG_TOOLS)
+    // Combat Overhaul 2 (Michelangelo's guard shield): same sphere, texture
+    // and animation in another colour; it only reflects shots, so it neither
+    // hits enemies nor swallows projectiles.
+    void SetShotReflectOnly(const RwRGBA& rColor);
+    bool IsShotReflectOnly(void) const { return m_bShotReflectOnly; };
+#endif /* defined(TMNT2_DEBUG_TOOLS) */
 
 protected:
     static CList<CBarrierModule> m_listDraw;
@@ -56,4 +63,7 @@ protected:
     int32 m_nPower;
     float m_fTime;
     float m_fLivetime;
+#if defined(TMNT2_DEBUG_TOOLS)
+    bool m_bShotReflectOnly;
+#endif /* defined(TMNT2_DEBUG_TOOLS) */
 };

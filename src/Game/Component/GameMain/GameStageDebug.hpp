@@ -10,6 +10,7 @@ public:
     static float CAMERA_MANUAL_SPEED;
     static bool CAMERA_MENU_CONTROL;
     static bool CAMERA_SUPPRESS_SWITCH_TRIGGER;
+    static bool CAMERA_MANUAL_ALLOWED;      // Debug Tools > Camera > Manual camera; not reset per stage
     static int32 STAGE_TICK;
     static int32 COUNTER;
 

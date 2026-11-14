@@ -10,6 +10,11 @@
 #include "Game/System/Model/Model.hpp"
 #include "Game/System/Sound/GameSound.hpp"
 
+#if defined(TMNT2_DEBUG_TOOLS)
+#include "Game/Component/Module/BarrierModule.hpp"
+#include "Game/Component/Player/PlayerTracer.hpp"
+#endif /* defined(TMNT2_DEBUG_TOOLS) */
+
 
 namespace Michelangero
 {
@@ -174,6 +179,15 @@ CMichelangero::CMichelangero(GAMETYPES::COSTUME costume)
                                                  &Michelangero::BANDANA_OFFSET,
                                                  CBandanaModule::BANDANACOLOR_ORANGE));
     };
+
+#if defined(TMNT2_DEBUG_TOOLS)
+    // Combat Overhaul 2: guard shield. Donatello's barrier module at 60% of
+    // its radius, Michelangelo's orange at the barrier's own 50% opacity, in
+    // shot-reflect-only mode. It sleeps until CCombatOverhaul raises it.
+    CBarrierModule* pGuardShield = new CBarrierModule(new CPlayerTracer(this), this, 1.2f);
+    pGuardShield->SetShotReflectOnly({ 0xFF, 0x8C, 0x1E, 0x80 });
+    m_pModuleMan->Include(pGuardShield);
+#endif /* defined(TMNT2_DEBUG_TOOLS) */
 };
 
 

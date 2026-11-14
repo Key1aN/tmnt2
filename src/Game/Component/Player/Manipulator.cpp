@@ -22,6 +22,9 @@
 
 #if defined(TARGET_PC)
 #include "System/PC/PCModFeatures.hpp"
+#if defined(TMNT2_DEBUG_TOOLS)
+#include "System/PC/PCPhysicalController.hpp"
+#endif /* defined(TMNT2_DEBUG_TOOLS) */
 #endif /* defined(TARGET_PC) */
 
 
@@ -75,6 +78,7 @@ CManipulator::CManipulator(const char* pszName, CPlayerCharacter* pPlayerChr, in
 #if defined(TMNT2_DEBUG_TOOLS)
 , m_ovBufferedAttack(ATTACK_OFF)
 , m_fOvBufferedTime(0.0f)
+, m_iOvRightStickSide(0)
 #endif /* defined(TMNT2_DEBUG_TOOLS) */
 #if defined(TARGET_PC)
 , m_fSincePressA(1.0f)
@@ -130,6 +134,34 @@ bool CManipulator::RunCombatOverhaul(PLAYERTYPES::STATUS status)
     if (uDigitalTrigger & CController::DIGITAL_R3)
         CCombatOverhaul::RequestLockOnToggle(m_pPlayerChr->GetPlayerNo());
 
+    // 11 while locked, a right stick flick left / right moves the lock to
+    // the next enemy on that side. One switch per flick: the stick has to
+    // come back to the centre first.
+    {
+        int16 rightX = CController::GetAnalog(m_nControllerNo, CController::ANALOG_RSTICK_X);
+#if defined(TARGET_PC)
+        // On DirectInput pads the horizontal right stick axis is the one the
+        // Debug Camera already reads (see CPCPhysicalController).
+        rightX = CPCPhysicalController::GetDebugRightStickHorizontal();
+#endif /* defined(TARGET_PC) */
+
+        const int32 FLICK_ON = (TYPEDEF::SINT16_MAX * 6) / 10;
+        const int32 FLICK_OFF = (TYPEDEF::SINT16_MAX * 3) / 10;
+
+        int32 side = m_iOvRightStickSide;
+        if ((rightX > -FLICK_OFF) && (rightX < FLICK_OFF))
+            side = 0;
+        else if (rightX >= FLICK_ON)
+            side = 1;
+        else if (rightX <= -FLICK_ON)
+            side = -1;
+
+        if ((side != 0) && (side != m_iOvRightStickSide))
+            CCombatOverhaul::RequestLockSwitch(m_pPlayerChr->GetPlayerNo(), side);
+
+        m_iOvRightStickSide = side;
+    };
+
     // 4 combo break: Guard held + Jump pressed while the gauge is full.
     if ((m_input.m_guard == GUARD_ON) &&
         (m_input.m_jump == JUMP_ON) &&
@@ -181,16 +213,20 @@ bool CManipulator::RunCombatOverhaul(PLAYERTYPES::STATUS status)
         };
         break;
 
-    case PLAYERTYPES::STATUS_ATTACK_AABBC:
+    case PLAYERTYPES::STATUS_ATTACK_B_CHARGE:
     case PLAYERTYPES::STATUS_ATTACK_B:
+    case PLAYERTYPES::STATUS_ATTACK_AABBC:
     case PLAYERTYPES::STATUS_ATTACK_RUN:
     case PLAYERTYPES::STATUS_ATTACK_KNIFE:
-        // 13 these attacks have no retail dash cancel; allow it once the
+        // 13 the strong attack (charging or released) can be dash-cancelled
+        // at any time; the others, which have no retail dash cancel, once the
         // strike part of the motion is over.
         m_ovBufferedAttack = ATTACK_OFF;
         if (bDashRules &&
             (m_input.m_dash == DASH_ON) &&
-            (m_pPlayerChr->GetMotionTime() >= (m_pPlayerChr->GetMotionEndTime() * 0.45f)))
+            ((status == PLAYERTYPES::STATUS_ATTACK_B_CHARGE) ||
+             (status == PLAYERTYPES::STATUS_ATTACK_B) ||
+             (m_pPlayerChr->GetMotionTime() >= (m_pPlayerChr->GetMotionEndTime() * 0.45f))))
         {
             m_pPlayerChr->ForceIdle();
 

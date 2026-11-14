@@ -1,0 +1,331 @@
+name: Build TMNT2 Core Combat Overhaul v1.1.0 US
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - "claude/combat-overhaul-v1-1-0-us"
+
+permissions:
+  contents: write
+
+jobs:
+  build-combat-overhaul-v1-1-0-windows-x86-us:
+    runs-on: windows-2022
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out Combat Overhaul v1.1.0 source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Verify exact extension scope
+        shell: pwsh
+        run: |
+          $expected = @(
+            ".github/workflows/build-combat-lab-v1-2-0-us.yml",
+            ".github/workflows/build-combat-overhaul-v1-0-0-us.yml",
+            ".github/workflows/build-combat-overhaul-v1-1-0-us.yml",
+            "CMakeLists.txt",
+            "COMBAT_LAB_V1_1_0_US.md",
+            "COMBAT_OVERHAUL_ROADMAP.md",
+            "COMBAT_OVERHAUL_V1_1_0_US.md",
+            "ENEMY_AI_VISUALIZER.md",
+            "src/Game/Component/CombatLab/CombatLab.cpp",
+            "src/Game/Component/CombatLab/CombatLab.hpp",
+            "src/Game/Component/CombatOverhaul/CombatOverhaul.cpp",
+            "src/Game/Component/CombatOverhaul/CombatOverhaul.hpp",
+            "src/Game/Component/Enemy/AITrace.cpp",
+            "src/Game/Component/Enemy/AITrace.hpp",
+            "src/Game/Component/Enemy/ConcreteAIModerator/BaseFootNinjaAI.cpp",
+            "src/Game/Component/Enemy/ConcreteAIModerator/BaseGeneralEnemyAI.cpp",
+            "src/Game/Component/Enemy/ConcreteAIModerator/BaseGrapplerAI.cpp",
+            "src/Game/Component/Enemy/EnemyCharacter.cpp",
+            "src/Game/Component/Enemy/EnemyCharacter.hpp",
+            "src/Game/Component/GameMain/DebugDifficulty.cpp",
+            "src/Game/Component/GameMain/DebugDifficulty.hpp",
+            "src/Game/Component/GameMain/GameProperty.cpp",
+            "src/Game/Component/GameMain/GameProperty.hpp",
+            "src/Game/Component/GameMain/GameStageDebug.cpp",
+            "src/Game/Component/GameMain/GameStageDebug.hpp",
+            "src/Game/Component/Module/BarrierModule.cpp",
+            "src/Game/Component/Module/BarrierModule.hpp",
+            "src/Game/Component/Player/ConcretePlayerCharacter/Donatello.cpp",
+            "src/Game/Component/Player/ConcretePlayerCharacter/Michelangero.cpp",
+            "src/Game/Component/Player/ConcretePlayerStatus/PlayerStatusAttack.cpp",
+            "src/Game/Component/Player/ConcretePlayerStatus/PlayerStatusBasic.cpp",
+            "src/Game/Component/Player/ConcretePlayerStatus/PlayerStatusDamage.cpp",
+            "src/Game/Component/Player/ConcretePlayerStatus/PlayerStatusGuard.cpp",
+            "src/Game/Component/Player/Manipulator.cpp",
+            "src/Game/Component/Player/Manipulator.hpp",
+            "src/Game/Component/Player/PlayerCharacter.cpp",
+            "src/Game/Component/Player/PlayerCharacter.hpp",
+            "src/Game/Component/Shot/Shot.cpp",
+            "src/Game/ProcessList.cpp",
+            "src/Game/ProcessList.hpp",
+            "src/Game/Sequence/CombatLab/CombatLabSequence.cpp",
+            "src/Game/Sequence/CombatLab/CombatLabSequence.hpp",
+            "src/Game/Sequence/DebugTools/DebugToolsProcess.cpp",
+            "src/Game/Sequence/GameMainSequence.cpp",
+            "src/Game/System/Character/Character.cpp",
+            "src/Game/System/Map/MapCamera.cpp",
+            "src/System/PC/PCDebugImGui.cpp",
+            "src/System/PC/PCDebugImGui.hpp",
+            "src/System/PC/PCPhysicalController.cpp",
+            "src/System/PC/PCSystem.cpp",
+            "tools/AIVisualizer/ai_replay.html",
+            "tools/CombatLabLauncher/CombatLabLauncher.cpp",
+            "vendor/fonts/inter/InterMedium_compressed.inl",
+            "vendor/fonts/inter/LICENSE.txt",
+            "vendor/fonts/inter/README.txt",
+            "vendor/imgui/LICENSE.txt",
+            "vendor/imgui/VERSION.txt",
+            "vendor/imgui/backends/imgui_impl_win32.cpp",
+            "vendor/imgui/backends/imgui_impl_win32.h",
+            "vendor/imgui/imconfig.h",
+            "vendor/imgui/imgui.cpp",
+            "vendor/imgui/imgui.h",
+            "vendor/imgui/imgui_draw.cpp",
+            "vendor/imgui/imgui_internal.h",
+            "vendor/imgui/imgui_tables.cpp",
+            "vendor/imgui/imgui_widgets.cpp",
+            "vendor/imgui/imstb_rectpack.h",
+            "vendor/imgui/imstb_textedit.h",
+            "vendor/imgui/imstb_truetype.h"
+          )
+          # 224106c is Karai boss variant v1.4.1 (includes Debug Tools v1.2.7), the cumulative baseline.
+          $changed = @(git diff --name-only 224106c HEAD)
+          $unexpected = @($changed | Where-Object { $_ -notin $expected })
+          $missing = @($expected | Where-Object { $_ -notin $changed })
+          if ($unexpected.Count -ne 0 -or $missing.Count -ne 0) {
+            throw "Combat Overhaul scope mismatch. Unexpected: $($unexpected -join ', '); missing: $($missing -join ', ')"
+          }
+
+      - name: Verify Combat Lab and Combat Overhaul wiring
+        shell: pwsh
+        run: |
+          $tools = Get-Content "src/Game/Sequence/DebugTools/DebugToolsProcess.cpp" -Raw
+          $lab = Get-Content "src/Game/Component/CombatLab/CombatLab.cpp" -Raw
+          $seq = Get-Content "src/Game/Sequence/CombatLab/CombatLabSequence.cpp" -Raw
+          $main = Get-Content "src/Game/Sequence/GameMainSequence.cpp" -Raw
+          $chr = Get-Content "src/Game/System/Character/Character.cpp" -Raw
+          foreach ($required in @("PAGE_COMBATLAB", '"COMBAT LAB"', "IsCombatLabShortcut", "DIK_L", "PROCLABEL_SEQ_COMBATLAB", "DrawCombatLabOverlay", "MENU_VISIBLE_ITEMS", "DrawMenuClassic", "MENUSIZE_NORMAL", "FormatDifficultyValue", "CDebugDifficulty::StepValue")) {
+            if ($tools -notmatch [regex]::Escape($required)) { throw "Debug Tools Combat Lab integration missing: $required" }
+          }
+          # Existing Debug Tools pages and features must still be present.
+          foreach ($required in @("PAGE_DIFFICULTY", "PAGE_PLAYER", "PAGE_ENEMY_AI", "PAGE_STAGE", "PAGE_CAMERA", "PAGE_GRAPHICS", "PAGE_HITBOXES", "PAGE_TELEMETRY", "DIK_F4", "SetEnemyAIPaused", "KillAllEnemies", "PERF_SUMMARY_SPAN_MS", "GetDebugRightStickHorizontal")) {
+            if ($tools -notmatch [regex]::Escape($required)) { throw "Existing Debug Tools feature missing: $required" }
+          }
+          foreach ($required in @("ID_ST60X_A01", "PushRecord", "PopRecord", "GAMEMODE_NEXUS", "CDebugDifficulty::Snapshot", "CDebugDifficulty::Restore", "SetDamageNegation", "IsDebugToolsEnabled")) {
+            if ($lab -notmatch [regex]::Escape($required)) { throw "Combat Lab runtime missing: $required" }
+          }
+          if ($seq -match [regex]::Escape("nexus_stage")) { throw "Combat Lab must never activate the arena enemy generators." }
+          if ($main -notmatch [regex]::Escape("CCombatLab::ConsumeLaunchRequest()")) { throw "Direct launch branch missing." }
+          if ($chr -notmatch [regex]::Escape("CCombatLab::OnCatchAttack(*this, *pAttack, attackresult, iDamage);")) { throw "Damage instrumentation hook missing." }
+          # AI visualizer: hooks are trace-only and present.
+          foreach ($required in @("PAGE_AIVIEW", '"AI VIEW"', "CEnemyAITrace::Update()", "CEnemyAITrace::SetEnabled(false)", "DrawAIView", "DrawAwarenessZones", "ZoneViewReach", "DrawMenuImGui", "ApplyUIActions")) {
+            if ($tools -notmatch [regex]::Escape($required)) { throw "AI visualizer integration missing: $required" }
+          }
+          $trace = Get-Content "src/Game/Component/Enemy/AITrace.hpp" -Raw
+          foreach ($required in @("if (CEnemyAITrace::IsEnabled())", "CEnemyAITrace::call;", "#define AITRACE(call) ((void)0)", "m_bEnabled")) {
+            if ($trace -notmatch [regex]::Escape($required)) { throw "AITRACE guard changed: $required" }
+          }
+          foreach ($ai in @("BaseGeneralEnemyAI.cpp", "BaseGrapplerAI.cpp", "BaseFootNinjaAI.cpp")) {
+            $lines = Get-Content "src/Game/Component/Enemy/ConcreteAIModerator/$ai"
+            $bad = @($lines | Where-Object { $_ -match "CEnemyAITrace::(Event|Commit|Discard|RunBegin|RunEnd|BackAwayTimer)" -and $_ -notmatch "AITRACE\(" })
+            if ($bad.Count -ne 0) { throw "$ai calls the AI trace outside AITRACE: $($bad -join ' | ')" }
+          }
+          $grap = Get-Content "src/Game/Component/Enemy/ConcreteAIModerator/BaseGrapplerAI.cpp" -Raw
+          if ($grap -notmatch [regex]::Escape("bool bTakeRunAttack = (!bTakeAttack && IsTakeRunAttack());")) { throw "Retail attack short-circuit changed." }
+          if ($chr -notmatch "if \(iDamage > 0\)\s+CGameObjectManager::SendMessage\(this, CHARACTERTYPES::MESSAGEID_RECVDMG") { throw "Retail RECVDMG dispatch changed." }
+          # Combat Overhaul: page, switch and display are wired; every use of the
+          # module outside its own folder sits inside a TMNT2_DEBUG_TOOLS block.
+          foreach ($required in @("PAGE_OVERHAUL", '"OVERHAUL"', "DIK_F6", "DrawOverhaulHud", "CCombatOverhaul::GetItemNum()")) {
+            if ($tools -notmatch [regex]::Escape($required)) { throw "Combat Overhaul Debug Tools integration missing: $required" }
+          }
+          if ($lab -notmatch [regex]::Escape("CCombatOverhaul::SetEnabled(s_lab.m_ruleset == RULESET_EXPERIMENTAL);")) { throw "Lab ruleset is not linked to the overhaul master switch." }
+          if ($chr -notmatch [regex]::Escape("CCombatOverhaul::OnCatchAttack(*this, *pAttack, attackresult, iDamage);")) { throw "Combat Overhaul hit hook missing." }
+          $hookFiles = @(
+            "src/Game/Component/Enemy/EnemyCharacter.cpp",
+            "src/Game/Component/Player/ConcretePlayerCharacter/Donatello.cpp",
+            "src/Game/Component/Player/ConcretePlayerStatus/PlayerStatusAttack.cpp",
+            "src/Game/Component/Player/ConcretePlayerStatus/PlayerStatusBasic.cpp",
+            "src/Game/Component/Player/ConcretePlayerStatus/PlayerStatusDamage.cpp",
+            "src/Game/Component/Player/ConcretePlayerStatus/PlayerStatusGuard.cpp",
+            "src/Game/Component/Player/Manipulator.cpp",
+            "src/Game/Component/Player/PlayerCharacter.cpp",
+            "src/Game/Component/Shot/Shot.cpp"
+          )
+          foreach ($file in $hookFiles) {
+            $depth = 0
+            $lineNo = 0
+            foreach ($line in (Get-Content $file)) {
+              $lineNo++
+              if ($line -match '^\s*#\s*if') { if (($depth -gt 0) -or ($line -match 'TMNT2_DEBUG_TOOLS')) { $depth++ } }
+              elseif (($line -match '^\s*#\s*endif') -and ($depth -gt 0)) { $depth-- }
+              elseif (($line -match 'CCombatOverhaul|CombatOverhaul\.hpp') -and ($depth -eq 0)) {
+                throw "$file line ${lineNo}: Combat Overhaul used outside TMNT2_DEBUG_TOOLS."
+              }
+            }
+          }
+          # v1.1.0: camera lock, physical button layouts and the guard shield stay behind their gates.
+          foreach ($required in @("CAMERA_MANUAL_ALLOWED", "SetManualCamera(!CGameStageDebug::CAMERA_MANUAL_ALLOWED)", "if (!CGameStageDebug::CAMERA_MANUAL_ALLOWED)")) {
+            if ($tools -notmatch [regex]::Escape($required)) { throw "Camera lock missing from Debug Tools: $required" }
+          }
+          $pad = Get-Content "src/System/PC/PCPhysicalController.cpp" -Raw
+          foreach ($required in @("if (CPCModFeatures::IsDebugToolsEnabled())", "s_aLayoutGeneric", "s_aLayoutXbox", "s_aLayoutSony", "uint32 BtnDigital[] =")) {
+            if ($pad -notmatch [regex]::Escape($required)) { throw "Controller layout gate changed: $required" }
+          }
+          $barrier = Get-Content "src/Game/Component/Module/BarrierModule.cpp" -Raw
+          foreach ($required in @("if (m_bShotReflectOnly)", "hitAttack.SetTarget(CHitAttackData::TARGET_SHOT);", "hitAttack.SetPower(m_nPower);")) {
+            if ($barrier -notmatch [regex]::Escape($required)) { throw "Barrier module guard-shield mode changed: $required" }
+          }
+          $ov = Get-Content "src/Game/Component/CombatOverhaul/CombatOverhaul.cpp" -Raw
+          foreach ($required in @("FEATURE_NUM", "s_ov.m_bEnabled = true;", "return (ov.m_bEnabled && (feature >= 0) && (feature < FEATURE_NUM) && ov.m_abFeature[feature]);")) {
+            if ($ov -notmatch [regex]::Escape($required)) { throw "Combat Overhaul master/feature gate changed: $required" }
+          }
+
+      - name: Verify EXE-only feature boundaries
+        shell: pwsh
+        run: |
+          $changed = @(git diff --name-only 224106c HEAD)
+          $retailInputs = @($changed | Where-Object {
+            $_ -match '(^|/)(TMNT2\.exe|TMNT\.DAT)$' -or
+            $_ -match '(^|/)(lpac|LPAC)(/|$)'
+          })
+          if ($retailInputs.Count -ne 0) {
+            throw "Retail DAT, EXE, or LPAC input entered the source change: $($retailInputs -join ', ')"
+          }
+
+      - name: Stage DirectX headers and x86 libraries
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $dxsdk = Join-Path $env:RUNNER_TEMP "tmnt2-dxsdk"
+          $includeOut = Join-Path $dxsdk "Include"
+          $libOut = Join-Path $dxsdk "Lib\x86"
+          New-Item -ItemType Directory -Force -Path $includeOut, $libOut | Out-Null
+          $sdkPackageVersion = "10.0.26100.7705"
+
+          function Get-VerifiedNuGetPackage {
+            param([string]$PackageName, [string]$ExpectedHash, [string]$OutputName)
+            $packageUrl = "https://api.nuget.org/v3-flatcontainer/$PackageName/$sdkPackageVersion/$PackageName.$sdkPackageVersion.nupkg"
+            $packageZip = Join-Path $env:RUNNER_TEMP "$OutputName.zip"
+            $packageOut = Join-Path $env:RUNNER_TEMP $OutputName
+            & curl.exe --location --fail --retry 3 --retry-delay 2 --output $packageZip $packageUrl
+            if ($LASTEXITCODE -ne 0) { throw "Failed to download $PackageName $sdkPackageVersion." }
+            $actualHash = (Get-FileHash $packageZip -Algorithm SHA256).Hash.ToLowerInvariant()
+            if ($actualHash -ne $ExpectedHash) { throw "$PackageName hash mismatch: $actualHash" }
+            Expand-Archive -Path $packageZip -DestinationPath $packageOut -Force
+            return $packageOut
+          }
+
+          $x86PackageOut = Get-VerifiedNuGetPackage `
+            -PackageName "microsoft.windows.sdk.cpp.x86" `
+            -ExpectedHash "4a8504308e253842054f0c385817522a895306308bf4d6dc11f09064bb27c280" `
+            -OutputName "winsdk-x86"
+          $kitsRoot = "${env:ProgramFiles(x86)}\Windows Kits\10"
+          $d3d9Header = $null
+          if (Test-Path "$kitsRoot\Include") {
+            $d3d9Header = Get-ChildItem "$kitsRoot\Include" -Recurse -File -Filter "d3d9.h" |
+              Where-Object { $_.DirectoryName -match "\\(shared|um)$" } |
+              Sort-Object FullName -Descending | Select-Object -First 1
+          }
+          if ($d3d9Header) {
+            $headerVersionRoot = Get-Item (Split-Path $d3d9Header.DirectoryName -Parent)
+          }
+          else {
+            $headersPackageOut = Get-VerifiedNuGetPackage `
+              -PackageName "microsoft.windows.sdk.cpp" `
+              -ExpectedHash "ff455660bee071a744715a9665666fa29c07681579d3d815959a9eec5a556424" `
+              -OutputName "winsdk-headers"
+            $headerVersionRoot = Get-ChildItem "$headersPackageOut\c\Include" -Directory |
+              Where-Object {
+                (Test-Path (Join-Path $_.FullName "shared\d3d9.h")) -and
+                (Test-Path (Join-Path $_.FullName "um\dinput.h")) -and
+                (Test-Path (Join-Path $_.FullName "um\dsound.h"))
+              } | Sort-Object Name -Descending | Select-Object -First 1
+          }
+          if (-not $headerVersionRoot) { throw "Required DirectX headers were not found." }
+          Copy-Item "$($headerVersionRoot.FullName)\um\*" $includeOut -Recurse -Force
+          Copy-Item "$($headerVersionRoot.FullName)\shared\*" $includeOut -Recurse -Force
+          foreach ($library in @("d3d9.lib", "dinput8.lib", "dxguid.lib", "dsound.lib")) {
+            $source = Join-Path $x86PackageOut "c\um\x86\$library"
+            if (-not (Test-Path $source)) { throw "Required DirectX library was not found: $source" }
+            Copy-Item $source $libOut -Force
+          }
+          "DXSDK_DIR=$dxsdk" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Configure US Win32 Release Combat Overhaul build
+        shell: pwsh
+        run: cmake --preset vs2022 -DOPT_EU_BUILD=OFF -DOPT_DEBUG_TOOLS=ON
+
+      - name: Build TMNT2 Core Combat Overhaul v1.1.0 US
+        shell: pwsh
+        run: cmake --build --preset vs2022-release --parallel
+
+      - name: Collect and verify uniquely named outputs
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $exe = Get-ChildItem "$env:GITHUB_WORKSPACE\bin\win" -Recurse -File -Filter "TMNT2.exe" |
+            Where-Object { $_.FullName -match "\\release\\" } | Select-Object -First 1
+          $launcher = Get-ChildItem "$env:GITHUB_WORKSPACE\bin\win" -Recurse -File -Filter "CombatLab.exe" |
+            Where-Object { $_.FullName -match "\\release\\" } | Select-Object -First 1
+          if (-not $exe) { throw "The Release TMNT2.exe output was not found." }
+          if (-not $launcher) { throw "The Release CombatLab.exe launcher was not found." }
+          $pdb = Get-ChildItem "$env:GITHUB_WORKSPACE" -Recurse -File -Filter "TMNT2.pdb" |
+            Where-Object { $_.FullName -notmatch "\\vendor\\" } |
+            Sort-Object LastWriteTimeUtc -Descending | Select-Object -First 1
+          $map = Get-ChildItem "$env:GITHUB_WORKSPACE" -Recurse -File -Filter "TMNT2.map" |
+            Where-Object { $_.FullName -notmatch "\\vendor\\" } |
+            Sort-Object LastWriteTimeUtc -Descending | Select-Object -First 1
+          if (-not $pdb -or -not $map) { throw "The matching PDB or MAP was not found." }
+          $exeBytes = [System.IO.File]::ReadAllBytes($exe.FullName)
+          $exeText = [System.Text.Encoding]::ASCII.GetString($exeBytes)
+          foreach ($marker in @("TMNT2_debugtools_imgui.ini", "Debug menu style", "tmnt2_rw_im2d", "AFTER - COMBAT OVERHAUL", "15. Smart targeting", "17. Wider combo window", "Manual camera (RS, LT, RT)", "Attack warning time")) {
+            if (-not $exeText.Contains($marker)) { throw "Debug Tools / Combat Overhaul marker missing from the EXE: $marker" }
+          }
+
+          $artifactDir = Join-Path $env:GITHUB_WORKSPACE "artifact-combat-overhaul-v1-1-0-us"
+          New-Item -ItemType Directory -Force -Path $artifactDir | Out-Null
+          $baseName = "TMNT2_Core_Combat_Overhaul_v1_1_0_US"
+          Copy-Item $exe.FullName (Join-Path $artifactDir "$baseName.exe") -Force
+          Copy-Item $pdb.FullName (Join-Path $artifactDir "$baseName.pdb") -Force
+          Copy-Item $map.FullName (Join-Path $artifactDir "$baseName.map") -Force
+          Copy-Item $launcher.FullName (Join-Path $artifactDir "CombatLab.exe") -Force
+          Copy-Item "$env:GITHUB_WORKSPACE\COMBAT_LAB_V1_1_0_US.md" $artifactDir -Force
+          Copy-Item "$env:GITHUB_WORKSPACE\COMBAT_OVERHAUL_ROADMAP.md" $artifactDir -Force
+          Copy-Item "$env:GITHUB_WORKSPACE\ENEMY_AI_VISUALIZER.md" $artifactDir -Force
+          Copy-Item "$env:GITHUB_WORKSPACE\COMBAT_OVERHAUL_V1_1_0_US.md" $artifactDir -Force
+          Copy-Item "$env:GITHUB_WORKSPACE\tools\AIVisualizer\ai_replay.html" $artifactDir -Force
+          Get-ChildItem $artifactDir -File | Get-FileHash -Algorithm SHA256 |
+            ForEach-Object { "$($_.Hash.ToLowerInvariant())  $($_.Path | Split-Path -Leaf)" } |
+            Set-Content (Join-Path $artifactDir "SHA256SUMS.txt") -Encoding utf8
+
+      - name: Publish build outputs to drop branch for packaging
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          $drop = Join-Path $env:RUNNER_TEMP "drop"
+          New-Item -ItemType Directory -Force -Path $drop | Out-Null
+          Copy-Item "$env:GITHUB_WORKSPACE\artifact-combat-overhaul-v1-1-0-us\*" $drop -Force
+          Set-Location $drop
+          git init -q
+          git config core.autocrlf false
+          "* -text" | Set-Content .gitattributes
+          git checkout -q -b drop
+          git add -A
+          git -c user.name="github-actions" -c user.email="github-actions@users.noreply.github.com" commit -q -m "Build outputs for $env:GITHUB_SHA (run $env:GITHUB_RUN_NUMBER)"
+          git push -q -f "https://x-access-token:$env:GH_TOKEN@github.com/$env:GITHUB_REPOSITORY.git" drop:refs/heads/build-drops/combat-overhaul-v1-1-0-us
+
+      - name: Upload TMNT2 Core Combat Overhaul v1.1.0 US artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: TMNT2-Core-Combat-Overhaul-v1-1-0-US-run-${{ github.run_number }}
+          path: artifact-combat-overhaul-v1-1-0-us/*
+          if-no-files-found: error
+          retention-days: 14

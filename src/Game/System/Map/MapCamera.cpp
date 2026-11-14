@@ -368,6 +368,14 @@ void CMapCamera::Update(const RwV3d* pvAt, float fZoom)
             CGameStageDebug::CAMERA_SUPPRESS_SWITCH_TRIGGER = false;
             bSuppressSwitchCamera = true;
         };
+
+        // Camera locked (the default): R3 is the lock-on button and never
+        // switches the retail camera mode.
+        if (CPCModFeatures::IsDebugToolsEnabled() &&
+            !CGameStageDebug::CAMERA_MANUAL_ALLOWED)
+        {
+            bSuppressSwitchCamera = true;
+        };
 #endif /* defined(TARGET_PC) && defined(TMNT2_DEBUG_TOOLS) */
 
         if (!bSuppressSwitchCamera &&
@@ -635,11 +643,10 @@ void CMapCamera::UpdateManualCamera(const RwV3d* pvAt)
 #if defined(TARGET_PC) && defined(TMNT2_DEBUG_TOOLS)
     if (CPCModFeatures::IsDebugToolsEnabled())
     {
-        // The retail PC DirectInput table reports the physical triggers as
-        // R1 (LT) and R2 (RT). Keep this translation local to showcase mode;
-        // changing the global table would alter the game's existing controls.
+        // Since Debug Tools v1.2.17 the DirectInput table maps buttons by
+        // physical position, so the triggers are L2 (LT) and R2 (RT).
         float zoomOut = NormalizeDebugControllerAnalog(
-            GetDebugControllerAnalog(CController::ANALOG_R1)
+            GetDebugControllerAnalog(CController::ANALOG_L2)
         );
         float zoomIn = NormalizeDebugControllerAnalog(
             GetDebugControllerAnalog(CController::ANALOG_R2)

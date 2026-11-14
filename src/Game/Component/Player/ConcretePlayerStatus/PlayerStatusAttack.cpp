@@ -500,7 +500,7 @@ namespace PlayerStatus
     void CAttackKnife::OnAttach(void)
     {
 #if defined(TMNT2_DEBUG_TOOLS)
-        CCombatOverhaul::OnAttackStart(Character());
+        CCombatOverhaul::OnAttackStart(Character(), true);
 #endif /* defined(TMNT2_DEBUG_TOOLS) */
 
         if (Character().GetStatusPrev() == m_status)
@@ -552,7 +552,7 @@ namespace PlayerStatus
     void CAttackKnifeJump::OnAttach(void)
     {
 #if defined(TMNT2_DEBUG_TOOLS)
-        CCombatOverhaul::OnAttackStart(Character());
+        CCombatOverhaul::OnAttackStart(Character(), true);
 #endif /* defined(TMNT2_DEBUG_TOOLS) */
 
         if (Character().GetStatusPrev() == m_status)

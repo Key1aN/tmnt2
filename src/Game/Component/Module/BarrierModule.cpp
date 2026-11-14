@@ -40,6 +40,9 @@ CBarrierModule::CBarrierModule(CTracer* pTracer, CGameObject* pObject, float fRa
 , m_nPower(0)
 , m_fTime(0.0f)
 , m_fLivetime(0.0f)
+#if defined(TMNT2_DEBUG_TOOLS)
+, m_bShotReflectOnly(false)
+#endif /* defined(TMNT2_DEBUG_TOOLS) */
 {
     ASSERT(pTracer);
     ASSERT(pObject);
@@ -155,6 +158,30 @@ void CBarrierModule::Run(void)
         sphere.center = vPosition;
         sphere.radius = (m_fRadius * m_fScale);
 
+#if defined(TMNT2_DEBUG_TOOLS)
+        if (m_bShotReflectOnly)
+        {
+            // Shot-only attack that turns enemy projectiles around
+            // (CShot reflects on this flag). No damage, no catch sphere.
+            CHitAttackData hitAttack;
+            hitAttack.SetObject(m_pObject->GetHandle());
+            hitAttack.SetShape(CHitAttackData::SHAPE_SPHERE);
+            hitAttack.SetSphere(&sphere);
+            hitAttack.SetObjectPos(&vPosition);
+            hitAttack.SetPower(0);
+            hitAttack.SetTarget(CHitAttackData::TARGET_SHOT);
+            hitAttack.SetAntiguard(CHitAttackData::ANTIGUARD_ENABLE);
+            hitAttack.SetMotion("OvReflect");
+            hitAttack.SetStatus(CHitAttackData::STATUS_KNOCK);
+            hitAttack.SetFlagReflectShot(true);
+
+            CHitAttackManager::RegistAttack(&hitAttack);
+
+            m_pBarrierSphere->Run(CGameProperty::GetElapsedTime());
+            return;
+        };
+#endif /* defined(TMNT2_DEBUG_TOOLS) */
+
         {
             CHitAttackData hitAttack;
             hitAttack.SetObject(m_pObject->GetHandle());
@@ -257,11 +284,35 @@ void CBarrierModule::Appear(void)
     m_bDisplay = true;
     m_pBarrierSphere->ResetUV();
 
+#if defined(TMNT2_DEBUG_TOOLS)
+    // The guard shield comes up on every guard press: no start burst.
+    if (m_bShotReflectOnly)
+        return;
+#endif /* defined(TMNT2_DEBUG_TOOLS) */
+
     RwV3d vPosition = Math::VECTOR3_ZERO;
     m_pTracer->GetPosition(&vPosition);
 
     CEffectManager::Play(EFFECTID::ID_BARRIER_START, &vPosition);
 };
+
+
+#if defined(TMNT2_DEBUG_TOOLS)
+void CBarrierModule::SetShotReflectOnly(const RwRGBA& rColor)
+{
+    m_bShotReflectOnly = true;
+
+    // Same sphere as the constructor builds, in the requested colour.
+    if (m_pBarrierSphere)
+    {
+        delete m_pBarrierSphere;
+        m_pBarrierSphere = nullptr;
+    };
+
+    m_pBarrierSphere = new CSphere(m_fRadius, 16, 16, 4, 16, rColor);
+    m_pBarrierSphere->SetTexture(m_pTexture);
+};
+#endif /* defined(TMNT2_DEBUG_TOOLS) */
 
 
 void CBarrierModule::Disappear(void)

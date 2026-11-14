@@ -1,6 +1,10 @@
 #include "PCPhysicalController.hpp"
 #include "PCSpecific.hpp"
 
+#if defined(TMNT2_DEBUG_TOOLS)
+#include "PCModFeatures.hpp"
+#endif /* defined(TMNT2_DEBUG_TOOLS) */
+
 #ifdef _DEBUG
 #include "System/Common/Configure.hpp"
 #endif /* _DEBUG */
@@ -15,6 +19,9 @@ struct JOYSTICKSTATE
 #ifdef _DEBUG
     GUID                 m_guidprod;
 #endif /* _DEBUG */
+#if defined(TMNT2_DEBUG_TOOLS)
+    DWORD                m_dwVidPid;    // guidProduct.Data1 = MAKELONG(VID, PID)
+#endif /* defined(TMNT2_DEBUG_TOOLS) */
     IDirectInputDevice8* m_pDevice;
     DIDEVCAPS            m_deviceCaps;
     bool                 m_bVibrationFeature;
@@ -495,6 +502,96 @@ void CPCGamepadController::Update(void)
         CController::DIGITAL_R3,		
     };
 
+#if defined(TMNT2_DEBUG_TOOLS)
+    //
+    //  Debug Tools v1.2.17: buttons by physical position, so the game's
+    //  default Control Settings (weak = bottom face button, strong = left,
+    //  jump = right, shuriken = top, dash = L1/LB, change = L2/LT,
+    //  guard = R1/RB) come out the same on every pad. The retail table
+    //  above assumes an order no common pad uses and stays in force when the
+    //  Debug Tools mod is switched off.
+    //
+    if (CPCModFeatures::IsDebugToolsEnabled())
+    {
+        // Xbox-style DirectInput order: A B X Y LB RB LT RT Back Start L3 R3
+        static const uint32 s_aLayoutGeneric[] =
+        {
+            CController::DIGITAL_RDOWN,     // A      bottom
+            CController::DIGITAL_RRIGHT,    // B      right
+            CController::DIGITAL_RLEFT,     // X      left
+            CController::DIGITAL_RUP,       // Y      top
+            CController::DIGITAL_L1,        // LB
+            CController::DIGITAL_R1,        // RB
+            CController::DIGITAL_L2,        // LT
+            CController::DIGITAL_R2,        // RT
+            CController::DIGITAL_SELECT,
+            CController::DIGITAL_START,
+            CController::DIGITAL_L3,
+            CController::DIGITAL_R3,
+        };
+
+        // Microsoft pads (VID 045E) through DirectInput: A B X Y LB RB Back
+        // Start L3 R3, with both triggers sharing the Z axis.
+        static const uint32 s_aLayoutXbox[] =
+        {
+            CController::DIGITAL_RDOWN,
+            CController::DIGITAL_RRIGHT,
+            CController::DIGITAL_RLEFT,
+            CController::DIGITAL_RUP,
+            CController::DIGITAL_L1,
+            CController::DIGITAL_R1,
+            CController::DIGITAL_SELECT,
+            CController::DIGITAL_START,
+            CController::DIGITAL_L3,
+            CController::DIGITAL_R3,
+        };
+
+        // Sony pads (VID 054C): Square Cross Circle Triangle L1 R1 L2 R2
+        // Share Options L3 R3
+        static const uint32 s_aLayoutSony[] =
+        {
+            CController::DIGITAL_RLEFT,     // Square
+            CController::DIGITAL_RDOWN,     // Cross
+            CController::DIGITAL_RRIGHT,    // Circle
+            CController::DIGITAL_RUP,       // Triangle
+            CController::DIGITAL_L1,
+            CController::DIGITAL_R1,
+            CController::DIGITAL_L2,
+            CController::DIGITAL_R2,
+            CController::DIGITAL_SELECT,
+            CController::DIGITAL_START,
+            CController::DIGITAL_L3,
+            CController::DIGITAL_R3,
+        };
+
+        const uint32* pLayout = s_aLayoutGeneric;
+        int32 nLayout = COUNT_OF(s_aLayoutGeneric);
+        WORD wVendor = LOWORD(pJoystickState->m_dwVidPid);
+        if (wVendor == 0x045E)
+        {
+            pLayout = s_aLayoutXbox;
+            nLayout = COUNT_OF(s_aLayoutXbox);
+
+            const LONG TRIGGER_ON = static_cast<LONG>(TYPEDEF::SINT16_MAX / 3);
+            if (m_joystate.lZ > TRIGGER_ON)
+                digital |= CController::DIGITAL_L2;
+            else if (m_joystate.lZ < -TRIGGER_ON)
+                digital |= CController::DIGITAL_R2;
+        }
+        else if (wVendor == 0x054C)
+        {
+            pLayout = s_aLayoutSony;
+            nLayout = COUNT_OF(s_aLayoutSony);
+        };
+
+        for (int32 i = 0; i < nLayout; ++i)
+        {
+            if (IsButtonDown(i))
+                digital |= pLayout[i];
+        };
+    }
+    else
+#endif /* defined(TMNT2_DEBUG_TOOLS) */
     for (int32 i = 0; i < COUNT_OF(BtnDigital); ++i)
     {
         if (IsButtonDown(i))
@@ -662,6 +759,9 @@ static BOOL FAR PASCAL EnumDeviceCallback(LPCDIDEVICEINSTANCE lpDevice, LPVOID l
 #ifdef _DEBUG
     pJoystickState->m_guidprod = lpDevice->guidProduct;
 #endif /* _DEBUG */
+#if defined(TMNT2_DEBUG_TOOLS)
+    pJoystickState->m_dwVidPid = lpDevice->guidProduct.Data1;
+#endif /* defined(TMNT2_DEBUG_TOOLS) */
 
     if (FAILED(s_pDirectInput8->CreateDevice(pJoystickState->m_guid, &pJoystickState->m_pDevice, NULL)))
         goto label_failure;

@@ -43,7 +43,9 @@ public:
         FEATURE_DASH_STICK,             // 12 dash follows the stick
         FEATURE_DASH_ATTACK_CANCEL,     // 13 attack out of dash, dash out of every attack
         FEATURE_FREE_COMBO_STEER,       // 14 steer freely during combos
-        FEATURE_SMART_TARGET,           // 15 attacks aim at the best enemy
+        FEATURE_SMART_TARGET,           // 15 attacks and shuriken aim at the best enemy
+        FEATURE_GUARD_AUTOFACE,         // 16 guard turns to the attacker (all but 30 degrees behind)
+        FEATURE_COMBO_WINDOW,           // 17 late presses still continue the combo
 
         FEATURE_NUM,
     };
@@ -86,6 +88,9 @@ public:
     static void SetFeatureSwitch(FEATURE feature, bool bOn);
     static bool IsOn(FEATURE feature);
     static float GetBadgeTime(void);    // seconds since the master switch last changed
+    static void SetManualCamera(bool bManual);  // manual camera owns the right stick: lock-on is off
+    static bool IsManualCamera(void);
+    static float GetComboLateWindow(void);      // 0 when feature 17 is off
     static bool IsHudEnabled(void);
     static bool IsBadgeAlways(void);
 
@@ -105,12 +110,14 @@ public:
     // player input side (CManipulator)
     static void OnManipulatorInput(CPlayerCharacter& rPlayerChr, bool bMove, float fDirection);
     static void RequestLockOnToggle(int32 nPlayerNo);
+    static void RequestLockSwitch(int32 nPlayerNo, int32 side);    // -1 screen-left, +1 screen-right
+    static bool IsLockedOn(int32 nPlayerNo);
     static bool TryPlayerBurst(CPlayerCharacter& rPlayerChr);
     static bool SteerAttack(CPlayerCharacter& rPlayerChr, bool bMove, float fDirection);
 
     // player character side
     static void OnPlayerRun(CPlayerCharacter& rPlayerChr);
-    static void OnAttackStart(CPlayerCharacter& rPlayerChr);
+    static void OnAttackStart(CPlayerCharacter& rPlayerChr, bool bShot = false);
     static CHARACTERTYPES::DEFENCERSTATUSFLAG AdjustDefenceFlag(
         CPlayerCharacter& rPlayerChr,
         const CHitAttackData& rAttack,
