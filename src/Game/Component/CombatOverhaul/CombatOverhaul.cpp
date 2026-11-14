@@ -234,7 +234,7 @@ namespace
         { "REWARDS",
           "8. Rally",
           "PLAYERS",
-          "Bloodborne rally: the health a hit takes stays on the health gauge as a faded part. Hit enemies before it drains away to win it back. Getting hit again replaces it with the new hit." },
+          "Bloodborne rally: the health a hit takes stays on the health gauge as a faded part. Hit enemies before it drains away to win it back. More hits add to it and restart the window." },
         { "COMBOS AND MOVEMENT",
           "9. Fast guard recovery",
           "PLAYERS - GUARD",
@@ -1917,14 +1917,16 @@ CCombatOverhaul::AdjustDefenceFlag(
     if (!p || !pGamePlayer)
         return;
 
-    // Bloodborne rule: the health this hit removes becomes regainable.
-    // A new hit replaces whatever was still regainable from the hit before.
+    // The health this hit removes becomes regainable. Hits add up: what was
+    // still regainable from earlier hits stays, and the window starts again.
     int32 nLost = Min(nDamage, pGamePlayer->GetHP());
     if (nLost <= 0)
         return;
 
     OVERHAUL& ov = Ov();
-    ov.m_fRallyPool      = static_cast<float>(nLost);
+    if (ov.m_fRallyPool < 0.0f)
+        ov.m_fRallyPool = 0.0f;
+    ov.m_fRallyPool     += static_cast<float>(nLost);
     ov.m_fRallyPeak      = ov.m_fRallyPool;
     ov.m_fRallyHoldUntil = Now() + Tune(TUNE_RALLY_TIME);
 };

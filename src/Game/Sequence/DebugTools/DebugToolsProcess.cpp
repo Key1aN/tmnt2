@@ -310,7 +310,7 @@ namespace
 
     // ---- v1.2.10 menu renderer (game font + flat panels) ----
 
-    static const char* MENU_VERSION = "v1.2.20";
+    static const char* MENU_VERSION = "v1.2.21";
 
     enum MENUSIZE
     {
