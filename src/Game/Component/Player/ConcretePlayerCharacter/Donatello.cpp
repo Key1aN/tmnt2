@@ -16,6 +16,17 @@
 #include "Game/System/Model/Model.hpp"
 #include "Game/System/Sound/GameSound.hpp"
 
+#if defined(TMNT2_DEBUG_TOOLS)
+#include "Game/Component/CombatOverhaul/CombatOverhaul.hpp"
+#endif /* defined(TMNT2_DEBUG_TOOLS) */
+
+
+#if defined(TMNT2_DEBUG_TOOLS)
+// Combat Overhaul 7: extra phase value meaning "left the status with the
+// barrier still up", so OnDetach must not remove it.
+#define DON_PHASE_KEEP_BARRIER (static_cast<PHASE>(PHASE_FINISH + 1))
+#endif /* defined(TMNT2_DEBUG_TOOLS) */
+
 
 namespace Donatello
 {
@@ -142,6 +153,11 @@ namespace Donatello
     {
         PlayerStatus::CAttackAABBC::OnDetach();
 
+#if defined(TMNT2_DEBUG_TOOLS)
+        if (m_phase == DON_PHASE_KEEP_BARRIER)
+            return;
+#endif /* defined(TMNT2_DEBUG_TOOLS) */
+
         CBarrierModule* pBarrierMod = static_cast<CBarrierModule*>(Character().GetModule(MODULETYPE::BARRIER));
         ASSERT(pBarrierMod);
 
@@ -167,6 +183,18 @@ namespace Donatello
             OnDischargeWave();
             Character().StopMotion();
             m_phase = PHASE_INVOKE_BARRIER;
+
+#if defined(TMNT2_DEBUG_TOOLS)
+            // Combat Overhaul 7: the barrier runs on its own module timer, so
+            // Donatello can go back to neutral and keep fighting inside it.
+            if (CCombatOverhaul::IsOn(CCombatOverhaul::FEATURE_DON_MOBILE_SHIELD))
+            {
+                m_phase = DON_PHASE_KEEP_BARRIER;
+                Character().PlayMotion();
+                StateMachine().ChangeStatus(PLAYERTYPES::STATUS_IDLE);
+                return;
+            };
+#endif /* defined(TMNT2_DEBUG_TOOLS) */
         };
 
         CBarrierModule* pBarrierMod = static_cast<CBarrierModule*>(Character().GetModule(MODULETYPE::BARRIER));
@@ -216,6 +244,11 @@ namespace Donatello
     void CAttackB::OnDetach(void)
     {
         PlayerStatus::CAttackB::OnDetach();
+
+#if defined(TMNT2_DEBUG_TOOLS)
+        if (m_phase == DON_PHASE_KEEP_BARRIER)
+            return;
+#endif /* defined(TMNT2_DEBUG_TOOLS) */
         
         CBarrierModule* pBarrierMod = static_cast<CBarrierModule*>(Character().GetModule(MODULETYPE::BARRIER));
         ASSERT(pBarrierMod);
@@ -242,6 +275,18 @@ namespace Donatello
             CallDischargeWave();
             Character().StopMotion();
             m_phase = PHASE_INVOKE_BARRIER;
+
+#if defined(TMNT2_DEBUG_TOOLS)
+            // Combat Overhaul 7: the barrier runs on its own module timer, so
+            // Donatello can go back to neutral and keep fighting inside it.
+            if (CCombatOverhaul::IsOn(CCombatOverhaul::FEATURE_DON_MOBILE_SHIELD))
+            {
+                m_phase = DON_PHASE_KEEP_BARRIER;
+                Character().PlayMotion();
+                StateMachine().ChangeStatus(PLAYERTYPES::STATUS_IDLE);
+                return;
+            };
+#endif /* defined(TMNT2_DEBUG_TOOLS) */
         };
 
         CBarrierModule* pBarrierMod = static_cast<CBarrierModule*>(Character().GetModule(MODULETYPE::BARRIER));

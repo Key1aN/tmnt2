@@ -135,6 +135,10 @@ public:
     void SetSpecificAbilityFlag(void);
     void SetConfusionInput(void);
     void ClearInput(void);
+#if defined(TMNT2_DEBUG_TOOLS)
+    // Combat Overhaul input rules; returns true when it handled this frame.
+    bool RunCombatOverhaul(PLAYERTYPES::STATUS status);
+#endif /* defined(TMNT2_DEBUG_TOOLS) */
 #if defined(TARGET_PC)
     bool IsChordWithHeldButton(uint32 uDigital, uint32 uDigitalTrigger) const;
     void UpdateChordTimers(uint32 uDigitalTrigger);
@@ -145,6 +149,11 @@ protected:
     INPUT m_input;
     int32 m_nControllerNo;
     CPadStream m_padstream;
+#if defined(TMNT2_DEBUG_TOOLS)
+    // Combat Overhaul 13: attack pressed during a dash, used when it ends.
+    ATTACK m_ovBufferedAttack;
+    float m_fOvBufferedTime;
+#endif /* defined(TMNT2_DEBUG_TOOLS) */
 #if defined(TARGET_PC)
     // A+B (C) chord window: seconds since each button's last press.
     float m_fSincePressA;

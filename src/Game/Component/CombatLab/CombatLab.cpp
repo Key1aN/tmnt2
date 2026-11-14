@@ -2,6 +2,7 @@
 
 #if defined(TMNT2_DEBUG_TOOLS)
 
+#include "Game/Component/CombatOverhaul/CombatOverhaul.hpp"
 #include "Game/Component/Enemy/Enemy.hpp"
 #include "Game/Component/Enemy/EnemyCharacter.hpp"
 #include "Game/Component/Enemy/CharacterCompositor.hpp"
@@ -720,6 +721,9 @@ namespace
 
 /*static*/ CCombatLab::RULESET CCombatLab::GetRuleset(void)
 {
+    // The lab's ruleset row and the Combat Overhaul master switch are one
+    // setting: Vanilla = BEFORE (retail), Experimental = AFTER (overhaul).
+    s_lab.m_ruleset = (CCombatOverhaul::IsEnabled() ? RULESET_EXPERIMENTAL : RULESET_VANILLA);
     return s_lab.m_ruleset;
 };
 
@@ -727,6 +731,7 @@ namespace
 /*static*/ void CCombatLab::SetRuleset(RULESET ruleset)
 {
     s_lab.m_ruleset = static_cast<RULESET>(Clamp(static_cast<int32>(ruleset), 0, static_cast<int32>(RULESET_NUM) - 1));
+    CCombatOverhaul::SetEnabled(s_lab.m_ruleset == RULESET_EXPERIMENTAL);
     if (s_lab.m_bLog && s_lab.m_bActive)
         LabLog().Write("RULESET  %s", GetRulesetName(s_lab.m_ruleset));
 };

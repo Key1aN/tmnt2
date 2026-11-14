@@ -20,6 +20,10 @@
 #include "System/PC/PCCrashReporter.hpp"
 #endif /* defined(TARGET_PC) */
 
+#if defined(TMNT2_DEBUG_TOOLS)
+#include "Game/Component/CombatOverhaul/CombatOverhaul.hpp"
+#endif /* defined(TMNT2_DEBUG_TOOLS) */
+
 
 CEnemyCharacter::CStatusSubject::CStatusSubject(CEnemyCharacter* pSubject)
 : m_apStatusObservers()
@@ -366,6 +370,11 @@ void CEnemyCharacter::Run(void)
     if (!m_bRunning)
         return;
 
+#if defined(TMNT2_DEBUG_TOOLS)
+    // Combat Overhaul 4: an enemy with a full combo-break gauge blasts free here.
+    CCombatOverhaul::OnEnemyRun(*this);
+#endif /* defined(TMNT2_DEBUG_TOOLS) */
+
     if (m_pAIModerator && m_bRunningAI)
         m_pAIModerator->Run();
 
@@ -386,8 +395,19 @@ void CEnemyCharacter::Run(void)
             nextStatus = ENEMYTYPES::STATUS_DEATH;
         };
 
+#if defined(TMNT2_DEBUG_TOOLS)
+        ENEMYTYPES::STATUS ePrevStatus = StatusSubject().Status();
+#endif /* defined(TMNT2_DEBUG_TOOLS) */
+
         StatusSubject().Status(nextStatus);
         StatusSubject().OnStart();
+
+#if defined(TMNT2_DEBUG_TOOLS)
+        // Combat Overhaul 5: attack indicator (display only). Most attacks
+        // start here, as the status the previous one hands over to.
+        CCombatOverhaul::OnEnemyStatus(*this, nextStatus, ePrevStatus);
+#endif /* defined(TMNT2_DEBUG_TOOLS) */
+
         StatusSubject().Update();
         return;
     };
@@ -762,6 +782,15 @@ CHARACTERTYPES::ATTACKRESULTTYPE CEnemyCharacter::OnDamage(CCharacterAttackCalcu
             case CHARACTERTYPES::ATTACKRESULTTYPE_GUARD:
                 {
                     ASSERT(GetStatus() == ENEMYTYPES::STATUS_GUARD);
+#if defined(TMNT2_DEBUG_TOOLS)
+                    // Combat Overhaul 4: a full posture gauge turns this guard
+                    // into the retail guard break (stagger); the loop runs again.
+                    if (CCombatOverhaul::OnEnemyGuard(*this, rCalc.GetAttack()))
+                    {
+                        attackResult = CHARACTERTYPES::ATTACKRESULTTYPE_GUARD_BREAK;
+                        break;
+                    };
+#endif /* defined(TMNT2_DEBUG_TOOLS) */
                     fSetCompleted = true;
                     rCalc.GetAttack().GetCatch()->SetResult(CHitCatchData::RESULT_GUARD);
                 }
@@ -1033,9 +1062,18 @@ bool CEnemyCharacter::SetStatus(ENEMYTYPES::STATUS eStatus)
     {
         ASSERT(StatusSubject().Status() != ENEMYTYPES::STATUS_QUIT);
 
+#if defined(TMNT2_DEBUG_TOOLS)
+        ENEMYTYPES::STATUS ePrevStatus = StatusSubject().Status();
+#endif /* defined(TMNT2_DEBUG_TOOLS) */
+
         StatusSubject().OnEnd();
         StatusSubject().Status(eStatus);
         StatusSubject().OnStart();
+
+#if defined(TMNT2_DEBUG_TOOLS)
+        // Combat Overhaul 5: attack indicator (display only).
+        CCombatOverhaul::OnEnemyStatus(*this, eStatus, ePrevStatus);
+#endif /* defined(TMNT2_DEBUG_TOOLS) */
 
         bResult = true;
     };

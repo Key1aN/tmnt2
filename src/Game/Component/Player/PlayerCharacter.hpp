@@ -53,6 +53,11 @@ public:
     void OnAttach(CPlayerCharacter* pBeforeCharacter, bool bChangeEffectEnable);
     void OnDetach(CPlayerCharacter* pAfterCharacter);
     void RotateDirection(float fDirection);
+#if defined(TMNT2_DEBUG_TOOLS)
+    // Combat Overhaul helpers (unused while the overhaul is switched off).
+    void ForceIdle(void);                               // straight to IDLE, no status morphing
+    void ApplyParryCrystal(int32 iCrystal, float fTime);// 0 red, 1 green, 2 white, 3 orange
+#endif /* defined(TMNT2_DEBUG_TOOLS) */
     void Relocation(const RwV3d* pvPosition, float fDirection, bool bBlink);
     void GenerateItemEffect(ITEMID::VALUE idItem);
     void SetPlayerNo(int32 nPlayerNo);

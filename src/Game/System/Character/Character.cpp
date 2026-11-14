@@ -29,6 +29,7 @@
 
 #if defined(TMNT2_DEBUG_TOOLS)
 #include "Game/Component/CombatLab/CombatLab.hpp"
+#include "Game/Component/CombatOverhaul/CombatOverhaul.hpp"
 #endif /* defined(TMNT2_DEBUG_TOOLS) */
 
 
@@ -634,6 +635,10 @@ void CCharacter::OnMessageCatchAttack(CHitAttackData* pAttack)
     // while the lab is playing, keeps lethal hits from killing. Never changes
     // iDamage, so reactions, effects, SE and RECVDMG stay retail.
     CCombatLab::OnCatchAttack(*this, *pAttack, attackresult, iDamage);
+
+    // Combat Overhaul bookkeeping (posture repair, rally, enemy combo break).
+    // Inert while the overhaul master switch is on BEFORE.
+    CCombatOverhaul::OnCatchAttack(*this, *pAttack, attackresult, iDamage);
 #endif /* defined(TMNT2_DEBUG_TOOLS) */
 
     if (iDamage > 0)

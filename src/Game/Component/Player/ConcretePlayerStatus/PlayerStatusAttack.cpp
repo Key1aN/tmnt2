@@ -10,6 +10,10 @@
 #include "Game/Component/Effect/EffectManager.hpp"
 #include "Game/System/Sound/GameSound.hpp"
 
+#if defined(TMNT2_DEBUG_TOOLS)
+#include "Game/Component/CombatOverhaul/CombatOverhaul.hpp"
+#endif /* defined(TMNT2_DEBUG_TOOLS) */
+
 
 namespace PlayerStatus
 {
@@ -17,6 +21,11 @@ namespace PlayerStatus
     {
         Character().ClearPlayerFlag(PLAYERTYPES::FLAG_REQUEST_ATTACK_MASK);
         Character().SetPlayerFlag(PLAYERTYPES::FLAG_ENABLE_ATTACK_CONNECT);
+
+#if defined(TMNT2_DEBUG_TOOLS)
+        // Combat Overhaul 11 / 14 / 15: aim this hit (lock-on, stick, best enemy).
+        CCombatOverhaul::OnAttackStart(Character());
+#endif /* defined(TMNT2_DEBUG_TOOLS) */
 
         CGameSound::PlayAttackSE(m_pPlayerChr);
     };
@@ -490,6 +499,10 @@ namespace PlayerStatus
     
     void CAttackKnife::OnAttach(void)
     {
+#if defined(TMNT2_DEBUG_TOOLS)
+        CCombatOverhaul::OnAttackStart(Character());
+#endif /* defined(TMNT2_DEBUG_TOOLS) */
+
         if (Character().GetStatusPrev() == m_status)
             Character().ReplayMotion();
         else
@@ -538,6 +551,10 @@ namespace PlayerStatus
     
     void CAttackKnifeJump::OnAttach(void)
     {
+#if defined(TMNT2_DEBUG_TOOLS)
+        CCombatOverhaul::OnAttackStart(Character());
+#endif /* defined(TMNT2_DEBUG_TOOLS) */
+
         if (Character().GetStatusPrev() == m_status)
             Character().ReplayMotion();
         else

@@ -6,6 +6,10 @@
 #include "Game/Component/Player/PlayerTracer.hpp"
 #include "Game/System/Sound/GameSound.hpp"
 
+#if defined(TMNT2_DEBUG_TOOLS)
+#include "Game/Component/CombatOverhaul/CombatOverhaul.hpp"
+#endif /* defined(TMNT2_DEBUG_TOOLS) */
+
 
 namespace PlayerStatus
 {
@@ -229,7 +233,14 @@ namespace PlayerStatus
 
     void CDownCommon::OnRun(void)
     {
-        if (Character().IsMotionEnd())
+        bool bGetUp = Character().IsMotionEnd();
+#if defined(TMNT2_DEBUG_TOOLS)
+        // Combat Overhaul 10: no lying on the ground (wall-crash knockdowns).
+        if (CCombatOverhaul::IsOn(CCombatOverhaul::FEATURE_QUICK_RISE))
+            bGetUp = true;
+#endif /* defined(TMNT2_DEBUG_TOOLS) */
+
+        if (bGetUp)
             StateMachine().ChangeStatus(GetNextStatus());
     };
 

@@ -712,6 +712,17 @@ void CShot::MessageProc(int32 nMessageID, void* pParam)
                     else
                         uTarget = CHitAttackData::TARGET_PLAYER;
 
+#if defined(TMNT2_DEBUG_TOOLS)
+                    // Combat Overhaul 2: Michelangelo's guard reflect sphere
+                    // ("OvReflect") only turns enemy shots around; a team
+                    // mate's shuriken flies through it untouched.
+                    if ((pCharacter->GetCharacterType() == CCharacter::TYPE_PLAYER) &&
+                        !std::strcmp(pAttack->GetMotion(), "OvReflect"))
+                    {
+                        uTarget = CHitAttackData::TARGET_NONE;
+                    };
+#endif /* defined(TMNT2_DEBUG_TOOLS) */
+
                     if (m_uTarget & uTarget)
                     {
                         m_vVelocity.x *= -1.0f;

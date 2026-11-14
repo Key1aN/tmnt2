@@ -4,6 +4,7 @@
 
 #include "Game/ProcessList.hpp"
 #include "Game/Component/CombatLab/CombatLab.hpp"
+#include "Game/Component/CombatOverhaul/CombatOverhaul.hpp"
 #include "Game/Component/Enemy/AITrace.hpp"
 #include "Game/Component/Enemy/EnemyUtils.hpp"
 
@@ -68,6 +69,7 @@ namespace
         PAGE_TELEMETRY,
         PAGE_COMBATLAB,
         PAGE_AIVIEW,
+        PAGE_OVERHAUL,
 
         PAGE_NUM,
     };
@@ -85,6 +87,7 @@ namespace
         "Telemetry",
         "COMBAT LAB",
         "AI VIEW",
+        "OVERHAUL",
     };
 
 
@@ -307,7 +310,7 @@ namespace
 
     // ---- v1.2.10 menu renderer (game font + flat panels) ----
 
-    static const char* MENU_VERSION = "v1.2.15";
+    static const char* MENU_VERSION = "v1.2.16";
 
     enum MENUSIZE
     {
@@ -461,6 +464,9 @@ namespace
             default: return nullptr;
             };
         };
+
+        if (page == PAGE_OVERHAUL)
+            return CCombatOverhaul::GetItemHeader(index);
 
         return nullptr;
     };
@@ -777,7 +783,7 @@ public:
         std::memset(m_aTracked, 0x00, sizeof(m_aTracked));
         std::memset(m_aMoveEvent, 0x00, sizeof(m_aMoveEvent));
         m_szPlayerMotion[0] = '\0';
-        m_moveLog.Write("SESSION  TMNT2 Debug Tools v1.2.15 move telemetry (bosses always; all enemies when labels = ALL)");
+        m_moveLog.Write("SESSION  TMNT2 Debug Tools v1.2.16 move telemetry (bosses always; all enemies when labels = ALL)");
         m_moveLog.Flush();
 
         // v1.2.7: the session header (with GPU and display mode) is written at
@@ -814,6 +820,18 @@ public:
         uint32 controllerTrigger = ControllerDigitalTrigger();
         bool bControllerToggle =
             ((controllerTrigger & CController::DIGITAL_SELECT) != 0);
+
+        if (bAvailable)
+        {
+            // Combat Overhaul: F6 switches BEFORE (retail) / AFTER (overhaul)
+            // at any time; T toggles player 1's lock-on during play (the
+            // controller uses R3, read by the player manipulator).
+            if (CPCSpecific::IsKeyTrigger(DIK_F6))
+                CCombatOverhaul::SetEnabled(!CCombatOverhaul::IsEnabled());
+
+            if (!m_bOpen && CPCSpecific::IsKeyTrigger(DIK_T))
+                CCombatOverhaul::RequestLockOnToggle(0);
+        };
 
         if (m_bOpen && !bAvailable)
         {
@@ -952,6 +970,7 @@ public:
         case PAGE_TELEMETRY:  return ((selected == 4) || (selected == 7) || (selected == 8));
         case PAGE_COMBATLAB:  return (selected == LABITEM_ENEMY_COUNT);
         case PAGE_AIVIEW:     return ((selected == AIITEM_RADAR_RANGE) || (selected == AIITEM_TIMELINE_SPAN));
+        case PAGE_OVERHAUL:   return CCombatOverhaul::IsNumericItem(selected);
         default:              return false;
         };
     };
@@ -970,6 +989,7 @@ public:
 
         DrawAwarenessZones();
         DrawEnemyLabels();
+        DrawOverhaulHud();
         if (m_bFrameGraph)
             DrawFrameGraph();
 
@@ -1219,6 +1239,10 @@ private:
             AdjustAIViewItem(selected, direction, multiplier);
             break;
 
+        case PAGE_OVERHAUL:
+            CCombatOverhaul::AdjustItem(selected, direction, multiplier);
+            break;
+
         default:
             break;
         };
@@ -1335,6 +1359,11 @@ private:
             ActivateAIViewItem(selected);
             break;
 
+        case PAGE_OVERHAUL:
+            if (!CCombatOverhaul::IsNumericItem(selected))
+                CCombatOverhaul::AdjustItem(selected, 1, 1);
+            break;
+
         default:
             break;
         };
@@ -1400,6 +1429,10 @@ private:
             ResetAIViewItem(selected);
             break;
 
+        case PAGE_OVERHAUL:
+            CCombatOverhaul::ResetItem(selected);
+            break;
+
         default:
             break;
         };
@@ -1451,6 +1484,10 @@ private:
         case PAGE_AIVIEW:
             for (int32 i = 0; i < AIITEM_NUM; ++i)
                 ResetAIViewItem(i);
+            break;
+
+        case PAGE_OVERHAUL:
+            CCombatOverhaul::ResetAll();
             break;
 
         default:
@@ -1821,6 +1858,7 @@ private:
         case PAGE_TELEMETRY:  return 9;
         case PAGE_COMBATLAB:  return LABITEM_NUM;
         case PAGE_AIVIEW:     return AIITEM_NUM;
+        case PAGE_OVERHAUL:   return CCombatOverhaul::GetItemNum();
         default:              return 0;
         };
     };
@@ -2481,6 +2519,10 @@ private:
             FormatAIViewItem(index, buffer, capacity);
             break;
 
+        case PAGE_OVERHAUL:
+            CCombatOverhaul::FormatItem(index, buffer, capacity);
+            break;
+
         default:
             break;
         };
@@ -2603,6 +2645,10 @@ private:
 
         case PAGE_AIVIEW:
             GetAIViewItemHelp(index, scope, description);
+            break;
+
+        case PAGE_OVERHAUL:
+            CCombatOverhaul::GetItemHelp(index, scope, description);
             break;
 
         default:
@@ -5243,6 +5289,303 @@ private:
 
         if (bStatePushed)
             CSystem2D::PopRenderState();
+    };
+
+
+    // ---- Combat Overhaul display: markers over enemies, player gauges, badge ----
+
+    static void OverhaulFrame(IM2DBATCH& batch, float x0, float y0, float x1, float y1, float t, const RwRGBA& color)
+    {
+        Im2DQuad(batch, x0, y0, x1, y0 + t, color);
+        Im2DQuad(batch, x0, y1 - t, x1, y1, color);
+        Im2DQuad(batch, x0, y0, x0 + t, y1, color);
+        Im2DQuad(batch, x1 - t, y0, x1, y1, color);
+    };
+
+
+    static void OverhaulBar(IM2DBATCH& batch, float x, float y, float w, float h, float value, const RwRGBA& fill)
+    {
+        const RwRGBA back = { 0x00, 0x00, 0x00, 0xB8 };
+        const RwRGBA edge = { 0xFF, 0xFF, 0xFF, 0x70 };
+        Im2DQuad(batch, x - 1.0f, y - 1.0f, x + w + 1.0f, y + h + 1.0f, back);
+        if (value > 0.0f)
+            Im2DQuad(batch, x, y, x + (w * MinF(value, 1.0f)), y + h, fill);
+        OverhaulFrame(batch, x - 1.0f, y - 1.0f, x + w + 1.0f, y + h + 1.0f, 1.0f, edge);
+    };
+
+
+    void DrawOverhaulText(const char* pszText, float px, float py, float pixelHeight, const RwRGBA& color, bool bCenter) const
+    {
+        // Pixel position -> the font's virtual screen space.
+        float sw = static_cast<float>(CScreen::Width());
+        float sh = static_cast<float>(CScreen::Height());
+        float height = pixelHeight * (CSprite::m_fVirtualScreenH / sh);
+        float vx = CSprite::m_fVirtualScreenX + ((px / sw) * CSprite::m_fVirtualScreenW);
+        float vy = CSprite::m_fVirtualScreenY + ((py / sh) * CSprite::m_fVirtualScreenH);
+        if (bCenter)
+            vx -= (CGameFont::GetStringWidth(pszText, height) * 0.5f);
+
+        float shadow = MaxF(0.6f, height * 0.07f);
+        CGameFont::SetHeight(height);
+        CGameFont::SetRGBA(0x00, 0x00, 0x00, 0xE0);
+        CGameFont::Show(pszText, vx + shadow, vy + shadow);
+        CGameFont::SetRGBA(color.red, color.green, color.blue, color.alpha);
+        CGameFont::Show(pszText, vx, vy);
+    };
+
+
+    void DrawOverhaulHud(void) const
+    {
+        RwCamera* pCamera = CCamera::CameraCurrent();
+        if (!pCamera || !CGameStage::GetCurrent() || !CGameProperty::IsCameraViewAvailable())
+            return;
+
+        const float sw = static_cast<float>(CScreen::Width());
+        const float sh = static_cast<float>(CScreen::Height());
+        const float scale = MaxF(1.0f, sh / 480.0f);
+
+        static IM2DBATCH s_batch;
+        s_batch.m_nVertex = 0;
+        s_batch.m_fZ = RwIm2DGetNearScreenZ();
+        s_batch.m_fRhw = 1.0f / RwCameraGetNearClipPlane(pCamera);
+
+        // ---- markers in the world ----
+        int32 markerNum = CCombatOverhaul::GetMarkerNum();
+        for (int32 i = 0; i < markerNum; ++i)
+        {
+            CCombatOverhaul::MARKERINFO marker;
+            if (!CCombatOverhaul::GetMarker(i, marker))
+                continue;
+
+            float nx = 0.0f;
+            float ny = 0.0f;
+            if (!ProjectToNormalized(marker.m_vPos, nx, ny))
+                continue;
+
+            float x = nx * sw;
+            float y = ny * sh;
+
+            switch (marker.m_type)
+            {
+            case CCombatOverhaul::MARKER_ATTACK_LIGHT:
+            case CCombatOverhaul::MARKER_ATTACK_HEAVY:
+                {
+                    // An exclamation mark that pops in large and settles.
+                    bool bHeavy = (marker.m_type == CCombatOverhaul::MARKER_ATTACK_HEAVY);
+                    float pop = (marker.m_fValue < 0.15f ? (1.6f - (marker.m_fValue * 4.0f)) : 1.0f);
+                    float fade = (marker.m_fValue > 0.75f ? (1.0f - marker.m_fValue) * 4.0f : 1.0f);
+                    uint8 alpha = static_cast<uint8>(255.0f * Clamp(fade, 0.0f, 1.0f));
+                    RwRGBA color = { 0x30, 0xE8, 0xFF, alpha };
+                    if (bHeavy)
+                        color = { 0xFF, 0x30, 0x28, alpha };
+                    RwRGBA outline = { 0x00, 0x00, 0x00, static_cast<uint8>(alpha * 0.8f) };
+
+                    float w = (bHeavy ? 7.0f : 5.0f) * scale * pop;
+                    float h = (bHeavy ? 24.0f : 18.0f) * scale * pop;
+                    float gap = 3.0f * scale * pop;
+                    float o = 1.5f * scale;
+                    float top = y - h - gap - w;
+
+                    Im2DQuad(s_batch, x - (w * 0.5f) - o, top - o, x + (w * 0.5f) + o, top + h + o, outline);
+                    Im2DQuad(s_batch, x - (w * 0.5f) - o, y - w - o, x + (w * 0.5f) + o, y + o, outline);
+                    Im2DQuad(s_batch, x - (w * 0.5f), top, x + (w * 0.5f), top + h, color);
+                    Im2DQuad(s_batch, x - (w * 0.5f), y - w, x + (w * 0.5f), y, color);
+                }
+                break;
+
+            case CCombatOverhaul::MARKER_LOCKON:
+            case CCombatOverhaul::MARKER_SOFT_TARGET:
+                {
+                    // Four corner brackets around the target.
+                    bool bLock = (marker.m_type == CCombatOverhaul::MARKER_LOCKON);
+                    RwRGBA color = { 0xFF, 0xD8, 0x30, 0xF0 };
+                    if (!bLock)
+                        color = { 0xFF, 0xFF, 0xFF, 0x90 };
+
+                    float r = (bLock ? 20.0f : 13.0f) * scale;
+                    float l = (bLock ? 8.0f : 5.0f) * scale;
+                    float t = (bLock ? 2.5f : 1.5f) * scale;
+                    for (int32 c = 0; c < 4; ++c)
+                    {
+                        float sx = ((c & 1) ? 1.0f : -1.0f);
+                        float sy = ((c & 2) ? 1.0f : -1.0f);
+                        float cx = x + (sx * r);
+                        float cy = y + (sy * r);
+                        Im2DQuad(s_batch, MinF(cx, cx - (sx * l)), MinF(cy, cy - (sy * t)),
+                                          MaxF(cx, cx - (sx * l)), MaxF(cy, cy - (sy * t)), color);
+                        Im2DQuad(s_batch, MinF(cx, cx - (sx * t)), MinF(cy, cy - (sy * l)),
+                                          MaxF(cx, cx - (sx * t)), MaxF(cy, cy - (sy * l)), color);
+                    };
+                }
+                break;
+
+            case CCombatOverhaul::MARKER_ENEMY_GAUGE:
+                {
+                    float w = 44.0f * scale;
+                    float h = 4.0f * scale;
+                    float top = y - (14.0f * scale);
+                    if (marker.m_fValue > 0.0f)
+                        OverhaulBar(s_batch, x - (w * 0.5f), top, w, h, marker.m_fValue, { 0xFF, 0xA0, 0x20, 0xF0 });
+                    if (marker.m_fValue2 > 0.0f)
+                        OverhaulBar(s_batch, x - (w * 0.5f), top + h + (3.0f * scale), w, h, marker.m_fValue2, { 0xC0, 0x60, 0xFF, 0xF0 });
+                }
+                break;
+
+            default:
+                break;
+            };
+        };
+
+        // ---- player gauges (one block per player, above the retail gauges) ----
+        struct HUDTEXT
+        {
+            char m_szText[48];
+            float m_fX;
+            float m_fY;
+            RwRGBA m_color;
+        };
+
+        HUDTEXT aText[16];
+        int32 nText = 0;
+
+        const float barW = 110.0f * scale;
+        const float barH = 6.0f * scale;
+        const float textH = 11.0f * scale;
+        const float blockY = sh * 0.705f;
+
+        for (int32 no = 0; no < GAMETYPES::PLAYERS_MAX; ++no)
+        {
+            CCombatOverhaul::PLAYERHUD hud;
+            if (!CCombatOverhaul::GetPlayerHud(no, hud))
+                continue;
+
+            float x = (sw * 0.035f) + (static_cast<float>(no) * sw * 0.24f);
+            float y = blockY;
+
+            if (hud.m_fPosture >= 0.0f)
+            {
+                RwRGBA fill = { 0xFF, 0xA0, 0x20, 0xF0 };
+                if (hud.m_bPostureBroken)
+                    fill = { 0xFF, 0x30, 0x28, 0xF0 };
+                OverhaulBar(s_batch, x, y, barW, barH, hud.m_fPosture, fill);
+
+                if (nText < COUNT_OF(aText))
+                {
+                    HUDTEXT& t = aText[nText++];
+                    std::snprintf(t.m_szText, sizeof(t.m_szText), "%s",
+                                  hud.m_bPostureBroken ? "POSTURE BROKEN - ATTACK!" : "POSTURE");
+                    t.m_fX = x + barW + (6.0f * scale);
+                    t.m_fY = y - (3.0f * scale);
+                    t.m_color = fill;
+                    t.m_color.alpha = 0xFF;
+                };
+
+                y += barH + (6.0f * scale);
+            };
+
+            if (hud.m_fBurst >= 0.0f)
+            {
+                RwRGBA fill = { 0xC0, 0x60, 0xFF, 0xF0 };
+                if (hud.m_bBurstReady)
+                    fill = { 0xFF, 0xFF, 0xFF, 0xFF };
+                OverhaulBar(s_batch, x, y, barW, barH, hud.m_fBurst, fill);
+
+                if (nText < COUNT_OF(aText))
+                {
+                    HUDTEXT& t = aText[nText++];
+                    std::snprintf(t.m_szText, sizeof(t.m_szText), "%s",
+                                  hud.m_bBurstReady ? "BREAK READY: GUARD + JUMP" : "COMBO BREAK");
+                    t.m_fX = x + barW + (6.0f * scale);
+                    t.m_fY = y - (3.0f * scale);
+                    t.m_color = { 0xE0, 0xB0, 0xFF, 0xFF };
+                };
+
+                y += barH + (6.0f * scale);
+            };
+
+            if ((hud.m_iRallyPool > 0) && (nText < COUNT_OF(aText)))
+            {
+                HUDTEXT& t = aText[nText++];
+                std::snprintf(t.m_szText, sizeof(t.m_szText), "RALLY +%d HP  %.1fs", hud.m_iRallyPool, MaxF(0.0f, hud.m_fRallyTime));
+                t.m_fX = x;
+                t.m_fY = y;
+                t.m_color = { 0xFF, 0x60, 0x50, 0xFF };
+                y += textH + (2.0f * scale);
+            };
+
+            if ((hud.m_iCrystal >= 0) && (nText < COUNT_OF(aText)))
+            {
+                static const char* s_apszCrystal[4] = { "RED: ATTACK UP", "GREEN: DEFENCE UP", "WHITE: FREE SHURIKEN", "ORANGE: INSTANT CHARGE" };
+                static const RwRGBA s_aCrystalColor[4] =
+                {
+                    { 0xFF, 0x50, 0x40, 0xFF },
+                    { 0x50, 0xF0, 0x70, 0xFF },
+                    { 0xF4, 0xF4, 0xFF, 0xFF },
+                    { 0xFF, 0xA0, 0x30, 0xFF },
+                };
+
+                int32 c = Clamp(hud.m_iCrystal, 0, 3);
+                HUDTEXT& t = aText[nText++];
+                std::snprintf(t.m_szText, sizeof(t.m_szText), "PARRY %s  %.1fs", s_apszCrystal[c], MaxF(0.0f, hud.m_fCrystalTime));
+                t.m_fX = x;
+                t.m_fY = y;
+                t.m_color = s_aCrystalColor[c];
+                y += textH + (2.0f * scale);
+            };
+
+            if (hud.m_bLockOn && (nText < COUNT_OF(aText)))
+            {
+                HUDTEXT& t = aText[nText++];
+                std::snprintf(t.m_szText, sizeof(t.m_szText), "LOCK-ON");
+                t.m_fX = x;
+                t.m_fY = y;
+                t.m_color = { 0xFF, 0xD8, 0x30, 0xFF };
+            };
+        };
+
+        // ---- BEFORE / AFTER badge ----
+        float badgeTime = CCombatOverhaul::GetBadgeTime();
+        bool bBadge = (CCombatOverhaul::IsBadgeAlways() || (badgeTime < 2.5f));
+        bool bAfter = CCombatOverhaul::IsEnabled();
+        const char* pszBadge = (bAfter ? "AFTER - COMBAT OVERHAUL" : "BEFORE - RETAIL COMBAT");
+        const float badgeH = 18.0f * scale;
+        const float badgeY = sh * 0.12f;
+        if (bBadge)
+        {
+            float halfW = 150.0f * scale;
+            RwRGBA back = { 0x00, 0x00, 0x00, 0xB0 };
+            RwRGBA edge = { 0x40, 0xE0, 0x70, 0xF0 };
+            if (!bAfter)
+                edge = { 0xC8, 0xC8, 0xD0, 0xF0 };
+            Im2DQuad(s_batch, (sw * 0.5f) - halfW, badgeY - (5.0f * scale), (sw * 0.5f) + halfW, badgeY + badgeH + (7.0f * scale), back);
+            OverhaulFrame(s_batch, (sw * 0.5f) - halfW, badgeY - (5.0f * scale), (sw * 0.5f) + halfW, badgeY + badgeH + (7.0f * scale), 2.0f * scale, edge);
+        };
+
+        if (s_batch.m_nVertex > 0)
+        {
+            CSystem2D::PushRenderState();
+            RwRenderStateSet(rwRENDERSTATETEXTURERASTER, nullptr);
+            RwIm2DRenderPrimitive(rwPRIMTYPETRILIST, s_batch.m_aVertex, s_batch.m_nVertex);
+            CSystem2D::PopRenderState();
+        };
+
+        if (((nText > 0) || bBadge) && CGameFont::IsOpen())
+        {
+            CSystem2D::PushRenderState();
+
+            for (int32 i = 0; i < nText; ++i)
+                DrawOverhaulText(aText[i].m_szText, aText[i].m_fX, aText[i].m_fY, textH, aText[i].m_color, false);
+
+            if (bBadge)
+            {
+                RwRGBA color = { 0x60, 0xFF, 0x90, 0xFF };
+                if (!bAfter)
+                    color = { 0xE8, 0xE8, 0xF0, 0xFF };
+                DrawOverhaulText(pszBadge, sw * 0.5f, badgeY, badgeH, color, true);
+            };
+
+            CSystem2D::PopRenderState();
+        };
     };
 
 

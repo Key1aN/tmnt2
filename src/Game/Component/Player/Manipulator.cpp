@@ -16,6 +16,10 @@
 
 #include <algorithm>
 
+#if defined(TMNT2_DEBUG_TOOLS)
+#include "Game/Component/CombatOverhaul/CombatOverhaul.hpp"
+#endif /* defined(TMNT2_DEBUG_TOOLS) */
+
 #if defined(TARGET_PC)
 #include "System/PC/PCModFeatures.hpp"
 #endif /* defined(TARGET_PC) */
@@ -68,6 +72,10 @@ CManipulator::CManipulator(const char* pszName, CPlayerCharacter* pPlayerChr, in
 , m_pPlayerChr(pPlayerChr)
 , m_input()
 , m_nControllerNo(nControllerNo)
+#if defined(TMNT2_DEBUG_TOOLS)
+, m_ovBufferedAttack(ATTACK_OFF)
+, m_fOvBufferedTime(0.0f)
+#endif /* defined(TMNT2_DEBUG_TOOLS) */
 #if defined(TARGET_PC)
 , m_fSincePressA(1.0f)
 , m_fSincePressB(1.0f)
@@ -96,8 +104,146 @@ void CManipulator::Run(void)
     AnalyzeInputDevice();
     SetConfusionInput();
     SetSpecificAbilityFlag();
+#if defined(TMNT2_DEBUG_TOOLS)
+    if (RunCombatOverhaul(m_pPlayerChr->GetStatus()))
+        return;
+#endif /* defined(TMNT2_DEBUG_TOOLS) */
     BranchForStatus(m_pPlayerChr->GetStatus());
 };
+
+
+#if defined(TMNT2_DEBUG_TOOLS)
+bool CManipulator::RunCombatOverhaul(PLAYERTYPES::STATUS status)
+{
+    CCombatOverhaul::OnManipulatorInput(*m_pPlayerChr, (m_input.m_move != MOVE_IDLE), m_input.m_fDirection);
+
+    // Recorded demos (pad stream record / playback) keep retail input rules.
+    if (!CCombatOverhaul::IsEnabled() || CPadStreamSwitch::m_mode)
+    {
+        m_ovBufferedAttack = ATTACK_OFF;
+        return false;
+    };
+
+    uint32 uDigitalTrigger = m_padstream.GetDigitalTrigger(m_nControllerNo);
+
+    // 11 lock-on: R3 (right stick click). The keyboard key is read by Debug Tools.
+    if (uDigitalTrigger & CController::DIGITAL_R3)
+        CCombatOverhaul::RequestLockOnToggle(m_pPlayerChr->GetPlayerNo());
+
+    // 4 combo break: Guard held + Jump pressed while the gauge is full.
+    if ((m_input.m_guard == GUARD_ON) &&
+        (m_input.m_jump == JUMP_ON) &&
+        CCombatOverhaul::TryPlayerBurst(*m_pPlayerChr))
+    {
+        return true;
+    };
+
+    bool bDashRules = CCombatOverhaul::IsOn(CCombatOverhaul::FEATURE_DASH_ATTACK_CANCEL);
+    bool bGuardRules = CCombatOverhaul::IsOn(CCombatOverhaul::FEATURE_GUARD_RECOVERY);
+
+    m_fOvBufferedTime += CGameProperty::GetElapsedTime();
+
+    switch (status)
+    {
+    case PLAYERTYPES::STATUS_DASH_CANCEL:
+    case PLAYERTYPES::STATUS_DASH:
+        // 13 remember an attack pressed during the dash itself
+        if (bDashRules && (m_input.m_attack != ATTACK_OFF))
+        {
+            m_ovBufferedAttack = m_input.m_attack;
+            m_fOvBufferedTime = 0.0f;
+        };
+        break;
+
+    case PLAYERTYPES::STATUS_DASH_FINISH:
+        if (bDashRules)
+        {
+            if ((m_input.m_attack == ATTACK_OFF) &&
+                (m_ovBufferedAttack != ATTACK_OFF) &&
+                (m_fOvBufferedTime <= 0.35f))
+            {
+                m_input.m_attack = m_ovBufferedAttack;
+            };
+
+            m_ovBufferedAttack = ATTACK_OFF;
+
+            // 13 act straight out of the dash recovery
+            bool bKnife = ((m_input.m_knife == KNIFE_ON) && m_pPlayerChr->IsEnableAttackKnife());
+            if ((m_input.m_attack != ATTACK_OFF) ||
+                bKnife ||
+                (m_input.m_jump == JUMP_ON) ||
+                (m_input.m_guard == GUARD_ON))
+            {
+                m_pPlayerChr->ForceIdle();
+                RunGrounding();
+                return true;
+            };
+        };
+        break;
+
+    case PLAYERTYPES::STATUS_ATTACK_AABBC:
+    case PLAYERTYPES::STATUS_ATTACK_B:
+    case PLAYERTYPES::STATUS_ATTACK_RUN:
+    case PLAYERTYPES::STATUS_ATTACK_KNIFE:
+        // 13 these attacks have no retail dash cancel; allow it once the
+        // strike part of the motion is over.
+        m_ovBufferedAttack = ATTACK_OFF;
+        if (bDashRules &&
+            (m_input.m_dash == DASH_ON) &&
+            (m_pPlayerChr->GetMotionTime() >= (m_pPlayerChr->GetMotionEndTime() * 0.45f)))
+        {
+            m_pPlayerChr->ForceIdle();
+
+            if ((m_input.m_move != MOVE_IDLE) &&
+                CCombatOverhaul::IsOn(CCombatOverhaul::FEATURE_DASH_STICK))
+            {
+                m_pPlayerChr->SetDirection(m_input.m_fDirection);
+            };
+
+            m_pPlayerChr->ChangeStatus(PLAYERTYPES::STATUS_DASH);
+            return true;
+        };
+        break;
+
+    case PLAYERTYPES::STATUS_GUARD:
+        // 9 attack, dash or jump straight out of a held guard (Guard + B stays the lift)
+        m_ovBufferedAttack = ATTACK_OFF;
+        if (bGuardRules &&
+            (m_input.m_lift == LIFT_OFF) &&
+            ((m_input.m_attack == ATTACK_A) || (m_input.m_dash == DASH_ON) || (m_input.m_jump == JUMP_ON)))
+        {
+            m_pPlayerChr->ForceIdle();
+            m_input.m_guard = GUARD_OFF;
+            RunGrounding();
+            return true;
+        };
+        break;
+
+    case PLAYERTYPES::STATUS_GUARD_FINISH:
+        // 9 the guard-lowering motion no longer locks the player
+        m_ovBufferedAttack = ATTACK_OFF;
+        if (bGuardRules &&
+            ((m_input.m_attack != ATTACK_OFF) ||
+             (m_input.m_knife == KNIFE_ON) ||
+             (m_input.m_dash == DASH_ON) ||
+             (m_input.m_jump == JUMP_ON) ||
+             (m_input.m_guard == GUARD_ON) ||
+             (m_input.m_move != MOVE_IDLE)))
+        {
+            m_pPlayerChr->ForceIdle();
+            RunGrounding();
+            return true;
+        };
+        break;
+
+    default:
+        m_ovBufferedAttack = ATTACK_OFF;
+        break;
+    };
+
+    return false;
+};
+#endif /* defined(TMNT2_DEBUG_TOOLS) */
 
 
 void CManipulator::BranchForStatus(PLAYERTYPES::STATUS status)
@@ -291,6 +437,16 @@ void CManipulator::RunGrounding(void)
         status = PLAYERTYPES::STATUS_IDLE;
     };
 
+#if defined(TMNT2_DEBUG_TOOLS)
+    // Combat Overhaul 12: turn to the stick before the dash fixes its direction.
+    if ((status == PLAYERTYPES::STATUS_DASH) &&
+        (m_input.m_move != MOVE_IDLE) &&
+        CCombatOverhaul::IsOn(CCombatOverhaul::FEATURE_DASH_STICK))
+    {
+        m_pPlayerChr->SetDirection(m_input.m_fDirection);
+    };
+#endif /* defined(TMNT2_DEBUG_TOOLS) */
+
     if (bChangeStatus)
 		m_pPlayerChr->ChangeStatus(status);
 
@@ -445,6 +601,15 @@ void CManipulator::RunAttackCommon(void)
 {
     if (m_input.m_dash == DASH_ON)
     {
+#if defined(TMNT2_DEBUG_TOOLS)
+        // Combat Overhaul 12: a dash cancel also goes where the stick points.
+        if ((m_input.m_move != MOVE_IDLE) &&
+            CCombatOverhaul::IsOn(CCombatOverhaul::FEATURE_DASH_STICK) &&
+            m_pPlayerChr->IsEnableChangeStatus(PLAYERTYPES::STATUS_DASH_CANCEL))
+        {
+            m_pPlayerChr->SetDirection(m_input.m_fDirection);
+        };
+#endif /* defined(TMNT2_DEBUG_TOOLS) */
         m_pPlayerChr->ChangeStatus(PLAYERTYPES::STATUS_DASH_CANCEL);        
     }
     else
@@ -466,6 +631,13 @@ void CManipulator::RunAttackCommon(void)
         default:
             break;
         };
+
+#if defined(TMNT2_DEBUG_TOOLS)
+        // Combat Overhaul 11 / 14 / 15: lock-on, free steering and soft
+        // targeting replace the retail 90 deg/s turn while any of them is on.
+        if (CCombatOverhaul::SteerAttack(*m_pPlayerChr, (m_input.m_move != MOVE_IDLE), m_input.m_fDirection))
+            return;
+#endif /* defined(TMNT2_DEBUG_TOOLS) */
 
         if (m_input.m_move)
             m_pPlayerChr->RotateDirection(m_input.m_fDirection);

@@ -6,6 +6,10 @@
 #include "Game/Component/Effect/EffectManager.hpp"
 #include "Game/System/Sound/GameSound.hpp"
 
+#if defined(TMNT2_DEBUG_TOOLS)
+#include "Game/Component/CombatOverhaul/CombatOverhaul.hpp"
+#endif /* defined(TMNT2_DEBUG_TOOLS) */
+
 
 namespace PlayerStatus
 {
@@ -103,7 +107,13 @@ namespace PlayerStatus
 
     void CGuardBack::OnRun(void)
     {
-        if (StateMachine().GetStatusDuration() >= 0.4f)
+        float fGuardBackTime = 0.4f;
+#if defined(TMNT2_DEBUG_TOOLS)
+        // Combat Overhaul 9: 0.4 s (retail) or 0.2 s.
+        fGuardBackTime = CCombatOverhaul::GetGuardBackTime();
+#endif /* defined(TMNT2_DEBUG_TOOLS) */
+
+        if (StateMachine().GetStatusDuration() >= fGuardBackTime)
         {
             Character().ResetVelocity();
             Character().ResetAcceleration();

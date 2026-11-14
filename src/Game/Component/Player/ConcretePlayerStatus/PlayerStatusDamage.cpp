@@ -14,6 +14,10 @@
 #include "Game/System/Misc/Gamepad.hpp"
 #include "Game/System/Sound/GameSound.hpp"
 
+#if defined(TMNT2_DEBUG_TOOLS)
+#include "Game/Component/CombatOverhaul/CombatOverhaul.hpp"
+#endif /* defined(TMNT2_DEBUG_TOOLS) */
+
 
 namespace PlayerStatus
 {
@@ -290,8 +294,15 @@ namespace PlayerStatus
 
     void CFlyawayBoundCommon::OnRun(void)
     {
-        if (StateMachine().GetStatusDuration() < 0.2f &&
-            Character().TestPlayerFlag(PLAYERTYPES::FLAG_REQUEST_PASSIVE))
+        bool bPassive = ((StateMachine().GetStatusDuration() < 0.2f) &&
+                         Character().TestPlayerFlag(PLAYERTYPES::FLAG_REQUEST_PASSIVE));
+#if defined(TMNT2_DEBUG_TOOLS)
+        // Combat Overhaul 10: the quick rise happens without a button press.
+        if (CCombatOverhaul::IsOn(CCombatOverhaul::FEATURE_QUICK_RISE))
+            bPassive = true;
+#endif /* defined(TMNT2_DEBUG_TOOLS) */
+
+        if (bPassive)
         {
             RwV3d vOffset = Math::VECTOR3_ZERO;
             

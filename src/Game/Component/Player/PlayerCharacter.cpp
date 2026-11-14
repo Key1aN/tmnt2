@@ -51,6 +51,10 @@ static const float COMBO_LATE_WINDOW = 0.30f;
 #include "Game/System/Misc/Gamepad.hpp"
 #include "System/Common/Controller.hpp"
 
+#if defined(TMNT2_DEBUG_TOOLS)
+#include "Game/Component/CombatOverhaul/CombatOverhaul.hpp"
+#endif /* defined(TMNT2_DEBUG_TOOLS) */
+
 
 #ifdef _DEBUG
 
@@ -181,6 +185,9 @@ CPlayerCharacter::~CPlayerCharacter(void)
 void CPlayerCharacter::Run(void)
 {
     m_pStateMachine->Run();
+#if defined(TMNT2_DEBUG_TOOLS)
+    CCombatOverhaul::OnPlayerRun(*this);
+#endif /* defined(TMNT2_DEBUG_TOOLS) */
     CCharacter::Run();
 };
 
@@ -477,6 +484,9 @@ void CPlayerCharacter::OnMessageAttackResult(CHitCatchData* pCatch)
 
 void CPlayerCharacter::OnMessageReceivedDamage(int32 nDamage)
 {
+#if defined(TMNT2_DEBUG_TOOLS)
+    CCombatOverhaul::OnPlayerReceivedDamage(*this, nDamage);
+#endif /* defined(TMNT2_DEBUG_TOOLS) */
 	CGameProperty::Player(m_nPlayerNo)->AddHP(-nDamage);
 };
 
@@ -509,6 +519,12 @@ CHARACTERTYPES::ATTACKRESULTTYPE CPlayerCharacter::OnDamage(CCharacterAttackCalc
     if (TestCharacterFlag(CHARACTERTYPES::FLAG_OCCURED_INVINCIBILITY_TIMING) ||
         TestAttribute(PLAYERTYPES::ATTRIBUTE_INVINCIBILITY))
         return CHARACTERTYPES::ATTACKRESULTTYPE_INEFFECTIVE;
+
+#if defined(TMNT2_DEBUG_TOOLS)
+    // Combat Overhaul 1: shots pass through a dashing player.
+    if (CCombatOverhaul::IsShotDodged(*this, calculator.GetAttack()))
+        return CHARACTERTYPES::ATTACKRESULTTYPE_INEFFECTIVE;
+#endif /* defined(TMNT2_DEBUG_TOOLS) */
 
     switch (attackResult)
     {
@@ -583,6 +599,10 @@ CHARACTERTYPES::ATTACKRESULTTYPE CPlayerCharacter::OnDamage(CCharacterAttackCalc
         CGameEvent::SetPlayerTechnicalAction(m_nPlayerNo, GAMETYPES::TECACT_GUARD_IMPACT);
         PlayerUtil::CallVoiceOfGuardImpact(this);
     };
+
+#if defined(TMNT2_DEBUG_TOOLS)
+    CCombatOverhaul::OnPlayerDamageResult(*this, calculator.GetAttack(), attackResult);
+#endif /* defined(TMNT2_DEBUG_TOOLS) */
 
     return attackResult;
 };
@@ -812,6 +832,10 @@ CHARACTERTYPES::DEFENCERSTATUSFLAG CPlayerCharacter::CheckDefenceStatusFlag(cons
     if (CGameData::Record().Secret().IsUnlockedSecret(SECRETID::ID_CHEATCODE_HEALTH))
         defenceFlag |= CHARACTERTYPES::DEFENCERSTATUSFLAG_CHEATCODE_HEALTH;
 
+#if defined(TMNT2_DEBUG_TOOLS)
+    defenceFlag = CCombatOverhaul::AdjustDefenceFlag(*this, rAttack, defenceFlag);
+#endif /* defined(TMNT2_DEBUG_TOOLS) */
+
     return defenceFlag;
 };
 
@@ -934,6 +958,48 @@ void CPlayerCharacter::RotateDirection(float fDirection)
 
     SetDirection(m_fDirection + fDirectionDiff);
 };
+
+
+#if defined(TMNT2_DEBUG_TOOLS)
+void CPlayerCharacter::ForceIdle(void)
+{
+    // CIdle accepts every status; skipping RequestStatusMorphing avoids the
+    // GUARD -> GUARD_FINISH detour.
+    m_pStateMachine->ChangeStatus(PLAYERTYPES::STATUS_IDLE);
+};
+
+
+void CPlayerCharacter::ApplyParryCrystal(int32 iCrystal, float fTime)
+{
+    // Same attribute + aura the crystal pickups give (GenerateItemEffect),
+    // with a caller-chosen time and without the pickup voice line.
+    switch (iCrystal)
+    {
+    case 0:
+        SetAttackPowerupEnable(true, fTime);
+        m_pModuleMan->Include(CharacterItemEffectModule::CreateItemEffectModule(this, EFFECTID::ID_SETUP_ATTACK, fTime));
+        break;
+
+    case 1:
+        SetDefencePowerupEnable(true, fTime);
+        m_pModuleMan->Include(CharacterItemEffectModule::CreateItemEffectModule(this, EFFECTID::ID_SETUP_DEFENCE, fTime));
+        break;
+
+    case 2:
+        SetKnifePowerupEnable(true, fTime);
+        m_pModuleMan->Include(CharacterItemEffectModule::CreateItemEffectModule(this, EFFECTID::ID_SETUP_KNIFE, fTime));
+        break;
+
+    case 3:
+        SetChargePowerupEnable(true, fTime);
+        m_pModuleMan->Include(CharacterItemEffectModule::CreateItemEffectModule(this, EFFECTID::ID_SETUP_CHARGE, fTime));
+        break;
+
+    default:
+        break;
+    };
+};
+#endif /* defined(TMNT2_DEBUG_TOOLS) */
 
 
 void CPlayerCharacter::Relocation(const RwV3d* pvPosition, float fDirection, bool bBlink)
@@ -1292,6 +1358,11 @@ PLAYERTYPES::FLAG CPlayerCharacter::CheckAttackConnect(PLAYERTYPES::FLAG mask)
     {
         float fStatusDuration = m_pStateMachine->GetStatusDuration();
         float fChainMotionConnectTime = GetNextChainMotionConnectTime();
+#if defined(TMNT2_DEBUG_TOOLS)
+        // Combat Overhaul 3: the connect time is in motion time; a faster
+        // motion reaches it sooner in status time.
+        fChainMotionConnectTime /= CCombatOverhaul::GetAttackMotionSpeed(*this);
+#endif /* defined(TMNT2_DEBUG_TOOLS) */
 
         if (fStatusDuration >= fChainMotionConnectTime)
         {
