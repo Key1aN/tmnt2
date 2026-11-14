@@ -208,6 +208,7 @@ jobs:
           foreach ($required in @("CAMITEM_ENHANCED", "DIK_F7", "CMapCamera::ResetTuning()")) {
             if ($tools -notmatch [regex]::Escape($required)) { throw "Camera Overhaul Debug Tools integration missing: $required" }
           }
+          $ov = Get-Content "src/Game/Component/CombatOverhaul/CombatOverhaul.cpp" -Raw
           foreach ($required in @("FEATURE_NUM", "s_ov.m_bEnabled = true;", "return (ov.m_bEnabled && (feature >= 0) && (feature < FEATURE_NUM) && ov.m_abFeature[feature]);")) {
             if ($ov -notmatch [regex]::Escape($required)) { throw "Combat Overhaul master/feature gate changed: $required" }
           }
