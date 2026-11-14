@@ -310,7 +310,7 @@ namespace
 
     // ---- v1.2.10 menu renderer (game font + flat panels) ----
 
-    static const char* MENU_VERSION = "v1.2.23";
+    static const char* MENU_VERSION = "v1.2.24";
 
     enum MENUSIZE
     {
@@ -437,6 +437,10 @@ namespace
             default: return nullptr;
             };
         };
+
+        // CAMITEM_ENHANCED (declared further down) is row 4 of the CAMERA page.
+        if ((page == PAGE_CAMERA) && (index == 4))
+            return "CAMERA OVERHAUL";
 
         if (page == PAGE_COMBATLAB)
         {
@@ -970,7 +974,7 @@ public:
     //
     enum
     {
-        CAMITEM_ENHANCED = 4,
+        CAMITEM_ENHANCED = 4,       // keep in step with GetSectionTitle
         CAMITEM_TUNE_FIRST,
         CAMITEM_TUNE_LAST = CAMITEM_TUNE_FIRST + 4,
         CAMITEM_TUNE_RESET,
@@ -2582,25 +2586,17 @@ private:
                 std::snprintf(buffer, capacity, "Manual camera (RS, LT, RT)    %s", (CGameStageDebug::CAMERA_MANUAL_ALLOWED ? "ON" : "OFF"));
             else if (index == CAMITEM_ENHANCED)
             {
-                CMapCamera* pMapCamera = (CGameProperty::IsCameraViewAvailable() ? CGameProperty::GetMapCamera() : nullptr);
-                if (CMapCamera::m_tuning.m_bEnable && pMapCamera && pMapCamera->GetFrameDiag().m_bFraming)
-                {
-                    const CMapCamera::FRAMEDIAG& rDiag = pMapCamera->GetFrameDiag();
-                    std::snprintf(buffer, capacity, "Enhanced camera (F7)          ON   zoom %.2fx  view %.2fx  off-screen %d",
-                                  rDiag.m_fZoom, rDiag.m_fFovZoom, static_cast<int>(rDiag.m_nNumOutside));
-                }
-                else
-                {
-                    std::snprintf(buffer, capacity, "Enhanced camera (F7)          %s", (CMapCamera::m_tuning.m_bEnable ? "ON" : "OFF - RETAIL CAMERA"));
-                };
+                // The ImGui menu splits label and value at the first run of
+                // spaces and draws a checkbox only for a plain ON / OFF value.
+                std::snprintf(buffer, capacity, "Enhanced camera (F7)          %s", (CMapCamera::m_tuning.m_bEnable ? "ON" : "OFF"));
             }
             else if (IsCameraTuneItem(index))
             {
                 const CAMTUNE& rTune = CameraTune(index);
-                std::snprintf(buffer, capacity, "  %-28s%.2f%s", rTune.m_pszLabel, CMapCamera::m_tuning.*(rTune.m_pValue), rTune.m_pszUnit);
+                std::snprintf(buffer, capacity, "%-30s%.2f%s", rTune.m_pszLabel, CMapCamera::m_tuning.*(rTune.m_pValue), rTune.m_pszUnit);
             }
             else if (index == CAMITEM_TUNE_RESET)
-                std::snprintf(buffer, capacity, "  Reset enhanced camera amounts");
+                std::snprintf(buffer, capacity, "Reset enhanced camera amounts");
             else
                 std::snprintf(buffer, capacity, "Reset to default game camera");
             break;
@@ -2734,7 +2730,22 @@ private:
             if (index == CAMITEM_ENHANCED)
             {
                 scope = "CAMERA OVERHAUL";
-                description = "ON: Camera Overhaul v1.0 - keeps every player on screen with only as much zoom-out as needed, steadier view while jumping, boss framing, same speed at any refresh rate. OFF: the retail camera, unchanged. F7 switches at any time. The numbers show the current pull-back, view widening and players outside the safe area.";
+                static char s_szEnhancedHelp[420];
+                CMapCamera* pMapCamera = (CGameProperty::IsCameraViewAvailable() ? CGameProperty::GetMapCamera() : nullptr);
+                if (CMapCamera::m_tuning.m_bEnable && pMapCamera && pMapCamera->GetFrameDiag().m_bFraming)
+                {
+                    const CMapCamera::FRAMEDIAG& rDiag = pMapCamera->GetFrameDiag();
+                    std::snprintf(s_szEnhancedHelp, sizeof(s_szEnhancedHelp),
+                                  "NOW: pull-back %.2fx, view %.2fx, players outside the safe area %d. "
+                                  "ON: keeps every player on screen with only as much zoom-out as needed, steadier view while jumping, boss framing, same speed at any refresh rate. OFF: the retail camera, unchanged. F7 switches at any time.",
+                                  rDiag.m_fZoom, rDiag.m_fFovZoom, static_cast<int>(rDiag.m_nNumOutside));
+                }
+                else
+                {
+                    std::snprintf(s_szEnhancedHelp, sizeof(s_szEnhancedHelp),
+                                  "ON: keeps every player on screen with only as much zoom-out as needed, steadier view while jumping, boss framing, same speed at any refresh rate. OFF: the retail camera, unchanged. F7 switches at any time.");
+                };
+                description = s_szEnhancedHelp;
             }
             else if (IsCameraTuneItem(index))
             {

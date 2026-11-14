@@ -1,15 +1,24 @@
-# TMNT2 Camera Overhaul v1.0.0 (Debug Tools v1.2.23, US)
+# TMNT2 Camera Overhaul v1.0.1 (Debug Tools v1.2.24, US)
 
 A reworked gameplay camera with a RETAIL / ENHANCED switch, on top of Combat Overhaul v1.1.5 /
 Debug Tools v1.2.22 (`88d64b9`). Status: **compiles in CI; not yet played**. Every number is a
 first guess made without seeing the game; the important ones can be changed live in the CAMERA tab.
+
+## Changes in v1.0.1
+
+- **CAMERA tab rows work in the menu.** In v1.0.0 the amount rows began with spaces and the switch
+  row carried a readout after ON / OFF, which the menu could not split into label and value: the
+  numbers were cut off and the switch had no checkbox. The rows now follow the menu's format, the
+  switch is a checkbox, Reset is a Run button, and the rows sit under a CAMERA OVERHAUL heading.
+- The live readout (pull-back, view, players outside the safe area) moved to the help text of the
+  Enhanced camera row.
 
 ## Switching (for video)
 
 | What | How |
 | --- | --- |
 | Enhanced camera / retail camera | **F7** at any time, or Debug Tools (F4) > **CAMERA** > Enhanced camera |
-| Live readout | The Enhanced camera row shows the current pull-back, view widening and how many players are outside the safe area |
+| Live readout | Select or hover the Enhanced camera row: its help text starts with the current pull-back, view widening and how many players are outside the safe area |
 | Amounts | CAMERA tab rows under it: Max zoom-out, Safe area, Jump window, Look-ahead, Boss pull, Reset |
 
 The game starts on the enhanced camera. With it OFF, or with the Debug Tools mod switched off in
@@ -96,7 +105,7 @@ This checks the maths and the state machine, not how real stages are authored or
 ## Test checklist
 
 1. F7: the Enhanced camera row flips; with OFF everything below behaves as retail.
-2. Single player: run, dash, reverse. The readout stays at zoom 1.00x. If reversals feel floaty, lower Look-ahead.
+2. Single player: run, dash, reverse. The readout stays at pull-back 1.00x. If reversals feel floaty, lower Look-ahead.
 3. Single player platforming: small jumps keep the ground still; a long fall is followed at once. If tall jumps feel late, lower Jump window.
 4. Two players: walk apart sideways, then one toward the camera. Both stay visible up to the boundary, feet included.
 5. Four players: spread out, then regroup. Half a second of hold, then a slow return, no pumping.

@@ -923,7 +923,7 @@ void CMapCamera::UpdatePathCamera(const RwV3d* pvAt, bool bExPath)
         float fZoom = m_fRequestZoom;
         float fFovZoom = 1.0f;
 
-        FRAMEBASIS basis;
+        FRAMEBASIS basis = {};
         bool bFraming = (IsFramingActive() && MakeFrameBasis(&basis, &vEye, &m_vAt, TYPEDEF::DEFAULT_VIEWWINDOW));
         if (bFraming)
         {
@@ -1052,7 +1052,7 @@ void CMapCamera::UpdateSetCamera(const RwV3d* pvAt)
          *  Eye of set camera is authored and stays where it is,
          *  framing is corrected by widening the view only (limited).
          */
-        FRAMEBASIS basis;
+        FRAMEBASIS basis = {};
         if (IsFramingActive() && MakeFrameBasis(&basis, &vEye, &m_vAt, fViewSize))
         {
             float fRequestOut = CalcFrameExtent(basis, 1.0f, 1.0f, true);
@@ -1116,7 +1116,7 @@ void CMapCamera::UpdateFixedCamera(const RwV3d* pvAt)
          *  Fixed camera is fully authored (eye and lookat), move boundary is
          *  left as is and only view is widened when targets leave safe area.
          */
-        FRAMEBASIS basis;
+        FRAMEBASIS basis = {};
         if (IsFramingActive() && MakeFrameBasis(&basis, &vEye, &vAt, fViewSize))
         {
             float fRequestOut = CalcFrameExtent(basis, 1.0f, 1.0f, true);
