@@ -43,6 +43,7 @@ CBarrierModule::CBarrierModule(CTracer* pTracer, CGameObject* pObject, float fRa
 #if defined(TMNT2_DEBUG_TOOLS)
 , m_bShotReflectOnly(false)
 , m_pTintTexture(nullptr)
+, m_iShieldColorId(0)
 #endif /* defined(TMNT2_DEBUG_TOOLS) */
 {
     ASSERT(pTracer);
@@ -377,9 +378,10 @@ static RwTexture* CreateTintedTexture(RwTexture* pSource, const RwRGBA& rTint)
 };
 
 
-void CBarrierModule::SetShotReflectOnly(const RwRGBA& rColor)
+void CBarrierModule::SetShotReflectOnly(const RwRGBA& rColor, int32 iColorId /*= 0*/)
 {
     m_bShotReflectOnly = true;
+    m_iShieldColorId = iColorId;
 
     if (m_pBarrierSphere)
     {
@@ -387,8 +389,14 @@ void CBarrierModule::SetShotReflectOnly(const RwRGBA& rColor)
         m_pBarrierSphere = nullptr;
     };
 
-    if (!m_pTintTexture)
-        m_pTintTexture = CreateTintedTexture(m_pTexture, rColor);
+    // A second call recolours the shield: the old copy goes first.
+    if (m_pTintTexture)
+    {
+        RwTextureDestroy(m_pTintTexture);
+        m_pTintTexture = nullptr;
+    };
+
+    m_pTintTexture = CreateTintedTexture(m_pTexture, rColor);
 
     if (m_pTintTexture)
     {

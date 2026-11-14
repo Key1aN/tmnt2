@@ -1234,6 +1234,17 @@ float CCharacter::GetNextChainMotionConnectTime(void) const
 };
 
 
+#if defined(TMNT2_DEBUG_TOOLS)
+int32 CCharacter::GetMotionHitAttackNum(void) const
+{
+    if (!m_pMotionParameterController || !m_pMotionParameterController->GetCurrentMotionParameter())
+        return 0;
+
+    return m_pMotionParameterController->GetNumHitAttackData();
+};
+#endif /* defined(TMNT2_DEBUG_TOOLS) */
+
+
 void CCharacter::SetChainConnectFallbackRatio(float fRatio)
 {
     m_fChainConnectFallbackRatio = fRatio;

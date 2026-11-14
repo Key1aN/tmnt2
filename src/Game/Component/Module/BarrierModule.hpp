@@ -43,7 +43,8 @@ public:
     // Combat Overhaul 2 (Michelangelo's guard shield): same sphere, texture
     // and animation in another colour; it only reflects shots, so it neither
     // hits enemies nor swallows projectiles.
-    void SetShotReflectOnly(const RwRGBA& rColor);
+    void SetShotReflectOnly(const RwRGBA& rColor, int32 iColorId = 0);  // may be called again to recolour
+    int32 GetShieldColorId(void) const { return m_iShieldColorId; };
     bool IsShotReflectOnly(void) const { return m_bShotReflectOnly; };
     float GetCurrentRadius(void) const { return (m_fRadius * m_fScale); };
     bool IsRaised(void) const { return ((m_state == STATE_APPEAR) || (m_state == STATE_IDLE)); };
@@ -68,5 +69,6 @@ protected:
 #if defined(TMNT2_DEBUG_TOOLS)
     bool m_bShotReflectOnly;
     RwTexture* m_pTintTexture;  // recoloured copy of the barrier texture (owned)
+    int32 m_iShieldColorId;
 #endif /* defined(TMNT2_DEBUG_TOOLS) */
 };

@@ -310,7 +310,7 @@ namespace
 
     // ---- v1.2.10 menu renderer (game font + flat panels) ----
 
-    static const char* MENU_VERSION = "v1.2.18";
+    static const char* MENU_VERSION = "v1.2.19";
 
     enum MENUSIZE
     {
@@ -783,7 +783,7 @@ public:
         std::memset(m_aTracked, 0x00, sizeof(m_aTracked));
         std::memset(m_aMoveEvent, 0x00, sizeof(m_aMoveEvent));
         m_szPlayerMotion[0] = '\0';
-        m_moveLog.Write("SESSION  TMNT2 Debug Tools v1.2.18 move telemetry (bosses always; all enemies when labels = ALL)");
+        m_moveLog.Write("SESSION  TMNT2 Debug Tools v1.2.19 move telemetry (bosses always; all enemies when labels = ALL)");
         m_moveLog.Flush();
 
         // v1.2.7: the session header (with GPU and display mode) is written at

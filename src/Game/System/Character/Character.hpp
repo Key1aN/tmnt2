@@ -170,6 +170,9 @@ public:
     float GetMotionEndTime(void) const;
     const char* GetMotionName(void) const;
     float GetNextChainMotionConnectTime(void) const;
+#if defined(TMNT2_DEBUG_TOOLS)
+    int32 GetMotionHitAttackNum(void) const;    // attack hit spheres authored for the current motion
+#endif /* defined(TMNT2_DEBUG_TOOLS) */
     void SetEnableBodyHit(bool bEnable);
     void SetEnableCatchHit(bool bEnable);
     void SetEnableBodyHitSelfToOther(bool bEnable);    

@@ -171,6 +171,7 @@ namespace
         bool  m_abFeature[CCombatOverhaul::FEATURE_NUM];
         float m_afTune[16];
         bool  m_bManualCamera;
+        int32 m_iShieldColor;
         bool  m_bHud;
         bool  m_bBadgeAlways;
         float m_fBadgeClock;
@@ -200,6 +201,7 @@ namespace
         ITEM_FEATURE_LAST = ITEM_FEATURE_FIRST + CCombatOverhaul::FEATURE_NUM - 1,
         ITEM_TUNE_FIRST,
         ITEM_TUNE_LAST = ITEM_TUNE_FIRST + 10,
+        ITEM_SHIELD_COLOR,
         ITEM_HUD,
         ITEM_BADGE,
 
@@ -349,6 +351,27 @@ namespace
         { "Parry crystal time",       "%.0f s",
           "6. How long the crystal power from a parry lasts (3 - 15, default 6).",
           3.0f, 15.0f, 1.0f, 6.0f },
+    };
+
+
+    struct SHIELDCOLOR
+    {
+        const char* m_pszName;
+        RwRGBA m_color;     // alpha = opacity of the shield (0x80 = 50%)
+    };
+
+
+    static const SHIELDCOLOR s_aShieldColor[] =
+    {
+        { "Orange", { 0xFF, 0x8C, 0x1E, 0x80 } },
+        { "Red",    { 0xFF, 0x30, 0x28, 0x80 } },
+        { "Yellow", { 0xFF, 0xE0, 0x30, 0x80 } },
+        { "Green",  { 0x40, 0xF0, 0x50, 0x80 } },
+        { "Cyan",   { 0x30, 0xE8, 0xFF, 0x80 } },
+        { "Blue",   { 0x40, 0x70, 0xFF, 0x80 } },
+        { "Purple", { 0xB0, 0x50, 0xFF, 0x80 } },
+        { "Pink",   { 0xFF, 0x60, 0xC0, 0x80 } },
+        { "White",  { 0xFF, 0xFF, 0xFF, 0x80 } },
     };
 
 
@@ -1052,7 +1075,7 @@ static_assert(TUNE_NUM <= 16, "OVERHAUL::m_afTune is too small");
     case ITEM_MASTER:        return "BEFORE / AFTER";
     case ITEM_FEATURE_FIRST: return "FEATURES (NUMBERED AS IN THE IDEA LIST)";
     case ITEM_TUNE_FIRST:    return "AMOUNTS (THE NUMBER IS THE FEATURE IT BELONGS TO)";
-    case ITEM_HUD:           return "DISPLAY";
+    case ITEM_SHIELD_COLOR:  return "DISPLAY";
     default:                 return nullptr;
     };
 };
@@ -1082,6 +1105,10 @@ static_assert(TUNE_NUM <= 16, "OVERHAUL::m_afTune is too small");
         char szValue[32];
         std::snprintf(szValue, sizeof(szValue), s_aTuneInfo[t].m_pszFormat, ov.m_afTune[t]);
         std::snprintf(pszBuffer, capacity, "%-29s  %s", s_aTuneInfo[t].m_pszName, szValue);
+    }
+    else if (index == ITEM_SHIELD_COLOR)
+    {
+        std::snprintf(pszBuffer, capacity, "%-29s  %s", "Mikey shield colour", s_aShieldColor[ov.m_iShieldColor].m_pszName);
     }
     else if (index == ITEM_HUD)
     {
@@ -1116,6 +1143,11 @@ static_assert(TUNE_NUM <= 16, "OVERHAUL::m_afTune is too small");
         rpszScope = "LIVE AMOUNT";
         rpszDescription = s_aTuneInfo[index - ITEM_TUNE_FIRST].m_pszHelp;
     }
+    else if (index == ITEM_SHIELD_COLOR)
+    {
+        rpszScope = "LIVE - MICHELANGELO";
+        rpszDescription = "2. Colour of Michelangelo's guard shield. Changes at once, also while the shield is up: Orange (default), Red, Yellow, Green, Cyan, Blue, Purple, Pink, White.";
+    }
     else if ((index == ITEM_HUD) || (index == ITEM_BADGE))
     {
         rpszScope = s_aExtraInfo[index - ITEM_HUD].m_pszScope;
@@ -1148,6 +1180,12 @@ static_assert(TUNE_NUM <= 16, "OVERHAUL::m_afTune is too small");
         fSteps = static_cast<float>(static_cast<int32>(fSteps + (fSteps >= 0.0f ? 0.5f : -0.5f)));
         ov.m_afTune[t] = Clamp(rInfo.m_fMin + (fSteps * rInfo.m_fStep), rInfo.m_fMin, rInfo.m_fMax);
     }
+    else if (index == ITEM_SHIELD_COLOR)
+    {
+        int32 num = static_cast<int32>(sizeof(s_aShieldColor) / sizeof(s_aShieldColor[0]));
+        int32 step = (direction < 0 ? -1 : 1);
+        ov.m_iShieldColor = ((ov.m_iShieldColor + step) % num + num) % num;
+    }
     else if (index == ITEM_HUD)
     {
         ov.m_bHud = !ov.m_bHud;
@@ -1169,6 +1207,8 @@ static_assert(TUNE_NUM <= 16, "OVERHAUL::m_afTune is too small");
         SetFeatureSwitch(static_cast<FEATURE>(index - ITEM_FEATURE_FIRST), true);
     else if ((index >= ITEM_TUNE_FIRST) && (index <= ITEM_TUNE_LAST))
         ov.m_afTune[index - ITEM_TUNE_FIRST] = s_aTuneInfo[index - ITEM_TUNE_FIRST].m_fDefault;
+    else if (index == ITEM_SHIELD_COLOR)
+        ov.m_iShieldColor = 0;
     else if (index == ITEM_HUD)
         ov.m_bHud = true;
     else if (index == ITEM_BADGE)
@@ -1603,6 +1643,10 @@ static_assert(TUNE_NUM <= 16, "OVERHAUL::m_afTune is too small");
         CBarrierModule* pShield = static_cast<CBarrierModule*>(rPlayerChr.GetModule(MODULETYPE::BARRIER));
         if (pShield && pShield->IsShotReflectOnly())
         {
+            // Debug Tools colour row: recolour as soon as it changes.
+            if (pShield->GetShieldColorId() != ov.m_iShieldColor)
+                pShield->SetShotReflectOnly(s_aShieldColor[ov.m_iShieldColor].m_color, ov.m_iShieldColor);
+
             bool bWant = (IsOn(FEATURE_MIC_REFLECT_360) && IsGuardStatus(status));
             CBarrierModule::STATE shieldState = pShield->GetState();
 
@@ -2110,10 +2154,13 @@ CCombatOverhaul::AdjustDefenceFlag(
         break;
 
     default:
-        // Boss / special moves live in the SPECIAL range; only those the AI
-        // started as an attack are announced.
+        // Boss / special moves live in the SPECIAL range.
+        // Special statuses are also rolls, retreats, clones, taunts and
+        // other moves that cannot hurt: only a special whose motion carries
+        // attack hit data is announced.
         if ((statusNow >= ENEMYTYPES::STATUS_SPECIAL) && bAttackOrder &&
-            (statusPrev != statusNow))
+            (statusPrev != statusNow) &&
+            (rEnemyChr.Compositor().GetMotionHitAttackNum() > 0))
         {
             bShow = true;
             bHeavy = true;

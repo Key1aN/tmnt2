@@ -1,8 +1,17 @@
-# TMNT2 Combat Overhaul v1.1.1 (Debug Tools v1.2.18, US)
+# TMNT2 Combat Overhaul v1.1.2 (Debug Tools v1.2.19, US)
 
 Seventeen combat changes with a BEFORE / AFTER switch, on top of Combat Lab v1.2.0 /
 Debug Tools v1.2.15 (`ea19c64`). Status: **compiles in CI; not yet played**. Every number
 is a first guess; most can now be changed live in the OVERHAUL tab.
+
+## Changes in v1.1.2
+
+- **Attack indicator skips harmless specials.** A boss / elite special status (roll, retreat,
+  clone, taunt...) is only marked, and only held for the warning time, when its animation
+  carries attack hit data. Side effect: a special that only fires a projectile and has no
+  melee hit in its animation is no longer marked.
+- **Mikey shield colour** row in the OVERHAUL tab (DISPLAY section): Orange, Red, Yellow,
+  Green, Cyan, Blue, Purple, Pink, White. Applies at once, also while the shield is up.
 
 ## Changes in v1.1.1
 
