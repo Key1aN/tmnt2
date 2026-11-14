@@ -1,8 +1,21 @@
-# TMNT2 Combat Overhaul v1.1.2 (Debug Tools v1.2.19, US)
+# TMNT2 Combat Overhaul v1.1.3 (Debug Tools v1.2.20, US)
 
 Seventeen combat changes with a BEFORE / AFTER switch, on top of Combat Lab v1.2.0 /
 Debug Tools v1.2.15 (`ea19c64`). Status: **compiles in CI; not yet played**. Every number
 is a first guess; most can now be changed live in the OVERHAUL tab.
+
+## Changes in v1.1.3
+
+- **Rally follows the Bloodborne rules.** Every hit you take, of any size, leaves the health
+  it removed regainable. It holds for the rally window (default 5 s), then drains away in
+  about 0.8 s. Each hit you land while any is left returns health equal to a share of that
+  hit's damage (default 100%), up to what is left. Getting hit again replaces the regainable
+  part with the new hit's damage only. The old 25%-in-5-s threshold is gone.
+- **Shown on the health gauge.** The regainable health is drawn as a faded (about 43%
+  opacity) continuation of the health meter itself, using the meter's own texture. The
+  "RALLY +N HP" text is removed.
+- The team shares one health gauge, so it shares one rally: any player's hits win it back.
+- New AMOUNTS rows: **Rally window** (1.0 - 10.0 s) and **Rally regain per hit** (25 - 300%).
 
 ## Changes in v1.1.2
 
@@ -70,7 +83,7 @@ clears gauges, locks and pending bursts. Recorded demos (pad stream) keep retail
 | 5 | Attack indicator | Mark over an enemy when it enters an attack: cyan = normal, red = heavy (B, C, run attack, throw, jump attack, AA/AAA strings, repeat fire, every boss attack) | warning 0.30 s (0 - 0.80), mark stays 0.6 s longer |
 | 6 | Parry gives a crystal | Parry (guard just before the hit) grants one random crystal power with its aura: red attack, green defence, white free shuriken, orange instant charge. Parry no longer needs the defence upgrade | 6 s (3 - 15 in the menu) |
 | 7 | Don mobile shield | After the barrier appears Donatello returns to neutral; the barrier runs its normal time around him | retail barrier time |
-| 8 | Rally | More than 25% of max HP lost within 5 s makes that HP regainable for 5 s; landed hits return 75% of their damage, up to the pool. New damage joins the pool and restarts the clock | 25% / 5 s / 5 s / 75% |
+| 8 | Rally | Bloodborne rally: health lost to a hit stays on the health gauge as a faded part for the rally window, then drains in 0.8 s. Landed hits return their damage x regain share, up to what is left. A new hit replaces the regainable part | 5 s / 100% |
 | 9 | Fast guard recovery | Block pushback 0.4 s -> 0.2 s (adjustable 0.05 - 0.40); A, dash and jump work from a held guard; any input cancels the guard-lowering motion | Guard + B is still the lift |
 | 10 | Automatic quick rise | The retail quick rise (attack/jump within 0.2 s of landing) happens by itself; wall-crash knockdowns skip the lying phase | keeps the retail 1 s invincibility |
 | 11 | Lock-on | **R3** (right stick click) or **T**: lock the enemy you face (16 units). Attacks and shuriken aim at it, brackets mark it. Right stick flick left / right moves the lock to the next enemy on that side. On defeat the lock moves to the next enemy. Off while Manual camera is ON | breaks beyond 24 units |

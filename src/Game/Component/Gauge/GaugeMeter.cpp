@@ -11,6 +11,10 @@
 #include "System/Common/RenderState.hpp"
 #include "System/Common/Screen.hpp"
 
+#if defined(TMNT2_DEBUG_TOOLS)
+#include "Game/Component/CombatOverhaul/CombatOverhaul.hpp"
+#endif /* defined(TMNT2_DEBUG_TOOLS) */
+
 
 class CGaugeMeter_Container
 {
@@ -43,7 +47,7 @@ public:
     void Draw(void);
     void GaugeUpdate(void);
     void GaugeMeterDraw(void);
-    void GaugeMeterVertexSet(int32 nVertexNum, int32 aVertexList[]);
+    void GaugeMeterVertexSet(int32 nVertexNum, int32 aVertexList[], uint8 uAlpha = 255);
     void AnimGaugeFont_Period(void);
     void AnimGaugeFont_Draw(void);
     void LifeRecover_Period(void);
@@ -337,10 +341,40 @@ void CGaugeMeter_Container::GaugeMeterDraw(void)
         vertex_list[2] = hp;
         GaugeMeterVertexSet(3, vertex_list);
     };
+
+#if defined(TMNT2_DEBUG_TOOLS)
+    //
+    //  Combat Overhaul rally: the health that can still be won back stays
+    //  on the gauge as a faded continuation of the meter, the way the
+    //  orange part of the Bloodborne health bar does.
+    //
+    int32 nRally = CCombatOverhaul::GetRallyHP();
+    if ((nRally > 0) && (m_PlayerHpKi > 0))
+    {
+        int32 from = ((hp > 1) ? hp : 1);
+        int32 to   = m_PlayerHp + nRally;
+        if (to > m_PlayerHpKatsu)
+            to = m_PlayerHpKatsu;
+
+        // one slice per gauge side, so the corners stay sharp
+        int32 aEdge[4] = { from, m_PlayerHpKi, m_PlayerHpChu, to };
+        int32 cur = from;
+        for (int32 i = 1; (i < 4) && (cur < to); ++i)
+        {
+            int32 next = ((aEdge[i] < to) ? aEdge[i] : to);
+            if (next <= cur)
+                continue;
+
+            int32 slice[3] = { 0, cur, next };
+            GaugeMeterVertexSet(3, slice, 110);
+            cur = next;
+        };
+    };
+#endif /* defined(TMNT2_DEBUG_TOOLS) */
 };
 
 
-void CGaugeMeter_Container::GaugeMeterVertexSet(int32 nVertexNum, int32 aVertexList [])
+void CGaugeMeter_Container::GaugeMeterVertexSet(int32 nVertexNum, int32 aVertexList [], uint8 uAlpha /*= 255*/)
 {
     RwIm2DVertex aVertices[4] = {};
 
@@ -389,7 +423,7 @@ void CGaugeMeter_Container::GaugeMeterVertexSet(int32 nVertexNum, int32 aVertexL
         RwIm2DVertexSetScreenX(&aVertices[i], x);
         RwIm2DVertexSetScreenY(&aVertices[i], y);
         RwIm2DVertexSetScreenZ(&aVertices[i], z);
-        RwIm2DVertexSetIntRGBA(&aVertices[i], 255, 255, 255, 255);
+        RwIm2DVertexSetIntRGBA(&aVertices[i], 255, 255, 255, uAlpha);
         RwIm2DVertexSetU(&aVertices[i], (u + fScale) * (1.0f / 128.0f), rhw);
         RwIm2DVertexSetV(&aVertices[i], (v + fScale) * (1.0f / 128.0f), rhw);
         RwIm2DVertexSetRecipCameraZ(&aVertices[i], rhw);

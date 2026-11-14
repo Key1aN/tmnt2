@@ -73,8 +73,6 @@ public:
         bool  m_bPostureBroken;
         float m_fBurst;         // 0..1
         bool  m_bBurstReady;
-        int32 m_iRallyPool;     // HP that can still be regained
-        float m_fRallyTime;     // seconds left
         int32 m_iCrystal;       // -1 none, 0 red, 1 green, 2 white, 3 orange
         float m_fCrystalTime;   // seconds left
         bool  m_bLockOn;
@@ -153,6 +151,9 @@ public:
     static int32 GetMarkerNum(void);
     static bool GetMarker(int32 index, MARKERINFO& rInfo);
     static bool GetPlayerHud(int32 nPlayerNo, PLAYERHUD& rHud);
+
+    // 8 rally: team health that can still be won back, drawn on the health gauge
+    static int32 GetRallyHP(void);
 };
 
 #endif /* defined(TMNT2_DEBUG_TOOLS) */

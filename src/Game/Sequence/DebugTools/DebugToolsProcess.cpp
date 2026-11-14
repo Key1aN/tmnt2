@@ -310,7 +310,7 @@ namespace
 
     // ---- v1.2.10 menu renderer (game font + flat panels) ----
 
-    static const char* MENU_VERSION = "v1.2.19";
+    static const char* MENU_VERSION = "v1.2.20";
 
     enum MENUSIZE
     {
@@ -5537,16 +5537,6 @@ private:
                 };
 
                 y += barH + (6.0f * scale);
-            };
-
-            if ((hud.m_iRallyPool > 0) && (nText < COUNT_OF(aText)))
-            {
-                HUDTEXT& t = aText[nText++];
-                std::snprintf(t.m_szText, sizeof(t.m_szText), "RALLY +%d HP  %.1fs", hud.m_iRallyPool, MaxF(0.0f, hud.m_fRallyTime));
-                t.m_fX = x;
-                t.m_fY = y;
-                t.m_color = { 0xFF, 0x60, 0x50, 0xFF };
-                y += textH + (2.0f * scale);
             };
 
             if ((hud.m_iCrystal >= 0) && (nText < COUNT_OF(aText)))

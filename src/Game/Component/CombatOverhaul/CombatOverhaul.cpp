@@ -32,7 +32,6 @@ namespace
         PLAYER_MAX      = GAMETYPES::PLAYERS_MAX,
         ENEMYSTATE_MAX  = 48,
         INDICATOR_MAX   = 24,
-        DAMAGEEVENT_MAX = 24,
         MARKER_MAX      = 96,
     };
 
@@ -69,10 +68,7 @@ namespace
     static const float WINDUP_MOTION_SPEED      = 0.08f;    // enemy motion speed during the warning
 
     // 8 rally
-    static const float RALLY_WINDOW             = 5.0f;
-    static const float RALLY_HP_RATIO           = 0.25f;
-    static const float RALLY_TIME               = 5.0f;
-    static const float RALLY_REGAIN_PER_DAMAGE  = 0.75f;
+    static const float RALLY_DRAIN_TIME         = 0.8f;     // the regainable part empties this fast once the window ends
 
     // 9 guard recovery
     static const float GUARD_BACK_TIME_RETAIL   = 0.4f;
@@ -84,13 +80,6 @@ namespace
     static const float STEER_RATE_RETAIL        = MATH_PI05;        //  90 deg/s
     static const float STEER_RATE_FREE          = MATH_PI * 3.0f;   // 540 deg/s
     static const float STEER_RATE_TARGET        = MATH_PI * 2.0f;   // 360 deg/s
-
-
-    struct DAMAGEEVENT
-    {
-        float m_fTime;
-        int32 m_nDamage;
-    };
 
 
     struct PLAYERSTATE
@@ -106,12 +95,6 @@ namespace
         // 6 parry crystal
         int32 m_iCrystal;
         float m_fCrystalUntil;
-
-        // 8 rally
-        DAMAGEEVENT m_aDamage[DAMAGEEVENT_MAX];
-        int32 m_iDamageHead;
-        int32 m_iRallyPool;
-        float m_fRallyUntil;
 
         // 11 / 15 targeting
         bool   m_bLockOn;
@@ -181,6 +164,11 @@ namespace
         float m_fLastPeriod;
         uint32 m_uRand;
 
+        // 8 rally (the team shares one health gauge, so it shares one rally)
+        float m_fRallyPool;         // health that can still be regained
+        float m_fRallyPeak;         // size of the pool when the last hit landed
+        float m_fRallyHoldUntil;    // the pool starts to drain after this
+
         PLAYERSTATE m_aPlayer[PLAYER_MAX];
         ENEMYSTATE  m_aEnemy[ENEMYSTATE_MAX];
         INDICATOR   m_aIndicator[INDICATOR_MAX];
@@ -200,7 +188,7 @@ namespace
         ITEM_FEATURE_FIRST,
         ITEM_FEATURE_LAST = ITEM_FEATURE_FIRST + CCombatOverhaul::FEATURE_NUM - 1,
         ITEM_TUNE_FIRST,
-        ITEM_TUNE_LAST = ITEM_TUNE_FIRST + 10,
+        ITEM_TUNE_LAST = ITEM_TUNE_FIRST + 12,
         ITEM_SHIELD_COLOR,
         ITEM_HUD,
         ITEM_BADGE,
@@ -246,7 +234,7 @@ namespace
         { "REWARDS",
           "8. Rally",
           "PLAYERS",
-          "Lose more than 25% of your health within 5 seconds and the lost health becomes regainable for 5 seconds: every hit you land gives part of it back." },
+          "Bloodborne rally: the health a hit takes stays on the health gauge as a faded part. Hit enemies before it drains away to win it back. Getting hit again replaces it with the new hit." },
         { "COMBOS AND MOVEMENT",
           "9. Fast guard recovery",
           "PLAYERS - GUARD",
@@ -299,6 +287,8 @@ namespace
         TUNE_COMBO_WINDOW,
         TUNE_MIC_SPEED,
         TUNE_CRYSTAL_TIME,
+        TUNE_RALLY_TIME,
+        TUNE_RALLY_REGAIN,
 
         TUNE_NUM,
     };
@@ -351,6 +341,12 @@ namespace
         { "Parry crystal time",       "%.0f s",
           "6. How long the crystal power from a parry lasts (3 - 15, default 6).",
           3.0f, 15.0f, 1.0f, 6.0f },
+        { "Rally window",             "%.1f s",
+          "8. How long lost health stays regainable on the health gauge before it drains away (1.0 - 10.0, default 5.0).",
+          1.0f, 10.0f, 0.5f, 5.0f },
+        { "Rally regain per hit",     "%.0f %%",
+          "8. Health won back per hit, as a share of the damage that hit deals (25 - 300, default 100).",
+          25.0f, 300.0f, 25.0f, 100.0f },
     };
 
 
@@ -424,6 +420,9 @@ namespace
         std::memset(s_ov.m_aEnemy, 0x00, sizeof(s_ov.m_aEnemy));
         std::memset(s_ov.m_aIndicator, 0x00, sizeof(s_ov.m_aIndicator));
         s_ov.m_nMarker = 0;
+        s_ov.m_fRallyPool = 0.0f;
+        s_ov.m_fRallyPeak = 0.0f;
+        s_ov.m_fRallyHoldUntil = 0.0f;
     };
 
 
@@ -979,8 +978,8 @@ namespace
                 break;
 
             case FEATURE_RALLY:
-                p.m_iRallyPool = 0;
-                p.m_fRallyUntil = 0.0f;
+                Ov().m_fRallyPool = 0.0f;
+                Ov().m_fRallyPeak = 0.0f;
                 break;
 
             case FEATURE_LOCK_ON:
@@ -1284,6 +1283,34 @@ static_assert(TUNE_NUM <= 16, "OVERHAUL::m_afTune is too small");
     float dt = CGameProperty::GetElapsedTime();
 
     int32 playerNum = CGameProperty::GetPlayerNum();
+
+    // 8 rally: the regainable health holds for the window, then drains away
+    if (ov.m_fRallyPool > 0.0f)
+    {
+        if (!IsOn(FEATURE_RALLY))
+        {
+            ov.m_fRallyPool = 0.0f;
+        }
+        else
+        {
+            if (fNow > ov.m_fRallyHoldUntil)
+                ov.m_fRallyPool -= ((ov.m_fRallyPeak / RALLY_DRAIN_TIME) * dt);
+
+            // never more than what is actually missing (pizza, revive, death)
+            IGamePlayer* pGamePlayer = ((playerNum > 0) ? CGameProperty::Player(0) : nullptr);
+            if (pGamePlayer)
+            {
+                float fMissing = static_cast<float>(pGamePlayer->GetHPMax() - pGamePlayer->GetHP());
+                if ((pGamePlayer->GetHP() <= 0) || (fMissing <= 0.0f))
+                    ov.m_fRallyPool = 0.0f;
+                else if (ov.m_fRallyPool > fMissing)
+                    ov.m_fRallyPool = fMissing;
+            };
+
+            if (ov.m_fRallyPool <= 0.0f)
+                ov.m_fRallyPool = 0.0f;
+        };
+    };
     for (int32 i = 0; (i < playerNum) && (i < PLAYER_MAX); ++i)
     {
         PLAYERSTATE& p = ov.m_aPlayer[i];
@@ -1312,10 +1339,6 @@ static_assert(TUNE_NUM <= 16, "OVERHAUL::m_afTune is too small");
             if (p.m_fBurst < 0.0f)
                 p.m_fBurst = 0.0f;
         };
-
-        // rally
-        if ((p.m_iRallyPool > 0) && (fNow > p.m_fRallyUntil))
-            p.m_iRallyPool = 0;
 
         // crystal timer (display only; the power itself is a retail attribute)
         if ((p.m_iCrystal >= 0) && (fNow > p.m_fCrystalUntil))
@@ -1894,37 +1917,16 @@ CCombatOverhaul::AdjustDefenceFlag(
     if (!p || !pGamePlayer)
         return;
 
-    float fNow = Now();
-
-    p->m_aDamage[p->m_iDamageHead].m_fTime = fNow;
-    p->m_aDamage[p->m_iDamageHead].m_nDamage = nDamage;
-    p->m_iDamageHead = (p->m_iDamageHead + 1) % DAMAGEEVENT_MAX;
-
-    if (p->m_iRallyPool > 0)
-    {
-        // Already rallying: fresh damage joins the pool and restarts the clock.
-        p->m_iRallyPool += nDamage;
-        p->m_fRallyUntil = fNow + RALLY_TIME;
+    // Bloodborne rule: the health this hit removes becomes regainable.
+    // A new hit replaces whatever was still regainable from the hit before.
+    int32 nLost = Min(nDamage, pGamePlayer->GetHP());
+    if (nLost <= 0)
         return;
-    };
 
-    int32 nRecent = 0;
-    for (int32 i = 0; i < DAMAGEEVENT_MAX; ++i)
-    {
-        const DAMAGEEVENT& ev = p->m_aDamage[i];
-        if ((ev.m_nDamage > 0) && ((fNow - ev.m_fTime) <= RALLY_WINDOW) && (ev.m_fTime <= fNow))
-            nRecent += ev.m_nDamage;
-    };
-
-    int32 nHPMax = pGamePlayer->GetHPMax();
-    if ((nHPMax > 0) && (static_cast<float>(nRecent) > (static_cast<float>(nHPMax) * RALLY_HP_RATIO)))
-    {
-        p->m_iRallyPool = nRecent;
-        p->m_fRallyUntil = fNow + RALLY_TIME;
-
-        // The events that opened this rally are spent.
-        std::memset(p->m_aDamage, 0x00, sizeof(p->m_aDamage));
-    };
+    OVERHAUL& ov = Ov();
+    ov.m_fRallyPool      = static_cast<float>(nLost);
+    ov.m_fRallyPeak      = ov.m_fRallyPool;
+    ov.m_fRallyHoldUntil = Now() + Tune(TUNE_RALLY_TIME);
 };
 
 
@@ -2026,16 +2028,20 @@ CCombatOverhaul::AdjustDefenceFlag(
         };
 
         // 8 rally: part of the damage dealt comes back as health
-        if (IsOn(FEATURE_RALLY) && (p->m_iRallyPool > 0) && (iDamage > 0) && (fNow <= p->m_fRallyUntil))
+        OVERHAUL& ov = Ov();
+        if (IsOn(FEATURE_RALLY) && (ov.m_fRallyPool >= 1.0f) && (iDamage > 0))
         {
             IGamePlayer* pGamePlayer = CGameProperty::Player(pAttacker->GetPlayerNo());
             if (pGamePlayer && pGamePlayer->IsAlive())
             {
-                int32 nRegain = static_cast<int32>((static_cast<float>(iDamage) * RALLY_REGAIN_PER_DAMAGE) + 0.5f);
-                nRegain = Clamp(nRegain, 1, p->m_iRallyPool);
+                int32 nPool = static_cast<int32>(ov.m_fRallyPool);
+                int32 nRegain = static_cast<int32>((static_cast<float>(iDamage) * Tune(TUNE_RALLY_REGAIN) * 0.01f) + 0.5f);
+                nRegain = Clamp(nRegain, 1, nPool);
 
                 pGamePlayer->AddHP(nRegain);
-                p->m_iRallyPool -= nRegain;
+                ov.m_fRallyPool -= static_cast<float>(nRegain);
+                if (ov.m_fRallyPool < 1.0f)
+                    ov.m_fRallyPool = 0.0f;
             };
         };
     };
@@ -2371,8 +2377,6 @@ CCombatOverhaul::AdjustDefenceFlag(
     rHud.m_bPostureBroken = p.m_bPostureBroken;
     rHud.m_fBurst         = (IsOn(FEATURE_COMBO_BREAK) ? Clamp(p.m_fBurst, 0.0f, 1.0f) : -1.0f);
     rHud.m_bBurstReady    = (IsOn(FEATURE_COMBO_BREAK) && (p.m_fBurst >= 1.0f));
-    rHud.m_iRallyPool     = p.m_iRallyPool;
-    rHud.m_fRallyTime     = ((p.m_iRallyPool > 0) ? (p.m_fRallyUntil - fNow) : 0.0f);
     rHud.m_iCrystal       = p.m_iCrystal;
     rHud.m_fCrystalTime   = ((p.m_iCrystal >= 0) ? (p.m_fCrystalUntil - fNow) : 0.0f);
     rHud.m_bLockOn        = p.m_bLockOn;
@@ -2381,3 +2385,13 @@ CCombatOverhaul::AdjustDefenceFlag(
 };
 
 #endif /* defined(TMNT2_DEBUG_TOOLS) */
+
+
+/*static*/ int32 CCombatOverhaul::GetRallyHP(void)
+{
+    OVERHAUL& ov = Ov();
+    if (!ov.m_bEnabled || !IsOn(FEATURE_RALLY) || !CGameStage::GetCurrent())
+        return 0;
+
+    return static_cast<int32>(ov.m_fRallyPool);
+};
