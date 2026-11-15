@@ -1,6 +1,9 @@
 #pragma once
 
 
+struct RpClump;
+
+
 class CMapClumpModelManager
 {
 public:
@@ -10,4 +13,5 @@ public:
     static void Draw(void);
     static void CreateModel(void);
     static void SetDrawEnable(const char* pszName, bool bEnable);
+    static void ForEachClump(void(*pfnCallback)(RpClump* pClump, const char* pszName, void* pData), void* pData);
 };

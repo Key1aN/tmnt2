@@ -17,7 +17,15 @@ namespace ToonGradient
         float m_fContrast;      /* 0..1 narrower light/shadow transition     */
         float m_fShadowTint;    /* 0..1 strength of the hue tint in shadows   */
         float m_afTint[3];      /* luminance-normalised shadow hue            */
-        float m_fHighlight;     /* 0..1 lift of the brightest band            */
+        float m_fHighlight;     /* 0..1 lift of the mid band (wider lit area) */
+
+        /* v1.1.1 light rig. TMNT2's cel shader ignores the colour of the stage lights
+         * (only their direction picks the ramp texel) and the world is prelit, so the
+         * "light" controls act here, on the ramp. All neutral when m_bLightRig is false. */
+        bool  m_bLightRig;
+        float m_fAmbient;       /* 0.5..1.2 brightness of the shadow band, 1 = original */
+        float m_fKey;           /* 0.5..1.5 lit band: < 1 dims it, > 1 widens it        */
+        float m_fWarmth;        /* 0..1 warm lit side / cool shadow side                */
     };
 
     struct RESULT

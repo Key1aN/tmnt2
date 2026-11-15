@@ -33,6 +33,8 @@ private:
         void SetDrawEnable(bool bEnable);
         void Draw(void);
         const char* GetName(void) const;
+        CModel* GetModel(void) const { return m_pModel; };
+        bool IsDrawEnable(void) const { return m_bDrawEnable; };
 
     private:
         CModel* m_pModel;
@@ -49,6 +51,7 @@ public:
     void CreateModel(void);
     void Draw(void);
     void SetEnableDraw(const char* pszName, bool bEnable);
+    void ForEachClump(void(*pfnCallback)(RpClump*, const char*, void*), void* pData);
 
 private:
     CMapModelInfo* findModelInfoFromName(const char* pszName);
@@ -313,4 +316,21 @@ static inline CMapClumpModelContainer& MapClumpContainer(void)
 /*static*/ void CMapClumpModelManager::SetDrawEnable(const char* pszName, bool bEnable)
 {
     MapClumpContainer().SetEnableDraw(pszName, bEnable);
+};
+
+void CMapClumpModelContainer::ForEachClump(void(*pfnCallback)(RpClump*, const char*, void*), void* pData)
+{
+    for (CMapModelInfo& it : m_listAlloc)
+    {
+        CModel* pModel = it.GetModel();
+        RpClump* pClump = (pModel ? pModel->GetClump() : nullptr);
+        if (pClump && it.IsDrawEnable())
+            pfnCallback(pClump, it.GetName(), pData);
+    };
+};
+
+
+/*static*/ void CMapClumpModelManager::ForEachClump(void(*pfnCallback)(RpClump* pClump, const char* pszName, void* pData), void* pData)
+{
+    MapClumpContainer().ForEachClump(pfnCallback, pData);
 };

@@ -1,9 +1,11 @@
 #include "WaterSurface.hpp"
 #include "MapAttribute.hpp"
+#include "WorldMap.hpp"
 
 #if defined(TARGET_PC)
 #include "System/PC/PCEnhancedGraphics.hpp"
 #include "WaterSurfaceMesh.hpp"
+#include "MapClumpModelMan.hpp"
 
 #include "rpuvanim.h"
 
@@ -16,7 +18,8 @@ namespace
 {
     const float HORIZONTAL_NY         = 0.95f;  /* |normal.y| for a horizontal triangle          */
     const float MIN_HORIZONTAL_FRAC   = 0.85f;  /* of a material's area                           */
-    const float MIN_OVERLAP_UVANIM    = 0.25f;  /* ... when the material is UV-animated           */
+    const float MIN_OVERLAP_UVANIM    = 0.25f;
+    const float MIN_OVERLAP_STATIC    = 0.25f;  /* static texture: only its triangles over collision water are used */  /* ... when the material is UV-animated           */
     const float WATER_DY              = 1.0f;   /* render surface vs "water" collision height     */
     const float DOBON_DY              = 3.0f;   /* render surface vs "dobon" (deep water) floor   */
     const float GRID_CELL             = 4.0f;
@@ -41,11 +44,25 @@ namespace
         float       m_fMinY;
         float       m_fMaxY;
         float       m_fAbsNySum;     /* area-weighted |normal.y| */
+        int32       m_nHorzTri;
+        float       m_afHorzBox[6];  /* min x,y,z  max x,y,z of horizontal triangles */
         bool        m_bUVAnim;
         bool        m_bKeyword;
         bool        m_bInclude;
         bool        m_bExclude;
         bool        m_bWater;
+        bool        m_bClipToCollision; /* accepted on collision overlap alone: keep only wet triangles */
+        bool        m_bClump;           /* from a map clump model, not the world */
+        bool        m_bStrong;          /* named like water or UV-animated over collision water */
+        float       m_fYOffset;         /* lift applied to this layer's overlay triangles */
+        const char* m_pszModel;
+    };
+
+
+    struct CLUMPTRI
+    {
+        int32       m_matIndex;
+        RwV3d       m_v[3];
     };
 
 
@@ -58,6 +75,8 @@ namespace
         float                       m_fMinX, m_fMinZ;
         int32                       m_nCellX, m_nCellZ;
         std::vector<MATSTAT>        m_aMat;
+        size_t                      m_nWorldMaterial;
+        std::vector<CLUMPTRI>       m_aClumpTri;
         WaterSurfaceMesh::INPUT     m_mesh;
         bool                        m_bNative;
         int32                       m_nSectorNoGeometry;
@@ -154,6 +173,19 @@ namespace
         };
 
         return false;
+    };
+
+
+    /* centroid plus the three edge midpoints: robust for long thin triangles */
+    float WetFraction(const BUILDCONTEXT& ctx, const RwV3d& a, const RwV3d& b, const RwV3d& c)
+    {
+        float px[4] = { (a.x + b.x + c.x) / 3.0f, (a.x + b.x) * 0.5f, (b.x + c.x) * 0.5f, (c.x + a.x) * 0.5f };
+        float py[4] = { (a.y + b.y + c.y) / 3.0f, (a.y + b.y) * 0.5f, (b.y + c.y) * 0.5f, (c.y + a.y) * 0.5f };
+        float pz[4] = { (a.z + b.z + c.z) / 3.0f, (a.z + b.z) * 0.5f, (b.z + c.z) * 0.5f, (c.z + a.z) * 0.5f };
+        int32 nHit = 0;
+        for (int32 k = 0; k < 4; ++k)
+            nHit += (OverCollisionWater(ctx, px[k], py[k], pz[k]) ? 1 : 0);
+        return static_cast<float>(nHit) * 0.25f;
     };
 
 
@@ -259,6 +291,66 @@ namespace
      *  render materials
      *-------------------------------------------------------------------*/
 
+    void ScoreTriangle(BUILDCONTEXT& ctx, int32 matIndex, const RwV3d& a, const RwV3d& b, const RwV3d& c)
+    {
+        if ((matIndex < 0) || (matIndex >= static_cast<int32>(ctx.m_aMat.size())))
+            return;
+
+        float ny = 0.0f, area = 0.0f;
+        TriangleNormalArea(a, b, c, &ny, &area);
+
+        MATSTAT& m = ctx.m_aMat[matIndex];
+        if (m.m_nTriangle == 0)
+        {
+            m.m_fMinY = 1e30f;
+            m.m_fMaxY = -1e30f;
+        };
+        ++m.m_nTriangle;
+        m.m_fArea += area;
+        m.m_fAbsNySum += std::fabs(ny) * area;
+        const RwV3d* v3[3] = { &a, &b, &c };
+        for (int32 k = 0; k < 3; ++k)
+        {
+            m.m_fMinY = (v3[k]->y < m.m_fMinY) ? v3[k]->y : m.m_fMinY;
+            m.m_fMaxY = (v3[k]->y > m.m_fMaxY) ? v3[k]->y : m.m_fMaxY;
+        };
+        if (std::fabs(ny) < HORIZONTAL_NY)
+            return;
+
+        m.m_fHorizontalArea += area;
+        for (int32 k = 0; k < 3; ++k)
+        {
+            float p3[3] = { v3[k]->x, v3[k]->y, v3[k]->z };
+            for (int32 q = 0; q < 3; ++q)
+            {
+                if (((m.m_nHorzTri == 0) && (k == 0)) || (p3[q] < m.m_afHorzBox[q]))     m.m_afHorzBox[q] = p3[q];
+                if (((m.m_nHorzTri == 0) && (k == 0)) || (p3[q] > m.m_afHorzBox[q + 3])) m.m_afHorzBox[q + 3] = p3[q];
+            };
+        };
+        ++m.m_nHorzTri;
+
+        m.m_fOverlapArea += area * WetFraction(ctx, a, b, c);
+    };
+
+
+    void CollectTriangle(BUILDCONTEXT& ctx, int32 matIndex, const RwV3d& a, const RwV3d& b, const RwV3d& c)
+    {
+        if ((matIndex < 0) || (matIndex >= static_cast<int32>(ctx.m_aMat.size())) || !ctx.m_aMat[matIndex].m_bWater)
+            return;
+
+        float ny = 0.0f, area = 0.0f;
+        TriangleNormalArea(a, b, c, &ny, &area);
+        if ((std::fabs(ny) < HORIZONTAL_NY) || (area < 1e-6f))
+            return;   /* waterfalls and side faces keep their original look */
+
+        if (ctx.m_aMat[matIndex].m_bClipToCollision && (WetFraction(ctx, a, b, c) < 0.5f))
+            return;
+
+        float dy = ctx.m_aMat[matIndex].m_fYOffset;
+        WaterSurfaceMesh::AddTriangle(ctx.m_mesh, a.x, a.y + dy, a.z, b.x, b.y + dy, b.z, c.x, c.y + dy, c.z);
+    };
+
+
     RpWorldSector* ScoreRenderCallback(RpWorldSector* pSector, void* pData)
     {
         BUILDCONTEXT& ctx = *static_cast<BUILDCONTEXT*>(pData);
@@ -270,50 +362,11 @@ namespace
             return pSector;
         };
 
-        const int32 nMaterial = static_cast<int32>(ctx.m_aMat.size());
         for (int32 i = 0; i < pSector->numTriangles; ++i)
         {
             const RpTriangle& tri = pSector->triangles[i];
-            int32 matIndex = pSector->matListWindowBase + tri.matIndex;
-            if ((matIndex < 0) || (matIndex >= nMaterial))
-                continue;
-
-            const RwV3d& a = pSector->vertices[tri.vertIndex[0]];
-            const RwV3d& b = pSector->vertices[tri.vertIndex[1]];
-            const RwV3d& c = pSector->vertices[tri.vertIndex[2]];
-
-            float ny = 0.0f, area = 0.0f;
-            TriangleNormalArea(a, b, c, &ny, &area);
-
-            MATSTAT& m = ctx.m_aMat[matIndex];
-            if (m.m_nTriangle == 0)
-            {
-                m.m_fMinY = 1e30f;
-                m.m_fMaxY = -1e30f;
-            };
-            ++m.m_nTriangle;
-            m.m_fArea += area;
-            m.m_fAbsNySum += std::fabs(ny) * area;
-            float ys[3] = { a.y, b.y, c.y };
-            for (int32 k = 0; k < 3; ++k)
-            {
-                m.m_fMinY = (ys[k] < m.m_fMinY) ? ys[k] : m.m_fMinY;
-                m.m_fMaxY = (ys[k] > m.m_fMaxY) ? ys[k] : m.m_fMaxY;
-            };
-            if (std::fabs(ny) < HORIZONTAL_NY)
-                continue;
-
-            m.m_fHorizontalArea += area;
-
-            /* centroid plus the three edge midpoints: robust for long thin triangles */
-            float px[4] = { (a.x + b.x + c.x) / 3.0f, (a.x + b.x) * 0.5f, (b.x + c.x) * 0.5f, (c.x + a.x) * 0.5f };
-            float py[4] = { (a.y + b.y + c.y) / 3.0f, (a.y + b.y) * 0.5f, (b.y + c.y) * 0.5f, (c.y + a.y) * 0.5f };
-            float pz[4] = { (a.z + b.z + c.z) / 3.0f, (a.z + b.z) * 0.5f, (b.z + c.z) * 0.5f, (c.z + a.z) * 0.5f };
-            int32 nHit = 0;
-            for (int32 k = 0; k < 4; ++k)
-                nHit += (OverCollisionWater(ctx, px[k], py[k], pz[k]) ? 1 : 0);
-
-            m.m_fOverlapArea += area * (static_cast<float>(nHit) * 0.25f);
+            ScoreTriangle(ctx, pSector->matListWindowBase + tri.matIndex,
+                          pSector->vertices[tri.vertIndex[0]], pSector->vertices[tri.vertIndex[1]], pSector->vertices[tri.vertIndex[2]]);
         };
 
         return pSector;
@@ -326,27 +379,122 @@ namespace
         if (!pSector->triangles || !pSector->vertices)
             return pSector;
 
-        const int32 nMaterial = static_cast<int32>(ctx.m_aMat.size());
         for (int32 i = 0; i < pSector->numTriangles; ++i)
         {
             const RpTriangle& tri = pSector->triangles[i];
-            int32 matIndex = pSector->matListWindowBase + tri.matIndex;
-            if ((matIndex < 0) || (matIndex >= nMaterial) || !ctx.m_aMat[matIndex].m_bWater)
-                continue;
-
-            const RwV3d& a = pSector->vertices[tri.vertIndex[0]];
-            const RwV3d& b = pSector->vertices[tri.vertIndex[1]];
-            const RwV3d& c = pSector->vertices[tri.vertIndex[2]];
-
-            float ny = 0.0f, area = 0.0f;
-            TriangleNormalArea(a, b, c, &ny, &area);
-            if ((std::fabs(ny) < HORIZONTAL_NY) || (area < 1e-6f))
-                continue;   /* waterfalls and side faces keep their original look */
-
-            WaterSurfaceMesh::AddTriangle(ctx.m_mesh, a.x, a.y, a.z, b.x, b.y, b.z, c.x, c.y, c.z);
+            CollectTriangle(ctx, pSector->matListWindowBase + tri.matIndex,
+                            pSector->vertices[tri.vertIndex[0]], pSector->vertices[tri.vertIndex[1]], pSector->vertices[tri.vertIndex[2]]);
         };
 
         return pSector;
+    };
+
+
+    /*---------------------------------------------------------------------
+     *  map clump models (v1.1.1)
+     *
+     *  Many stages draw their visible water as a separate alpha-blended,
+     *  UV-animated clump (CMapClumpModelManager), not as world geometry:
+     *  the Nexus arena's pool is one. Their triangles are brought into world
+     *  space here and scored exactly like world triangles.
+     *-------------------------------------------------------------------*/
+
+    struct CLUMPPASS
+    {
+        BUILDCONTEXT*   m_pCtx;
+        const char*     m_pszModel;
+        int32           m_nAtomic;
+        int32           m_nNoGeometry;
+    };
+
+
+    RpAtomic* ClumpAtomicCallback(RpAtomic* pAtomic, void* pData)
+    {
+        CLUMPPASS& pass = *static_cast<CLUMPPASS*>(pData);
+        BUILDCONTEXT& ctx = *pass.m_pCtx;
+
+        RpGeometry* pGeometry = RpAtomicGetGeometry(pAtomic);
+        RwFrame* pFrame = RpAtomicGetFrame(pAtomic);
+        if (!pGeometry)
+            return pAtomic;
+
+        ++pass.m_nAtomic;
+        int32 nTri = RpGeometryGetNumTriangles(pGeometry);
+        const RpTriangle* pTri = RpGeometryGetTriangles(pGeometry);
+        RpMorphTarget* pMorph = (RpGeometryGetNumMorphTargets(pGeometry) > 0) ? RpGeometryGetMorphTarget(pGeometry, 0) : nullptr;
+        const RwV3d* pVert = (pMorph ? RpMorphTargetGetVertices(pMorph) : nullptr);
+        if (!pTri || !pVert || (nTri <= 0))
+        {
+            ++pass.m_nNoGeometry;
+            return pAtomic;
+        };
+
+        const RwMatrix* pLTM = (pFrame ? RwFrameGetLTM(pFrame) : nullptr);
+        RpMaterialList& matList = pGeometry->matList;
+        int32 nGeoMat = RpGeometryGetNumMaterials(pGeometry);
+
+        /* append (or find) this geometry's materials in the shared table */
+        std::vector<int32> aMap(static_cast<size_t>(Max(nGeoMat, 0)), -1);
+        for (int32 i = 0; i < nGeoMat; ++i)
+        {
+            RpMaterial* pMaterial = RpGeometryGetMaterial(pGeometry, i);
+            for (size_t j = ctx.m_nWorldMaterial; j < ctx.m_aMat.size(); ++j)
+            {
+                if (ctx.m_aMat[j].m_pMaterial == pMaterial)
+                {
+                    aMap[i] = static_cast<int32>(j);
+                    break;
+                };
+            };
+            if (aMap[i] >= 0)
+                continue;
+
+            MATSTAT m;
+            std::memset(&m, 0, sizeof(m));
+            m.m_pMaterial = pMaterial;
+            const char* pszName = MaterialName(pMaterial);
+            m.m_bUVAnim = (pMaterial && RpMaterialUVAnimExists(pMaterial));
+            m.m_bKeyword = HasWaterKeyword(pszName) || HasWaterKeyword(pass.m_pszModel);
+            m.m_bInclude = CEnhancedGraphics::IsWaterTextureIncluded(pszName);
+            m.m_bExclude = CEnhancedGraphics::IsWaterTextureExcluded(pszName);
+            m.m_bClump = true;
+            m.m_pszModel = pass.m_pszModel;
+            aMap[i] = static_cast<int32>(ctx.m_aMat.size());
+            ctx.m_aMat.push_back(m);
+        };
+        (void)matList;
+
+        for (int32 i = 0; i < nTri; ++i)
+        {
+            const RpTriangle& tri = pTri[i];
+            if (tri.matIndex >= static_cast<RwUInt16>(nGeoMat))
+                continue;
+
+            CLUMPTRI ct;
+            ct.m_matIndex = aMap[tri.matIndex];
+            for (int32 k = 0; k < 3; ++k)
+            {
+                ct.m_v[k] = pVert[tri.vertIndex[k]];
+                if (pLTM)
+                    RwV3dTransformPoint(&ct.m_v[k], &ct.m_v[k], pLTM);
+            };
+            ctx.m_aClumpTri.push_back(ct);
+        };
+
+        return pAtomic;
+    };
+
+
+    void CollectMapClump(RpClump* pClump, const char* pszName, void* pData)
+    {
+        CLUMPPASS pass;
+        pass.m_pCtx = static_cast<BUILDCONTEXT*>(pData);
+        pass.m_pszModel = pszName;
+        pass.m_nAtomic = 0;
+        pass.m_nNoGeometry = 0;
+        RpClumpForAllAtomics(pClump, ClumpAtomicCallback, &pass);
+        CEnhancedGraphics::Log("WATER map model %-16s atomics=%d without_triangles=%d", (pszName ? pszName : "?"),
+                               pass.m_nAtomic, pass.m_nNoGeometry);
     };
 
 
@@ -422,6 +570,7 @@ namespace WaterSurface
         ctx.m_nSectorNoGeometry = 0;
         ctx.m_fMinX = ctx.m_fMinZ = 0.0f;
         ctx.m_nCellX = ctx.m_nCellZ = 0;
+        ctx.m_nWorldMaterial = 0;
 
         /* 1. collision footprint of "water" / "dobon" */
         if (pWorldCollision)
@@ -449,14 +598,42 @@ namespace WaterSurface
 
         RpWorldForAllWorldSectors(pWorld, ScoreRenderCallback, &ctx);
 
+        /* 2b. map clump models (separately drawn, often the visible water) */
+        ctx.m_nWorldMaterial = ctx.m_aMat.size();
+        CMapClumpModelManager::ForEachClump(CollectMapClump, &ctx);
+        for (size_t i = 0; i < ctx.m_aClumpTri.size(); ++i)
+        {
+            const CLUMPTRI& t = ctx.m_aClumpTri[i];
+            ScoreTriangle(ctx, t.m_matIndex, t.m_v[0], t.m_v[1], t.m_v[2]);
+        };
+
         CEnhancedGraphics::Log("WATER stage=%s render_materials=%d native=%d sectors_without_geometry=%d collision_water_tris=%d",
                                (pszStageName ? pszStageName : "?"), nMaterial, (ctx.m_bNative ? 1 : 0),
                                ctx.m_nSectorNoGeometry, static_cast<int32>(ctx.m_aColTri.size()));
+        {
+            float bx[6] = { 1e30f, 1e30f, 1e30f, -1e30f, -1e30f, -1e30f };
+            for (size_t t = 0; t < ctx.m_aColTri.size(); ++t)
+            {
+                const COLTRI& c = ctx.m_aColTri[t];
+                float p9[9] = { c.m_ax, c.m_ay, c.m_az, c.m_bx, c.m_by, c.m_bz, c.m_cx, c.m_cy, c.m_cz };
+                for (int32 k = 0; k < 3; ++k)
+                    for (int32 q = 0; q < 3; ++q)
+                    {
+                        bx[q] = (p9[k * 3 + q] < bx[q]) ? p9[k * 3 + q] : bx[q];
+                        bx[q + 3] = (p9[k * 3 + q] > bx[q + 3]) ? p9[k * 3 + q] : bx[q + 3];
+                    };
+            };
+            RwV3d vSurf = { 0.0f, 0.0f, 0.0f };
+            CWorldMap::GetWaterSurfacePosition(&vSurf);
+            CEnhancedGraphics::Log("WATER game water surface (for shadows/ripples) y=%.2f at ground 0", vSurf.y);
+            if (!ctx.m_aColTri.empty())
+                CEnhancedGraphics::Log("WATER collision water box=(%.1f %.1f %.1f)..(%.1f %.1f %.1f)", bx[0], bx[1], bx[2], bx[3], bx[4], bx[5]);
+        };
 
         int32 nWaterMaterial = 0, nLogged = 0;
         float afColor[3] = { 0.0f, 0.0f, 0.0f };
         float fColorWeight = 0.0f;
-        for (int32 i = 0; i < nMaterial; ++i)
+        for (int32 i = 0; i < static_cast<int32>(ctx.m_aMat.size()); ++i)
         {
             MATSTAT& m = ctx.m_aMat[i];
             if (m.m_nTriangle == 0)
@@ -465,23 +642,90 @@ namespace WaterSurface
             float fHorizontal = (m.m_fArea > 0.0f) ? (m.m_fHorizontalArea / m.m_fArea) : 0.0f;
             float fOverlap = (m.m_fHorizontalArea > 0.0f) ? (m.m_fOverlapArea / m.m_fHorizontalArea) : 0.0f;
 
-            /* v1.1: overlap alone is not enough. On m60x a static sand floor next to a "dobon" pit
-             * overlapped collision water by 50%; TMNT2's water surfaces are UV-animated, floors are not. */
-            bool bCandidate = (fHorizontal >= MIN_HORIZONTAL_FRAC) &&
-                              (m.m_bKeyword || (m.m_bUVAnim && (fOverlap >= MIN_OVERLAP_UVANIM)));
+            /* v1.1.1: a flat material with a static texture that lies over collision water is water
+             * too (the Nexus arena's shallow pool, m60x_colosseum_floor1). Only the triangles that are
+             * actually over collision water get the overlay, so a floor material that is partly dry
+             * keeps its dry part untouched. */
+            bool bNamedOrAnimated = m.m_bKeyword || (m.m_bUVAnim && (fOverlap >= MIN_OVERLAP_UVANIM));
+            bool bStaticWet = (fOverlap >= MIN_OVERLAP_STATIC);
+            bool bCandidate = (fHorizontal >= MIN_HORIZONTAL_FRAC) && (bNamedOrAnimated || bStaticWet);
             m.m_bWater = m.m_bInclude || (!m.m_bExclude && bCandidate);
+            m.m_bClipToCollision = m.m_bWater && !m.m_bInclude && !bNamedOrAnimated;
+            m.m_bStrong = m.m_bInclude || bNamedOrAnimated;
 
             if ((m.m_bWater || m.m_bKeyword || m.m_bInclude || m.m_bExclude || (fOverlap > 0.05f) || m.m_bUVAnim) && (nLogged < 64))
             {
-                CEnhancedGraphics::Log("WATER  material %3d %-24s tris=%5d area=%8.1f y=[%.2f..%.2f] avg_ny=%.2f horizontal=%3.0f%% over_collision_water=%3.0f%% uvanim=%d keyword=%d include=%d exclude=%d -> %s",
-                                       i, MaterialName(m.m_pMaterial), m.m_nTriangle, m.m_fArea, m.m_fMinY, m.m_fMaxY,
+                CEnhancedGraphics::Log("WATER  material %3d %-24s%s%-10s tris=%5d area=%8.1f y=[%.2f..%.2f] avg_ny=%.2f horizontal=%3.0f%% over_collision_water=%3.0f%% uvanim=%d keyword=%d include=%d exclude=%d -> %s",
+                                       i, MaterialName(m.m_pMaterial), (m.m_bClump ? " model=" : ""),
+                                       (m.m_bClump && m.m_pszModel ? m.m_pszModel : ""), m.m_nTriangle, m.m_fArea, m.m_fMinY, m.m_fMaxY,
                                        (m.m_fArea > 0.0f) ? (m.m_fAbsNySum / m.m_fArea) : 0.0f,
                                        fHorizontal * 100.0f, fOverlap * 100.0f,
                                        (m.m_bUVAnim ? 1 : 0), (m.m_bKeyword ? 1 : 0), (m.m_bInclude ? 1 : 0), (m.m_bExclude ? 1 : 0),
                                        (m.m_bWater ? "WATER" : "-"));
+                if (m.m_nHorzTri > 0)
+                    CEnhancedGraphics::Log("WATER    flat part: tris=%d area=%.1f box=(%.1f %.1f %.1f)..(%.1f %.1f %.1f)",
+                                           m.m_nHorzTri, m.m_fHorizontalArea,
+                                           m.m_afHorzBox[0], m.m_afHorzBox[1], m.m_afHorzBox[2],
+                                           m.m_afHorzBox[3], m.m_afHorzBox[4], m.m_afHorzBox[5]);
                 ++nLogged;
             };
 
+        };
+
+        /* 2c. stacked layers: stages draw one pool as several coplanar layers (Nexus: two
+         * colosseum_water sheets + a ripple sheet over the pool floor). Overlaying each would
+         * multiply the effect and z-fight, so per footprint only one layer is kept: a named /
+         * animated one before a merely wet floor, then the larger one. It is lifted to the
+         * highest layer of the group so it draws on top of all of them. */
+        for (int32 i = 0; i < static_cast<int32>(ctx.m_aMat.size()); ++i)
+        {
+            MATSTAT& m = ctx.m_aMat[i];
+            if (!m.m_bWater || (m.m_nHorzTri == 0))
+                continue;
+
+            int32 best = i;
+            float topY = m.m_afHorzBox[4];
+            for (int32 j = 0; j < static_cast<int32>(ctx.m_aMat.size()); ++j)
+            {
+                const MATSTAT& o = ctx.m_aMat[j];
+                if ((j == i) || !o.m_bWater || (o.m_nHorzTri == 0))
+                    continue;
+
+                /* overlap of the two flat parts in x/z, relative to the smaller one */
+                float ox = Min(m.m_afHorzBox[3], o.m_afHorzBox[3]) - Max(m.m_afHorzBox[0], o.m_afHorzBox[0]);
+                float oz = Min(m.m_afHorzBox[5], o.m_afHorzBox[5]) - Max(m.m_afHorzBox[2], o.m_afHorzBox[2]);
+                float dy = std::fabs(m.m_afHorzBox[4] - o.m_afHorzBox[4]);
+                if ((ox <= 0.0f) || (oz <= 0.0f) || (dy > 1.5f))
+                    continue;
+                float am = (m.m_afHorzBox[3] - m.m_afHorzBox[0]) * (m.m_afHorzBox[5] - m.m_afHorzBox[2]);
+                float ao = (o.m_afHorzBox[3] - o.m_afHorzBox[0]) * (o.m_afHorzBox[5] - o.m_afHorzBox[2]);
+                if ((ox * oz) < (0.6f * Max(Min(am, ao), 1e-3f)))
+                    continue;
+
+                topY = Max(topY, o.m_afHorzBox[4]);
+                const MATSTAT& b = ctx.m_aMat[best];
+                bool bBetter = (o.m_bStrong != b.m_bStrong) ? o.m_bStrong :
+                               (std::fabs(o.m_fHorizontalArea - b.m_fHorizontalArea) > 1e-3f) ? (o.m_fHorizontalArea > b.m_fHorizontalArea) :
+                               (o.m_afHorzBox[4] > b.m_afHorzBox[4]) ? true :
+                               ((o.m_afHorzBox[4] == b.m_afHorzBox[4]) && (j < best));
+                if (bBetter)
+                    best = j;
+            };
+
+            if (best != i)
+            {
+                m.m_bWater = false;
+                CEnhancedGraphics::Log("WATER  material %3d %s: same pool as material %d, layer skipped", i, MaterialName(m.m_pMaterial), best);
+            }
+            else
+            {
+                m.m_fYOffset = Max(0.0f, topY - m.m_afHorzBox[4]) + 0.02f;
+            };
+        };
+
+        for (int32 i = 0; i < static_cast<int32>(ctx.m_aMat.size()); ++i)
+        {
+            MATSTAT& m = ctx.m_aMat[i];
             if (!m.m_bWater)
                 continue;
 
@@ -501,7 +745,14 @@ namespace WaterSurface
         /* 3. geometry from the chosen render triangles */
         WaterSurfaceMesh::Begin(ctx.m_mesh);
         if (nWaterMaterial > 0)
+        {
             RpWorldForAllWorldSectors(pWorld, CollectMeshCallback, &ctx);
+            for (size_t i = 0; i < ctx.m_aClumpTri.size(); ++i)
+            {
+                const CLUMPTRI& t = ctx.m_aClumpTri[i];
+                CollectTriangle(ctx, t.m_matIndex, t.m_v[0], t.m_v[1], t.m_v[2]);
+            };
+        };
 
         const char* pszSource = "render";
         if ((WaterSurfaceMesh::TriangleCount(ctx.m_mesh) == 0) && CEnhancedGraphics::IsWaterCollisionFallbackEnabled() &&

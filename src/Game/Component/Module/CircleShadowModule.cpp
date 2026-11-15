@@ -231,6 +231,20 @@ void CCircleShadowModule::Run(void)
 	
     vPosition.y = fHeight + 0.05f;
 
+#if defined(SHADOW_ENHANCED_GRAPHICS)
+    /* v1.1.1: in shallow water the shadow sat on the pool floor, under the stage's water
+     * sheets, and could not be seen. Put it on the water surface the game itself uses for
+     * ripples and splashes. */
+    if (CEnhancedGraphics::Get().m_bShadow && ((pCollisionResult->m_attribute & MAPTYPES::ATTRIBUTE_WATER) != 0))
+    {
+        RwV3d vSurface = vPosition;
+        vSurface.y = fHeight;
+        CWorldMap::GetWaterSurfacePosition(&vSurface);
+        if ((vSurface.y > fHeight) && (vSurface.y < (fHeight + 3.0f)) && (vSurface.y < (vPosition.y + fChrHeight + 3.0f)))
+            vPosition.y = vSurface.y + 0.40f;   /* measured: lower lifts were still hidden by the stage's water sheets */
+    };
+#endif /* defined(SHADOW_ENHANCED_GRAPHICS) */
+
     RwV3d vNormal = pCollisionResult->m_vNormal;
     RwV3d vAxisX = Math::VECTOR3_ZERO;
     RwV3d vAxisY = Math::VECTOR3_ZERO;

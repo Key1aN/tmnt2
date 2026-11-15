@@ -30,7 +30,7 @@ private:
     struct ENHANCEDKEY
     {
         RwTexture* m_pSource;
-        float      m_afValue[6];
+        float      m_afValue[10];
     };
 
     bool BuildEnhancedGradient(int32 index, const ENHANCEDKEY& rKey);
@@ -191,6 +191,10 @@ void CToonManagerImplement::RefreshEnhancement(void)
         key.m_afValue[3] = afTint[0];
         key.m_afValue[4] = afTint[1];
         key.m_afValue[5] = afTint[2];
+        key.m_afValue[6] = (rSettings.m_bLightRig ? 1.0f : 0.0f);
+        key.m_afValue[7] = rSettings.m_fAmbientScale;
+        key.m_afValue[8] = rSettings.m_fKeyLight;
+        key.m_afValue[9] = rSettings.m_fLightWarmth;
 
         /* Rebuild only when the source or the parameters changed: a plain A/B toggle just swaps pointers. */
         bool bSame = m_abEnhancedValid[i] && m_apGradientEnhanced[i] &&
@@ -267,6 +271,10 @@ bool CToonManagerImplement::BuildEnhancedGradient(int32 index, const ENHANCEDKEY
     params.m_afTint[0]   = rKey.m_afValue[3];
     params.m_afTint[1]   = rKey.m_afValue[4];
     params.m_afTint[2]   = rKey.m_afValue[5];
+    params.m_bLightRig   = (rKey.m_afValue[6] != 0.0f);
+    params.m_fAmbient    = rKey.m_afValue[7];
+    params.m_fKey        = rKey.m_afValue[8];
+    params.m_fWarmth     = rKey.m_afValue[9];
     ToonGradient::RESULT result = ToonGradient::Enhance(s_aSrc, s_aDst, w, h, params);
 
     for (int32 y = 0; y < h; ++y)
@@ -316,10 +324,11 @@ bool CToonManagerImplement::BuildEnhancedGradient(int32 index, const ENHANCEDKEY
 
     m_aEnhancedKey[index] = rKey;
     m_abEnhancedValid[index] = true;
-    CEnhancedGraphics::Log("TOON %s %dx%d axis=%s dark_at_start=%d lum=%.2f..%.2f contrast=%.2f tint=%.2f highlight=%.2f",
+    CEnhancedGraphics::Log("TOON %s %dx%d axis=%s dark_at_start=%d lum=%.2f..%.2f contrast=%.2f tint=%.2f highlight=%.2f rig=%d ambient=%.2f key=%.2f warmth=%.2f",
                            RwTextureGetName(pSource), w, h, (result.m_iAxis == 0 ? "u" : "v"),
                            (result.m_bDarkAtStart ? 1 : 0), result.m_fLumMin, result.m_fLumMax,
-                           params.m_fContrast, params.m_fShadowTint, params.m_fHighlight);
+                           params.m_fContrast, params.m_fShadowTint, params.m_fHighlight,
+                           (params.m_bLightRig ? 1 : 0), params.m_fAmbient, params.m_fKey, params.m_fWarmth);
     return true;
 };
 

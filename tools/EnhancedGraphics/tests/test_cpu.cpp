@@ -2,6 +2,8 @@
 #include "Game/System/Model/ToonGradient.hpp"
 #include "Game/System/Map/WaterSurfaceMesh.hpp"
 #include <cstdio>
+#include <algorithm>
+#include <cstdlib>
 #include <cmath>
 #include <vector>
 #include <cstring>
@@ -63,6 +65,27 @@ static void TestFlatAndTiny(void)
     ToonGradient::Enhance(&flat[0], &o[0], 8, 1, prm);
     CHECK(flat == o, "flat ramp (like pat05) must stay exactly as shipped");
     std::printf("gradient 1x1 / flat unchanged ok\n");
+}
+
+static void TestLightRig(void)
+{
+    // 16x1 ramp like pat01: dark (0.61) on the left, white on the right
+    std::vector<unsigned char> src(16 * 4), a(16 * 4), b(16 * 4);
+    for (int i = 0; i < 16; ++i) { unsigned char v = (unsigned char)(155 + (100 * i) / 15); src[i*4]=v; src[i*4+1]=v; src[i*4+2]=v; src[i*4+3]=255; }
+    ToonGradient::PARAMS off = { 0.6f, 0.55f, { 0.93f, 0.99f, 1.22f }, 0.35f };
+    ToonGradient::PARAMS dim = off; dim.m_bLightRig = true; dim.m_fAmbient = 0.5f; dim.m_fKey = 1.0f; dim.m_fWarmth = 0.0f;
+    ToonGradient::Enhance(&src[0], &a[0], 16, 1, off);
+    ToonGradient::Enhance(&src[0], &b[0], 16, 1, dim);
+    CHECK(b[0] + 20 < a[0], "ambient 0.5 must clearly darken the shadow end (%d -> %d)", a[0], b[0]);
+    CHECK(std::abs(int(b[15*4]) - int(a[15*4])) <= 2, "ambient must not touch the lit end (%d -> %d)", a[15*4], b[15*4]);
+    ToonGradient::PARAMS warm = off; warm.m_bLightRig = true; warm.m_fAmbient = 1.0f; warm.m_fKey = 1.0f; warm.m_fWarmth = 1.0f;
+    ToonGradient::Enhance(&src[0], &b[0], 16, 1, warm);
+    CHECK(b[15*4+2] + 20 < b[15*4], "warmth must make the lit end warm (r %d b %d)", b[15*4], b[15*4+2]);
+    // default Enhanced settings must be clearly visible against the original ramp
+    int maxDiff = 0;
+    for (int i = 0; i < 16 * 4; ++i) maxDiff = std::max(maxDiff, std::abs(int(a[i]) - int(src[i])));
+    CHECK(maxDiff >= 30, "Enhanced defaults change the ramp by only %d/255", maxDiff);
+    std::printf("light rig on the ramp ok (default Enhanced ramp changes up to %d/255; ambient, warmth verified)\n", maxDiff);
 }
 
 static void TestMesh(void)
@@ -128,6 +151,7 @@ static void TestMesh(void)
 
 int main()
 {
+    TestLightRig();
     TestGradient(32, 1, true,  false, "32x1 smooth dark-left");
     TestGradient(32, 1, false, false, "32x1 smooth dark-right");
     TestGradient(1, 64, true,  false, "1x64 vertical");

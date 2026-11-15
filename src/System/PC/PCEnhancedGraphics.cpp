@@ -23,6 +23,13 @@
 #endif /* defined(TMNT2_RWDRV_D3D9) */
 
 
+extern "C"
+{
+    extern D3DMATRIX _RwD3D9D3D9ViewTransform;
+    extern D3DMATRIX _RwD3D9D3D9ProjTransform;
+};
+
+
 namespace
 {
     /*=====================================================================
@@ -1337,7 +1344,7 @@ namespace
     if (BuildPath(wszLog, MAX_PATH, L"TMNT2_graphics.log"))
         _wfopen_s(&s_state.m_pLog, wszLog, L"wb");
 
-    Log("TMNT2 Enhanced Graphics v1.1.0 (feature enhanced-graphics)");
+    Log("TMNT2 Enhanced Graphics v1.1.1 (feature enhanced-graphics)");
     LoadIni();
     ComputeShadowTint();
     UpdateEffective("startup");
@@ -1742,9 +1749,11 @@ namespace
         fFogEnd = RwCameraGetFarClipPlane(pCamera);
     };
 
-    D3DMATRIX view, proj;
-    RwD3D9GetTransform(D3DTS_VIEW, &view);
-    RwD3D9GetTransform(D3DTS_PROJECTION, &proj);
+    /* v1.1.1: RenderWare's D3D9 driver keeps the camera matrices in these globals for its
+     * vertex shaders and never sets D3DTS_VIEW / D3DTS_PROJECTION, so RwD3D9GetTransform
+     * returned identity and the water overlay was drawn off screen on every stage. */
+    D3DMATRIX view = _RwD3D9D3D9ViewTransform;
+    D3DMATRIX proj = _RwD3D9D3D9ProjTransform;
 
     float vp[4][4];
     for (int32 r = 0; r < 4; ++r)

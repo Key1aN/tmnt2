@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Builds TMNT2_Enhanced_Graphics_v1.1.t2mod in the T2 Mod Manager package format.
+"""Builds TMNT2_Enhanced_Graphics_v1.1.1.t2mod in the T2 Mod Manager package format.
 
 Format (identical to the packages produced by T2ModManager.Packager pack-composable-exe):
   * ZIP with manifest.json (deflate) and payload/Enhanced_Graphics.t2delta (stored)
@@ -23,11 +23,12 @@ CHUNK = 1024 * 1024
 
 PACKAGE_ID = "Enhanced_Graphics"
 FEATURE = "enhanced-graphics"
-VERSION = "1.1.0"
-DISPLAY_NAME = "Enhanced Graphics v1.1 (cel lighting, contact shadows, stylized water)"
+VERSION = "1.1.1"
+DISPLAY_NAME = "Enhanced Graphics v1.1.1 (cel lighting, contact shadows, stylized water)"
 DESCRIPTION = (
-    "v1.1: controller-friendly REMASTER tab in Debug Tools (F4) to switch and tune every setting live and save "
-    "it; water detection no longer picks static floors; flat toon ramps left as shipped. "
+    "v1.1.1: water overlay now actually draws (camera matrix fix) and finds water drawn as stage models "
+    "(Nexus arena pool); toon and light settings made clearly visible; shadows show in shallow water. "
+    "REMASTER tab in Debug Tools (F4) to switch and tune every setting live and save it. "
     "Modern remaster of the 3D look that keeps the 2003 cartoon style. Toon lighting: remapped shading "
     "gradients with a crisper light/shadow split, cool stage-tinted shadows and a lifted highlight band; "
     "warm key / cool fill light rig for characters (ink outlines untouched). Shadows: soft contact shadows "

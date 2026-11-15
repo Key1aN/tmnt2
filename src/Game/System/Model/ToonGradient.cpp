@@ -102,7 +102,9 @@ namespace ToonGradient
         if (bFlat)
             return result;
 
-        const float k = 1.0f + 0.35f * Clamp01(rParams.m_fContrast);
+        /* v1.1.1: v1.0's ramp edits were too small to see in game (measured: no visible
+         * change even at maximum). Contrast now moves the split and deepens the shadow band. */
+        const float k = 1.0f + 0.9f * Clamp01(rParams.m_fContrast);
         const bool bNearest = (length <= 16);   /* keep hard toon steps hard */
 
         for (int j = 0; j < lines; ++j)
@@ -148,18 +150,38 @@ namespace ToonGradient
                 float lum = (0.299f * c[0]) + (0.587f * c[1]) + (0.114f * c[2]);
                 float dark = bFlat ? (1.0f - s) : Clamp01((fMax - lum) / fRange);
 
+                float lit = 1.0f - dark;
                 for (int ch = 0; ch < 3; ++ch)
                 {
-                    float tint = 1.0f + (rParams.m_afTint[ch] - 1.0f) * (dark * Clamp01(rParams.m_fShadowTint));
-                    c[ch] *= tint;
-                    c[ch] *= 1.0f - (0.10f * Clamp01(rParams.m_fContrast) * dark);
+                    /* stage-coloured shadows: at 1 the shadow band takes the full tint */
+                    float tint = 1.0f + (rParams.m_afTint[ch] - 1.0f) * 1.6f * (dark * Clamp01(rParams.m_fShadowTint));
+                    c[ch] *= (tint > 0.0f) ? tint : 0.0f;
+                    c[ch] *= 1.0f - (0.45f * Clamp01(rParams.m_fContrast) * dark);
                 };
 
-                /* Highlight follows how lit the texel is (not its position), so hard toon steps stay hard. */
-                float lit = bFlat ? s : (1.0f - dark);
-                float hl = SmoothStep(0.80f, 0.97f, lit) * Clamp01(rParams.m_fHighlight) * 0.22f;
+                /* Highlight widens the lit side: mid tones are lifted toward the lit colour.
+                 * It follows how lit the texel is (not its position), so hard toon steps stay hard. */
+                float hl = SmoothStep(0.25f, 0.85f, lit) * Clamp01(rParams.m_fHighlight) * 0.55f;
                 for (int ch = 0; ch < 3; ++ch)
                     c[ch] += (1.0f - Clamp01(c[ch])) * hl;
+
+                if (rParams.m_bLightRig)
+                {
+                    float amb = (rParams.m_fAmbient < 0.0f) ? 0.0f : rParams.m_fAmbient;
+                    float key = rParams.m_fKey;
+                    float w = Clamp01(rParams.m_fWarmth);
+                    const float afWarm[3] = { 1.0f, 1.0f - 0.06f * w, 1.0f - 0.18f * w };
+                    const float afCool[3] = { 1.0f - 0.14f * w, 1.0f - 0.04f * w, 1.0f + 0.08f * w };
+                    for (int ch = 0; ch < 3; ++ch)
+                    {
+                        c[ch] *= 1.0f + (amb - 1.0f) * dark;                    /* shadow band level */
+                        if (key < 1.0f)
+                            c[ch] *= 1.0f + (key - 1.0f) * lit;                 /* dim the lit side */
+                        else
+                            c[ch] += (1.0f - Clamp01(c[ch])) * (key - 1.0f) * 3.2f * lit * dark;   /* lift the terminator */
+                        c[ch] *= (afWarm[ch] * lit) + (afCool[ch] * dark);
+                    };
+                };
 
                 unsigned char* q = pDst + ((((axis == 0) ? j : i) * width) + ((axis == 0) ? i : j)) * 4;
                 for (int ch = 0; ch < 4; ++ch)
