@@ -286,6 +286,8 @@ static inline const SdStrFile_t* SdGetVagFileLSN(int32 _code)
     ASSERT(BankNo >= 0);
     ASSERT(BankNo < SdVagLoadNum);
 
+    static SdStrFile_t s_TestEmpty = {}; /* WINE TEST BUILD ONLY */
+    if (!SdLoadVag[BankNo].LSN) return &s_TestEmpty;
     return &((SdStrFile_t*)SdLoadVag[BankNo].LSN)[FileNo];
 };
 

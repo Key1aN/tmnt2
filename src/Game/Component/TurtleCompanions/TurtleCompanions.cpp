@@ -23,10 +23,12 @@
 #include "Game/System/Misc/PadStream.hpp"
 #include "Game/System/Sound/GameSound.hpp"
 #include "System/PC/PCModFeatures.hpp"
+#include "System/Common/Configure.hpp"
 
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <cstdarg>
 
 
 namespace
@@ -401,15 +403,39 @@ namespace
     };
 
 
+    /* WINE TEST BUILD ONLY */
+    static bool IsTestArg(void)
+    {
+        static int32 s_iTest = -1;
+        if (s_iTest < 0)
+            s_iTest = (CConfigure::CheckArg("companiontest") ? 1 : 0);
+        return (s_iTest == 1);
+    };
+
+    static void TestLog(const char* pszFormat, ...)
+    {
+        static FILE* s_pFile = nullptr;
+        if (!s_pFile)
+            s_pFile = std::fopen("TMNT2_companions_test.log", "w");
+        if (!s_pFile)
+            return;
+        va_list args;
+        va_start(args, pszFormat);
+        std::vfprintf(s_pFile, pszFormat, args);
+        va_end(args);
+        std::fputc('\n', s_pFile);
+        std::fflush(s_pFile);
+    };
+
     static bool IsEligibleSession(void)
     {
         if (!Tc().m_bEnabled || !CPCModFeatures::IsDebugToolsEnabled())
             return false;
 
-        if (CCombatLab::IsActive())
+        if (CCombatLab::IsActive() && !IsTestArg())
             return false;
 
-        if (CGameData::Attribute().IsNexusMode() || CGameData::Attribute().IsPlayDemoMode())
+        if ((CGameData::Attribute().IsNexusMode() && !IsTestArg()) || CGameData::Attribute().IsPlayDemoMode())
             return false;
 
         if (CPadStreamSwitch::m_mode != CPadStream::MODE_NONE)
@@ -431,6 +457,8 @@ namespace
 
     static bool IsEligibleStageMode(GAMETYPES::STAGEMODE mode)
     {
+        if (IsTestArg())
+            return true;
         return (mode == GAMETYPES::STAGEMODE_NORMAL);
     };
 
@@ -930,6 +958,9 @@ namespace
     };
 
     ApplyPads();
+    TestLog("TEAM created num=%d human=%d pad=%d players=%d", team.m_nNum, team.m_iHuman, team.m_iHumanPad, CGameProperty::GetPlayerNum());
+    for (int32 i = 0; i < team.m_nNum; ++i)
+        TestLog("  slot %d %s", i, TurtleName(team.m_aId[i]));
     return true;
 };
 
@@ -1073,6 +1104,27 @@ namespace
         uint32 uTrigger = IGamepad::GetDigitalTrigger(team.m_iHumanPad);
         if (IGamepad::CheckFunction(uTrigger, IGamepad::FUNCTION_SWITCH_CHR))
             SwitchNext();
+    };
+
+    // TEST: switch every 6 s and log every 0.5 s
+    {
+        static float s_fNextSwitch = 6.0f;
+        static float s_fNextLog = 0.0f;
+        static float s_fStart = -1.0f;
+        if (s_fStart < 0.0f || fNow < s_fStart) { s_fStart = fNow; s_fNextSwitch = 6.0f; s_fNextLog = 0.0f; };
+        float t = fNow - s_fStart;
+        if (t >= s_fNextSwitch) { s_fNextSwitch += 6.0f; TestLog("t=%.2f SWITCH from %d", t, team.m_iHuman); SwitchNext(); TestLog("t=%.2f SWITCH to %d", t, team.m_iHuman); };
+        if (t >= s_fNextLog)
+        {
+            s_fNextLog += 0.5f;
+            char line[512]; int n = std::snprintf(line, sizeof(line), "t=%.2f enemies=%d hp=%d", t, tc.m_nEnemy, CGameProperty::Player(0)->GetHP());
+            for (int32 i = 0; i < team.m_nNum; ++i)
+            {
+                CPlayerCharacter* c = SlotCharacter(i); RwV3d v = Math::VECTOR3_ZERO; if (c) c->GetFootPosition(&v);
+                n += std::snprintf(line + n, sizeof(line) - n, " | %d%s st=%d ai=%d tgt=%u pos=%.1f,%.1f,%.1f cam=%d", i, (i == team.m_iHuman ? "*" : ""), c ? (int)c->GetStatus() : -1, (int)team.m_aAI[i].m_state, team.m_aAI[i].m_hTarget, v.x, v.y, v.z, IsCameraTarget(i) ? 1 : 0);
+            };
+            TestLog("%s", line);
+        };
     };
 
     for (int32 i = 0; i < team.m_nNum; ++i)
