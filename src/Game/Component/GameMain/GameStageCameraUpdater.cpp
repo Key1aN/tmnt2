@@ -14,6 +14,10 @@
 #include "Game/System/GameObject/GameObject.hpp"
 #include "Game/System/GameObject/GameObjectManager.hpp"
 
+#if defined(TMNT2_DEBUG_TOOLS)
+#include "Game/Component/TurtleCompanions/TurtleCompanions.hpp"
+#endif /* defined(TMNT2_DEBUG_TOOLS) */
+
 
 /*
  *  Collects players for enhanced camera framing:
@@ -132,6 +136,16 @@ int32 CPlayerFrameTracker::Update(CMapCamera::FRAMETARGET* aTarget, RwV3d* pvCen
             rTrack.m_bValid = false;
             continue;
         };
+
+#if defined(TMNT2_DEBUG_TOOLS)
+        // Turtle Companions: the camera follows the human; companions only
+        // while they are close to the human.
+        if (!CTurtleCompanions::IsCameraTarget(i))
+        {
+            rTrack.m_bValid = false;
+            continue;
+        };
+#endif /* defined(TMNT2_DEBUG_TOOLS) */
 
         RwV3d vPos = Math::VECTOR3_ZERO;
         pGamePlayer->GetPosition(&vPos);
@@ -331,13 +345,19 @@ void CDefaultCameraUpdater::UpdateOriginal(CMapCamera* pMapCamera)
     RwV3d avPosition[GAMETYPES::PLAYERS_MAX] = { Math::VECTOR3_ZERO };
     RwV3d vLookat = Math::VECTOR3_ZERO;
 
-    int32 playerNum = CGameProperty::GetPlayerNum();
-    for (int32 i = 0; i < playerNum; ++i)
+    int32 playerNum = 0;
+    int32 playerMax = CGameProperty::GetPlayerNum();
+    for (int32 i = 0; i < playerMax; ++i)
     {
+#if defined(TMNT2_DEBUG_TOOLS)
+        if (!CTurtleCompanions::IsCameraTarget(i))
+            continue;
+#endif /* defined(TMNT2_DEBUG_TOOLS) */
+
         RwV3d vTmp = Math::VECTOR3_ZERO;
         CGameProperty::Player(i)->GetPosition(&vTmp);
 
-        avPosition[i] = vTmp;
+        avPosition[playerNum++] = vTmp;
         
         vLookat.x += vTmp.x;
         vLookat.y += vTmp.y;
@@ -414,9 +434,16 @@ void CBossBattleCameraUpdater::UpdateOriginal(CMapCamera* pMapCamera)
     RwV3d vLookat = Math::VECTOR3_ZERO;
     int32 enemyNum = 0;
 
-    int32 playerNum = CGameProperty::GetPlayerNum();
-    for (int32 i = 0; i < playerNum; ++i)
+    int32 playerNum = 0;
+    int32 playerMax = CGameProperty::GetPlayerNum();
+    for (int32 i = 0; i < playerMax; ++i)
     {
+#if defined(TMNT2_DEBUG_TOOLS)
+        if (!CTurtleCompanions::IsCameraTarget(i))
+            continue;
+#endif /* defined(TMNT2_DEBUG_TOOLS) */
+        ++playerNum;
+
         RwV3d vTmp = Math::VECTOR3_ZERO;
         CGameProperty::Player(i)->GetPosition(&vTmp);
         

@@ -18,6 +18,7 @@
 
 #if defined(TMNT2_DEBUG_TOOLS)
 #include "Game/Component/CombatOverhaul/CombatOverhaul.hpp"
+#include "Game/Component/TurtleCompanions/TurtleCompanions.hpp"
 #endif /* defined(TMNT2_DEBUG_TOOLS) */
 
 #if defined(TARGET_PC)
@@ -105,6 +106,11 @@ CManipulator::~CManipulator(void)
 
 void CManipulator::Run(void)
 {
+#if defined(TMNT2_DEBUG_TOOLS)
+    if (InputPort() < 0)
+        RunCompanionAI();
+    else
+#endif /* defined(TMNT2_DEBUG_TOOLS) */
     AnalyzeInputDevice();
     SetConfusionInput();
     SetSpecificAbilityFlag();
@@ -128,7 +134,9 @@ bool CManipulator::RunCombatOverhaul(PLAYERTYPES::STATUS status)
         return false;
     };
 
-    uint32 uDigitalTrigger = m_padstream.GetDigitalTrigger(m_nControllerNo);
+    // Turtle Companions: a companion has no pad; the lock-on keys belong to the human.
+    int32 port = InputPort();
+    uint32 uDigitalTrigger = ((port >= 0) ? m_padstream.GetDigitalTrigger(port) : 0);
 
     // 11 lock-on: R3 (right stick click). The keyboard key is read by Debug Tools.
     if (uDigitalTrigger & CController::DIGITAL_R3)
@@ -137,8 +145,9 @@ bool CManipulator::RunCombatOverhaul(PLAYERTYPES::STATUS status)
     // 11 while locked, a right stick flick left / right moves the lock to
     // the next enemy on that side. One switch per flick: the stick has to
     // come back to the centre first.
+    if (port >= 0)
     {
-        int16 rightX = CController::GetAnalog(m_nControllerNo, CController::ANALOG_RSTICK_X);
+        int16 rightX = CController::GetAnalog(port, CController::ANALOG_RSTICK_X);
 #if defined(TARGET_PC)
         // On DirectInput pads the horizontal right stick axis is the one the
         // Debug Camera already reads (see CPCPhysicalController).
@@ -780,7 +789,12 @@ void CManipulator::AnalyzeInputDevice(void)
 {
     ClearInput();
 
-    m_padstream.GetPadData(m_nControllerNo);
+    int32 port = m_nControllerNo;
+#if defined(TMNT2_DEBUG_TOOLS)
+    port = InputPort();
+#endif /* defined(TMNT2_DEBUG_TOOLS) */
+
+    m_padstream.GetPadData(port);
 
     RwV3d vInputVector = Math::VECTOR3_ZERO;
     float fInputVectorLen = 0.0f;
@@ -821,8 +835,8 @@ void CManipulator::AnalyzeInputDevice(void)
         m_input.m_fDirection = Math::ATan2(-vecTarget.x, -vecTarget.z);
     };
 
-    uint32 uDigital = m_padstream.GetDigital(m_nControllerNo);
-    uint32 uDigitalTrigger = m_padstream.GetDigitalTrigger(m_nControllerNo);
+    uint32 uDigital = m_padstream.GetDigital(port);
+    uint32 uDigitalTrigger = m_padstream.GetDigitalTrigger(port);
 
     if (IGamepad::CheckFunction(uDigitalTrigger, IGamepad::FUNCTION_DASH))
         m_input.m_dash = DASH_ON;
@@ -889,8 +903,13 @@ void CManipulator::AnalyzeInputDevice(void)
 
 void CManipulator::AnalyzeInputVector(RwV3d& rvInputVector, float& rfInputVectorLength)
 {
-    float x =  static_cast<float>(m_padstream.GetAnalogX(m_nControllerNo));
-    float y = -static_cast<float>(m_padstream.GetAnalogY(m_nControllerNo));
+    int32 port = m_nControllerNo;
+#if defined(TMNT2_DEBUG_TOOLS)
+    port = InputPort();
+#endif /* defined(TMNT2_DEBUG_TOOLS) */
+
+    float x =  static_cast<float>(m_padstream.GetAnalogX(port));
+    float y = -static_cast<float>(m_padstream.GetAnalogY(port));
 
     x = (x >= 0.0f ? (x / static_cast<float>(TYPEDEF::SINT16_MAX)) : -(x / static_cast<float>(TYPEDEF::SINT16_MIN)));
     y = (y >= 0.0f ? (y / static_cast<float>(TYPEDEF::SINT16_MAX)) : -(y / static_cast<float>(TYPEDEF::SINT16_MIN)));
@@ -907,7 +926,7 @@ void CManipulator::AnalyzeInputVector(RwV3d& rvInputVector, float& rfInputVector
                                | CController::DIGITAL_LLEFT
                                | CController::DIGITAL_LRIGHT;
 
-    uint32 digital = m_padstream.GetDigital(m_nControllerNo);
+    uint32 digital = m_padstream.GetDigital(port);
     if (!(digital & digitalMovementMask))
         return;
     
@@ -957,6 +976,64 @@ void CManipulator::SetConfusionInput(void)
 			m_input.m_fDirection -= MATH_PI2;
 	};
 };
+
+
+#if defined(TMNT2_DEBUG_TOOLS)
+int32 CManipulator::InputPort(void) const
+{
+    return CTurtleCompanions::GetInputPort(m_pPlayerChr->GetPlayerNo(), m_nControllerNo);
+};
+
+
+void CManipulator::RunCompanionAI(void)
+{
+    ClearInput();
+
+    CTurtleCompanions::AICOMMAND cmd;
+    CTurtleCompanions::BuildAICommand(*m_pPlayerChr, cmd);
+
+    if (cmd.m_bMove)
+    {
+        m_input.m_move = (cmd.m_bRun ? MOVE_RUN : MOVE_WALK);
+        m_input.m_fDirection = cmd.m_fDirection;
+    };
+
+    if (cmd.m_bDash)
+        m_input.m_dash = DASH_ON;
+
+    if (cmd.m_bJump)
+        m_input.m_jump = JUMP_ON;
+
+    switch (cmd.m_iAttack)
+    {
+    case 1:  m_input.m_attack = ATTACK_A; break;
+    case 2:  m_input.m_attack = ATTACK_B; break;
+    case 3:  m_input.m_attack = ATTACK_C; break;
+    default: break;
+    };
+
+    if (cmd.m_bCharge)
+        m_input.m_attackCharge = ATTACK_CHARGE_ON;
+
+    if (cmd.m_bKnife)
+        m_input.m_knife = KNIFE_ON;
+
+    if (cmd.m_bGuard)
+        m_input.m_guard = GUARD_ON;
+
+    if (cmd.m_bRecover)
+        m_input.m_recover = RECOVER_ON;
+
+    if (cmd.m_bPassive || (cmd.m_iAttack != 0) || cmd.m_bJump)
+        m_input.m_passive = PASSIVE_ON;
+
+#if defined(TARGET_PC)
+    // a companion never forms a late A+B chord
+    m_fSincePressA = 1.0f;
+    m_fSincePressB = 1.0f;
+#endif /* defined(TARGET_PC) */
+};
+#endif /* defined(TMNT2_DEBUG_TOOLS) */
 
 
 void CManipulator::ClearInput(void)

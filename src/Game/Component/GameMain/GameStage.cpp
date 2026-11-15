@@ -39,6 +39,10 @@
 #include "Game/System/Misc/DebugShape.hpp"
 #endif /* defined(_DEBUG) || defined(TMNT2_DEBUG_TOOLS) */
 
+#if defined(TMNT2_DEBUG_TOOLS)
+#include "Game/Component/TurtleCompanions/TurtleCompanions.hpp"
+#endif /* defined(TMNT2_DEBUG_TOOLS) */
+
 #ifdef TARGET_PC
 #include "System/PC/PCModFeatures.hpp"
 #include "System/PC/PCSpecific.hpp"
@@ -134,6 +138,10 @@ void CGameStage::Initialize(void)
     CDebugShape::Initialize();
     CGameStageDebug::Reset();
 #endif /* defined(_DEBUG) || defined(TMNT2_DEBUG_TOOLS) */
+
+#if defined(TMNT2_DEBUG_TOOLS)
+    CTurtleCompanions::OnStageInitialize();
+#endif /* defined(TMNT2_DEBUG_TOOLS) */
 };
 
 
@@ -142,6 +150,10 @@ void CGameStage::Terminate(void)
 #if defined(_DEBUG) || defined(TMNT2_DEBUG_TOOLS)
     CDebugShape::Terminate();
 #endif /* defined(_DEBUG) || defined(TMNT2_DEBUG_TOOLS) */
+
+#if defined(TMNT2_DEBUG_TOOLS)
+    CTurtleCompanions::OnStageTerminate();
+#endif /* defined(TMNT2_DEBUG_TOOLS) */
     
     m_pCurrent = nullptr;
 
@@ -341,6 +353,15 @@ void CGameStage::AddStageObjects(void)
 
 void CGameStage::AddPlayers(bool bBlink)
 {
+#if defined(TMNT2_DEBUG_TOOLS)
+    // Turtle Companions: one game player per turtle, the human on one of them.
+    if (CTurtleCompanions::AddPlayers(bBlink))
+    {
+        addRecoveryObj();
+        return;
+    };
+#endif /* defined(TMNT2_DEBUG_TOOLS) */
+
     int32 charainfoNum = CGameData::PlayParam().GetCharaInfoNum();
     for (int32 i = 0; i < charainfoNum; ++i)
     {
@@ -363,6 +384,12 @@ void CGameStage::AddPlayers(bool bBlink)
         pGameplayer->LoadContext(playerCtx);
     };
 
+    addRecoveryObj();
+};
+
+
+void CGameStage::addRecoveryObj(void)
+{
     if (CGameData::Record().Secret().IsUnlockedSecret(SECRETID::ID_CHEATCODE_SELFRECOVERY))
     {
         m_pRecoveryObj = new CAutoHpCtrlObj(CAutoHpCtrlObj::MODE_RECOVER);
@@ -598,6 +625,11 @@ void CGameStage::resume(void)
 
 void CGameStage::updatePlayData(void)
 {
+#if defined(TMNT2_DEBUG_TOOLS)
+    if (CTurtleCompanions::SavePlayData())
+        return;
+#endif /* defined(TMNT2_DEBUG_TOOLS) */
+
 	int32 nPlayerNum = CGameProperty::GetPlayerNum();
     for (int32 i = 0; i < nPlayerNum; ++i)
         CGameProperty::Player(i)->SaveContext(CGameData::PlayParam().PlayerContext(i));

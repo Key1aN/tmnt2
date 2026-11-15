@@ -13,6 +13,10 @@
 #include "Game/Component/GameData/GameData.hpp"
 #include "System/Common/Screen.hpp"
 
+#if defined(TMNT2_DEBUG_TOOLS)
+#include "Game/Component/TurtleCompanions/TurtleCompanions.hpp"
+#endif /* defined(TMNT2_DEBUG_TOOLS) */
+
 
 static CGamePropertyObject* s_pGamePropertyObject = nullptr;
 
@@ -130,7 +134,13 @@ static inline CGamePropertyObject& GamePropertyObject(void)
     ASSERT(pvIn);
     
     CMapCamera* pMapCamera = GetMapCamera();
-    if ((!pMapCamera) || (GetPlayerNum() <= 1))
+    bool bNoBoundary = ((!pMapCamera) || (GetPlayerNum() <= 1));
+#if defined(TMNT2_DEBUG_TOOLS)
+    // Turtle Companions: companions follow the human, not the other way round.
+    if (CTurtleCompanions::IsActive())
+        bNoBoundary = true;
+#endif /* defined(TMNT2_DEBUG_TOOLS) */
+    if (bNoBoundary)
     {
         *pvOut = *pvIn;
         return false;

@@ -10,6 +10,10 @@
 #include "System/Common/Screen.hpp"
 #include "System/Common/Sprite.hpp"
 
+#if defined(TMNT2_DEBUG_TOOLS)
+#include "Game/Component/TurtleCompanions/TurtleCompanions.hpp"
+#endif /* defined(TMNT2_DEBUG_TOOLS) */
+
 
 static inline bool rect_intersect(float r1_x, float r1_y, float r1_w, float r1_h,
                                   float r2_x, float r2_y, float r2_w, float r2_h)
@@ -532,6 +536,20 @@ void CGaugeStatus_Container::PlayerMarkerDisp(int32 nPlayerNo)
 
     m_aScreenPosBuff[nPlayerNo] = { vScreenPos.x, vScreenPos.y };
 
+    int32 nMarkerRow = nPlayerNo;
+    bool bMarkerLabel = true;
+#if defined(TMNT2_DEBUG_TOOLS)
+    // Turtle Companions: "1P" is over the turtle you control; a companion
+    // only gets the arrow pointing to it while it is off screen.
+    if (CTurtleCompanions::IsActive())
+    {
+        nMarkerRow = 0;
+        bMarkerLabel = CTurtleCompanions::IsHumanSlot(nPlayerNo);
+        if (!bMarkerLabel && !outflag)
+            return;
+    };
+#endif /* defined(TMNT2_DEBUG_TOOLS) */
+
     if (outflag)
     {
         for (int32 i = 0; i < nPlayerNo; ++i)
@@ -568,10 +586,11 @@ void CGaugeStatus_Container::PlayerMarkerDisp(int32 nPlayerNo)
 
     m_SpriteMarker.SetPositionAndSizeRealScreen(vScreenPos.x, vScreenPos.y - 18.0f, 32.0f, 18.0f);
     m_SpriteMarker.SetUV(0.0f,
-                         (nPlayerNo * 22.0f) * (1.0f / 128.0f),
+                         (nMarkerRow * 22.0f) * (1.0f / 128.0f),
                          1.0f,
-                         ((nPlayerNo * 22.0f) + 18.0f) * (1.0f / 128.0f));
-    m_SpriteMarker.Draw();
+                         ((nMarkerRow * 22.0f) + 18.0f) * (1.0f / 128.0f));
+    if (bMarkerLabel)
+        m_SpriteMarker.Draw();
 
     if (outflag)
     {
