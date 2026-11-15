@@ -1208,8 +1208,9 @@ namespace
         else
             ai.m_fHeightTime = 0.0f;
 
+        bool bFarFromHuman = (fLeaderDist > (Tune(TUNE_FOLLOW_DIST) + 3.0f));
         bool bTeleport = ((fDist3 > fFar) ||
-                          (ai.m_fStuckTime >= 2.5f) ||
+                          ((ai.m_fStuckTime >= 2.5f) && bFarFromHuman) ||
                           (ai.m_fHeightTime >= 3.0f));
 
         if (bTeleport && IsSettled(status) && TryTeleport(nSlot, ai, *pLeader))
@@ -1255,7 +1256,7 @@ namespace
     };
 
     bool bWantJump = (IsFreeStatus(status) &&
-                      ((ai.m_fStuckTime >= 1.0f) ||
+                      (((ai.m_fStuckTime >= 1.0f) && (fLeaderDist > (Tune(TUNE_FOLLOW_DIST) + 2.0f))) ||
                        ((fLeaderDy > 1.0f) && (fLeaderDist < 7.0f) && (fLeaderDist > 0.8f) && IsSettled(leaderStatus))));
 
     // ---- choose what to fight --------------------------------------------------
@@ -1380,6 +1381,15 @@ namespace
 
         if (fDist > fReach)
         {
+            if (ai.m_fStuckTime >= 2.0f)
+            {
+                // cannot reach it (water, wall, ledge): pick something else
+                ai.m_hTarget = 0;
+                ai.m_fRetargetTime = 1.0f;
+                ai.m_fStuckTime = 0.0f;
+                return;
+            };
+
             if (bWantJump && (ai.m_fStuckTime >= 1.0f))
             {
                 ai.m_bJumping = true;
@@ -1443,6 +1453,13 @@ namespace
         ai.m_bMoving = (fSpotDist > fStop);
     else
         ai.m_bMoving = (fSpotDist > fStart);
+
+    // the spot is behind a wall or over water: close enough to the human is fine
+    if (ai.m_bMoving && (ai.m_fStuckTime >= 0.5f) && (fLeaderDist <= (Tune(TUNE_FOLLOW_DIST) + 2.0f)))
+    {
+        ai.m_bMoving = false;
+        ai.m_fStuckTime = 0.0f;
+    };
 
     if (ai.m_bMoving)
     {
