@@ -1,7 +1,7 @@
 # TMNT2 Turtle Companions v1.0.0 (Debug Tools v1.2.25, US)
 
 AI-controlled turtle companions and instant character switching, on top of Camera Overhaul v1.0.1 /
-Combat Overhaul v1.1.5 / Debug Tools v1.2.24 (`e69ca81`). Status: **compiles in CI; not yet played**.
+Combat Overhaul v1.1.5 / Debug Tools v1.2.24 (`e69ca81`). Status: **builds in CI; ran in the real game under Wine (Combat Lab test build); not yet played on your PC**.
 Every number is a first guess and can be changed live in the new **TEAM** tab.
 
 ## What it does
@@ -26,7 +26,7 @@ Every number is a first guess and can be changed live in the new **TEAM** tab.
 | Enemy 5-15 units away | Shuriken now and then (own shuriken count, every 2.5 s at most) |
 | Knocked down, grabbed, stunned | Mash recover / quick rise |
 | You are higher up (ledge, platform) | Jump and double jump toward you |
-| Stuck 1 s | Jump; stuck 2.5 s: teleport |
+| Stuck while far from you | Jump after 1 s, teleport after 2.5 s. Stuck near you (follow spot behind a wall or over water): just stay. Target out of reach for 2 s: pick another |
 | Further than the Teleport distance, or 4+ units above/below you for 3 s | Reappear behind you with the blink effect, once you are on the ground |
 | Carrying an enemy | Throw it |
 
@@ -100,8 +100,8 @@ Also: the keyboard lock-on key (T) now locks for the turtle you control.
 
 ## Known limits and open questions
 
-- Nothing here has been run in the game yet. The highest-risk part is the stage start with four
-  players in a single-player stage (start positions, loading the extra turtles); please test a few
+- Only tested in the Combat Lab arena under Wine (see Test results). A real story stage (start
+  positions, loading the extra turtles, gimmicks, cutscenes) has not been run yet; please try a few
   different stages first.
 - The AI has no path finding: around walls it walks straight, then jumps, then teleports.
 - Companions do not lift or throw objects, use gimmicks, or pick a fight with breakable boxes.
@@ -121,3 +121,18 @@ Also: the keyboard lock-on key (T) now locks for the turtle you control.
 6. F9 (badge), retry the stage: retail one-turtle stage; Change Character only when allowed by the
    Instant switching row.
 7. Boss stage: boss health bar the same as solo; camera stays on you.
+
+## Test results
+
+| Check | Result |
+| --- | --- |
+| MSVC Win32 release build in CI (`claude/turtle-companions-v1-0-0-us`), retail-path hooks all inside `TMNT2_DEBUG_TOOLS` (CI check) | PASS |
+| MinGW syntax check of every changed file, with and without Debug Tools | PASS |
+| Package: T2DELTA payload re-applied to your retail `TMNT2.exe` rebuilds the core byte for byte | PASS |
+| Real game under Wine with your `TMNT.DAT`, test build that allows the team in Combat Lab (`-companiontest`, never shipped): team of 4 created (Leo human, Raph/Mikey/Don AI), companions pick different enemies, play A / AA / AAB / AABB / AABBB / B strings, guard, recover from knockdowns, follow; automatic switch every 6 s, 44 switches in 2.3 min, "YOU: DONATELLO" badge, 1P marker moves; no crash | PASS |
+| First run found companions hopping at an unreachable follow spot (water edge); fixed and re-run: no hopping | FIXED |
+| Story stage, F9 / OFF path, instant switching with companions off, physical pad | **NOT VERIFIED** here |
+
+The release EXE itself stops in the game's sound code (`SdGetBgmPosition`) under Wine because the test
+used placeholder voice files; the shipped v1.2.24 stops at the same place in that setup, so it is the
+test environment, not this change.
