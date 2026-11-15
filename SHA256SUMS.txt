@@ -1,0 +1,2 @@
+69f23b5c9ab9b09f987dccdbfbe33a975cb4e70671a9d10819863636a94d816e  Debug_Tools_Turtle_Companions_v1.2.25_US.t2mod
+533fefad63db19d26fd1f62be9c7f12f0bfddf0e93a14528e8ec12efdb637eba  CombatLab.exe
