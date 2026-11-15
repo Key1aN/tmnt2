@@ -1097,12 +1097,13 @@ namespace
     STATE& tc = Tc();
     TEAM& team = tc.m_team;
 
+    // the manipulator may run before CPlayer::Run in a frame (and a switch
+    // made there decides who is human this frame)
+    Period();
+
     int32 nSlot = rPlayerChr.GetPlayerNo();
     if ((nSlot < 0) || (nSlot >= team.m_nNum) || (nSlot == team.m_iHuman))
         return;
-
-    // the manipulator may run before CPlayer::Run in a frame
-    Period();
 
     SLOTAI& ai = team.m_aAI[nSlot];
     ++ai.m_uFrame;

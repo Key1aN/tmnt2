@@ -1645,7 +1645,7 @@ private:
         if (CGameProperty::GetPlayerNum() <= 0)
             return;
 
-        IGamePlayer* pPlayer = CGameProperty::Player(0);
+        IGamePlayer* pPlayer = CGameProperty::Player(CTurtleCompanions::GetHumanPlayerNo());
         if (!pPlayer || !pPlayer->IsAlive())
             return;
 
@@ -3373,7 +3373,7 @@ private:
                      s.m_iLastDamage);
         y += lineH;
 
-        IGamePlayer* pPlayer = (CGameProperty::GetPlayerNum() > 0 ? CGameProperty::Player(0) : nullptr);
+        IGamePlayer* pPlayer = (CGameProperty::GetPlayerNum() > 0 ? CGameProperty::Player(CTurtleCompanions::GetHumanPlayerNo()) : nullptr);
         CPlayerCharacter* pChr = (pPlayer && pPlayer->IsAlive() ? pPlayer->GetCurrentCharacter() : nullptr);
         if (pChr)
         {
@@ -4038,7 +4038,7 @@ private:
         };
 
         // Without the visualizer: the enemy nearest to P1.
-        IGamePlayer* pPlayer = (CGameProperty::GetPlayerNum() > 0 ? CGameProperty::Player(0) : nullptr);
+        IGamePlayer* pPlayer = (CGameProperty::GetPlayerNum() > 0 ? CGameProperty::Player(CTurtleCompanions::GetHumanPlayerNo()) : nullptr);
         if (!pPlayer)
             return nullptr;
 
@@ -4087,7 +4087,7 @@ private:
         zd.m_fSH = static_cast<float>(CScreen::Height());
         const float px = MaxF(1.0f, zd.m_fSH / 480.0f);
 
-        IGamePlayer* pPlayer = (CGameProperty::GetPlayerNum() > 0 ? CGameProperty::Player(0) : nullptr);
+        IGamePlayer* pPlayer = (CGameProperty::GetPlayerNum() > 0 ? CGameProperty::Player(CTurtleCompanions::GetHumanPlayerNo()) : nullptr);
         bool bPlayer = (pPlayer && pPlayer->IsAlive());
         RwV3d vPlayer = Math::VECTOR3_ZERO;
         if (bPlayer)
@@ -4599,7 +4599,7 @@ private:
         if (!CEnemyAITrace::IsEnabled() || !pCamera || !CGameStage::GetCurrent() || !CGameProperty::IsCameraViewAvailable())
             return;
 
-        IGamePlayer* pPlayer = (CGameProperty::GetPlayerNum() > 0 ? CGameProperty::Player(0) : nullptr);
+        IGamePlayer* pPlayer = (CGameProperty::GetPlayerNum() > 0 ? CGameProperty::Player(CTurtleCompanions::GetHumanPlayerNo()) : nullptr);
         if (!pPlayer || !pPlayer->IsAlive())
             return;
 
@@ -5270,7 +5270,7 @@ private:
         const char* pszPlayerMotion = nullptr;
         if (CGameProperty::GetPlayerNum() > 0)
         {
-            IGamePlayer* pPlayer = CGameProperty::Player(0);
+            IGamePlayer* pPlayer = CGameProperty::Player(CTurtleCompanions::GetHumanPlayerNo());
             if (pPlayer && pPlayer->IsAlive())
             {
                 charId = static_cast<int32>(pPlayer->GetCurrentCharacterID());
@@ -5402,7 +5402,7 @@ private:
 
         if (m_bMoveLog && (CGameProperty::GetPlayerNum() > 0))
         {
-            IGamePlayer* pPlayer = CGameProperty::Player(0);
+            IGamePlayer* pPlayer = CGameProperty::Player(CTurtleCompanions::GetHumanPlayerNo());
             CPlayerCharacter* pCharacter = ((pPlayer && pPlayer->IsAlive()) ? pPlayer->GetCurrentCharacter() : nullptr);
             if (pCharacter)
             {
@@ -5673,7 +5673,12 @@ private:
             if (!CCombatOverhaul::GetPlayerHud(no, hud))
                 continue;
 
-            float x = (sw * 0.035f) + (static_cast<float>(no) * sw * 0.24f);
+            // Turtle Companions: only the turtle you control gets the gauges
+            if (CTurtleCompanions::IsAISlot(no))
+                continue;
+
+            int32 column = (CTurtleCompanions::IsActive() ? 0 : no);
+            float x = (sw * 0.035f) + (static_cast<float>(column) * sw * 0.24f);
             float y = blockY;
 
             if (hud.m_fPosture >= 0.0f)
@@ -5976,7 +5981,7 @@ private:
 
         IGamePlayer* pPlayer = nullptr;
         if (CGameProperty::GetPlayerNum() > 0)
-            pPlayer = CGameProperty::Player(0);
+            pPlayer = CGameProperty::Player(CTurtleCompanions::GetHumanPlayerNo());
 
         if (!pPlayer || !pPlayer->IsAlive())
         {
@@ -6103,7 +6108,7 @@ private:
 
         if (CGameProperty::GetPlayerNum() > 0)
         {
-            IGamePlayer* pPlayer = CGameProperty::Player(0);
+            IGamePlayer* pPlayer = CGameProperty::Player(CTurtleCompanions::GetHumanPlayerNo());
             if (pPlayer && pPlayer->IsAlive())
             {
                 RwV3d playerPosition = Math::VECTOR3_ZERO;
