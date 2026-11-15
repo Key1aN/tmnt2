@@ -60,8 +60,9 @@ static void TestFlatAndTiny(void)
     ToonGradient::Enhance(one, out, 1, 1, prm);
     CHECK(std::memcmp(one, out, 4) == 0, "1x1 must be unchanged");
     std::vector<unsigned char> flat(8*1*4, 128), o(8*4);
-    ToonGradient::Enhance(&flat[0], &o[0], 8, 1, prm);  // flat: must not crash; tint allowed
-    std::printf("gradient 1x1 / flat ok\n");
+    ToonGradient::Enhance(&flat[0], &o[0], 8, 1, prm);
+    CHECK(flat == o, "flat ramp (like pat05) must stay exactly as shipped");
+    std::printf("gradient 1x1 / flat unchanged ok\n");
 }
 
 static void TestMesh(void)

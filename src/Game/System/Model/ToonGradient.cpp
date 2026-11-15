@@ -98,6 +98,10 @@ namespace ToonGradient
         result.m_fLumMin = fMin;
         result.m_fLumMax = fMax;
 
+        /* v1.1: a flat ramp (one colour, e.g. pat05) carries no lighting: leave it exactly as shipped. */
+        if (bFlat)
+            return result;
+
         const float k = 1.0f + 0.35f * Clamp01(rParams.m_fContrast);
         const bool bNearest = (length <= 16);   /* keep hard toon steps hard */
 

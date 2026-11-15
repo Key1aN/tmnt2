@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Builds TMNT2_Enhanced_Graphics_v1.0.t2mod in the T2 Mod Manager package format.
+"""Builds TMNT2_Enhanced_Graphics_v1.1.t2mod in the T2 Mod Manager package format.
 
 Format (identical to the packages produced by T2ModManager.Packager pack-composable-exe):
   * ZIP with manifest.json (deflate) and payload/Enhanced_Graphics.t2delta (stored)
@@ -23,16 +23,18 @@ CHUNK = 1024 * 1024
 
 PACKAGE_ID = "Enhanced_Graphics"
 FEATURE = "enhanced-graphics"
-VERSION = "1.0.0"
-DISPLAY_NAME = "Enhanced Graphics v1.0 (cel lighting, contact shadows, stylized water)"
+VERSION = "1.1.0"
+DISPLAY_NAME = "Enhanced Graphics v1.1 (cel lighting, contact shadows, stylized water)"
 DESCRIPTION = (
+    "v1.1: controller-friendly REMASTER tab in Debug Tools (F4) to switch and tune every setting live and save "
+    "it; water detection no longer picks static floors; flat toon ramps left as shipped. "
     "Modern remaster of the 3D look that keeps the 2003 cartoon style. Toon lighting: remapped shading "
     "gradients with a crisper light/shadow split, cool stage-tinted shadows and a lifted highlight band; "
     "warm key / cool fill light rig for characters (ink outlines untouched). Shadows: soft contact shadows "
     "with a dark core under the feet that fade and widen with height. Water: animated stylized overlay on "
     "detected water polygons with waves, sky reflection, toon specular glints, shallow/deep colour and "
     "shoreline foam; collision, splashes and ripples unchanged. Post: subtle bloom and colour grade "
-    "(optional FXAA), HUD excluded. Trilinear filtering for mipmapped textures. F8 = original/enhanced, "
+    "(optional FXAA), HUD excluded. F8 = original/enhanced, "
     "Shift+F8 = Classic+/Enhanced/High/Custom, Ctrl+F8 = reload TMNT2_graphics.ini. Includes the Debug "
     "Tools v1.2.24 / Camera Overhaul v1.0.1 core (its features stay off unless their own packages are "
     "enabled). EXE-only: does not modify TMNT.DAT, LPAC resources or save data."

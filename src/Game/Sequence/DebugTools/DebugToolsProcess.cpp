@@ -4,6 +4,7 @@
 
 #include "Game/ProcessList.hpp"
 #include "Game/Component/CombatLab/CombatLab.hpp"
+#include "EnhancedGraphicsTab.hpp"
 #include "Game/Component/CombatOverhaul/CombatOverhaul.hpp"
 #include "Game/Component/Enemy/AITrace.hpp"
 #include "Game/Component/Enemy/EnemyUtils.hpp"
@@ -70,6 +71,7 @@ namespace
         PAGE_COMBATLAB,
         PAGE_AIVIEW,
         PAGE_OVERHAUL,
+        PAGE_REMASTER,      /* add-on: only while the enhanced-graphics package is enabled (keep last) */
 
         PAGE_NUM,
     };
@@ -88,6 +90,15 @@ namespace
         "COMBAT LAB",
         "AI VIEW",
         "OVERHAUL",
+        "REMASTER",
+    };
+
+
+    // Add-on tabs that depend on another package are kept at the end of PAGE and
+    // simply not offered (tab strip, LB/RB, Q/E) when their package is off.
+    static int32 VisiblePageNum(void)
+    {
+        return (CEnhancedGraphicsTab::IsVisible() ? PAGE_NUM : PAGE_REMASTER);
     };
 
 
@@ -471,6 +482,9 @@ namespace
 
         if (page == PAGE_OVERHAUL)
             return CCombatOverhaul::GetItemHeader(index);
+
+        if (page == PAGE_REMASTER)
+            return CEnhancedGraphicsTab::GetItemHeader(index);
 
         return nullptr;
     };
@@ -1045,6 +1059,7 @@ public:
         case PAGE_COMBATLAB:  return (selected == LABITEM_ENEMY_COUNT);
         case PAGE_AIVIEW:     return ((selected == AIITEM_RADAR_RANGE) || (selected == AIITEM_TIMELINE_SPAN));
         case PAGE_OVERHAUL:   return CCombatOverhaul::IsNumericItem(selected);
+        case PAGE_REMASTER:   return CEnhancedGraphicsTab::IsNumericItem(selected);
         default:              return false;
         };
     };
@@ -1186,7 +1201,7 @@ private:
     void ChangePage(int32 direction)
     {
         m_bLabEnterArmed = false;
-        int32 page = InvClamp(static_cast<int32>(m_page) + direction, 0, PAGE_NUM - 1);
+        int32 page = InvClamp(static_cast<int32>(m_page) + direction, 0, VisiblePageNum() - 1);
         m_page = static_cast<PAGE>(page);
 
         int32 itemCount = GetItemCount(m_page);
@@ -1335,6 +1350,10 @@ private:
             CCombatOverhaul::AdjustItem(selected, direction, multiplier);
             break;
 
+        case PAGE_REMASTER:
+            CEnhancedGraphicsTab::AdjustItem(selected, direction, multiplier);
+            break;
+
         default:
             break;
         };
@@ -1462,6 +1481,10 @@ private:
                 CCombatOverhaul::AdjustItem(selected, 1, 1);
             break;
 
+        case PAGE_REMASTER:
+            CEnhancedGraphicsTab::ActivateItem(selected);
+            break;
+
         default:
             break;
         };
@@ -1539,6 +1562,10 @@ private:
             CCombatOverhaul::ResetItem(selected);
             break;
 
+        case PAGE_REMASTER:
+            CEnhancedGraphicsTab::ResetItem(selected);
+            break;
+
         default:
             break;
         };
@@ -1597,6 +1624,10 @@ private:
 
         case PAGE_OVERHAUL:
             CCombatOverhaul::ResetAll();
+            break;
+
+        case PAGE_REMASTER:
+            CEnhancedGraphicsTab::ResetAll();
             break;
 
         default:
@@ -1988,6 +2019,7 @@ private:
         case PAGE_COMBATLAB:  return LABITEM_NUM;
         case PAGE_AIVIEW:     return AIITEM_NUM;
         case PAGE_OVERHAUL:   return CCombatOverhaul::GetItemNum();
+        case PAGE_REMASTER:   return (CEnhancedGraphicsTab::IsVisible() ? CEnhancedGraphicsTab::GetItemNum() : 0);
         default:              return 0;
         };
     };
@@ -2126,7 +2158,8 @@ private:
             int32 aRowStart[PAGE_NUM + 1];
             int32 nRow = 0;
             float rowWidth = 0.0f;
-            for (int32 i = 0; i < PAGE_NUM; ++i)
+            const int32 nPageVisible = VisiblePageNum();
+            for (int32 i = 0; i < nPageVisible; ++i)
             {
                 aWidth[i] = MenuTextWidth(s_apszPageName[i], TABT) + (12.0f * S);
                 float add = aWidth[i] + ((rowWidth > 0.0f) ? TABGAP : 0.0f);
@@ -2140,7 +2173,7 @@ private:
                     rowWidth += add;
                 };
             };
-            aRowStart[nRow] = PAGE_NUM;
+            aRowStart[nRow] = nPageVisible;
 
             for (int32 r = 0; r < nRow; ++r)
             {
@@ -2258,6 +2291,12 @@ private:
                 float minimum = CDebugDifficulty::GetMinimum(setting);
                 float maximum = MaxF(CDebugDifficulty::GetEffectiveMaximum(setting), value);
                 fraction = (maximum > minimum ? Clamp((value - minimum) / (maximum - minimum), 0.0f, 1.0f) : 1.0f);
+                bAtMax = (fraction >= 0.999f);
+                sliderX0 = X0 + (W * 0.50f);
+                sliderX1 = X0 + (W * 0.63f);
+            }
+            else if ((m_page == PAGE_REMASTER) && CEnhancedGraphicsTab::GetItemFraction(i, &fraction))
+            {
                 bAtMax = (fraction >= 0.999f);
                 sliderX0 = X0 + (W * 0.50f);
                 sliderX1 = X0 + (W * 0.63f);
@@ -2389,7 +2428,7 @@ private:
 
         char tabs[256];
         tabs[0] = '\0';
-        for (int32 i = 0; i < PAGE_NUM; ++i)
+        for (int32 i = 0; i < VisiblePageNum(); ++i)
         {
             char tab[40];
             std::snprintf(
@@ -2667,6 +2706,10 @@ private:
             CCombatOverhaul::FormatItem(index, buffer, capacity);
             break;
 
+        case PAGE_REMASTER:
+            CEnhancedGraphicsTab::FormatItem(index, buffer, capacity);
+            break;
+
         default:
             break;
         };
@@ -2825,6 +2868,10 @@ private:
 
         case PAGE_OVERHAUL:
             CCombatOverhaul::GetItemHelp(index, scope, description);
+            break;
+
+        case PAGE_REMASTER:
+            CEnhancedGraphicsTab::GetItemHelp(index, scope, description);
             break;
 
         default:
@@ -3389,6 +3436,7 @@ private:
         UIACTION_RESET_ITEM,
         UIACTION_RESET_PAGE,
         UIACTION_SET_DIFFICULTY,
+        UIACTION_SET_REMASTER,
         UIACTION_CLOSE,
     };
 
@@ -3480,6 +3528,11 @@ private:
                 ResetSelected();
                 break;
 
+            case UIACTION_SET_REMASTER:
+                if (m_page == PAGE_REMASTER)
+                    CEnhancedGraphicsTab::SetItemValue(rAction.m_index, rAction.m_fValue);
+                break;
+
             case UIACTION_SET_DIFFICULTY:
                 if ((m_page == PAGE_DIFFICULTY) && (rAction.m_index >= 1) && (rAction.m_index <= CDebugDifficulty::SETTING_NUM))
                 {
@@ -3555,6 +3608,22 @@ private:
             return;
         };
 
+        // REMASTER add-on: one control column right after the widest label, so the
+        // labels stay readable at any window width and the sliders line up.
+        float remasterColumn = 0.0f;
+        if (page == PAGE_REMASTER)
+        {
+            for (int32 j = 0; j < itemCount; ++j)
+            {
+                char probe[200];
+                FormatItemText(j, probe, sizeof(probe));
+                SplitItemText(probe);
+                remasterColumn = MaxF(remasterColumn, ImGui::CalcTextSize(probe).x);
+            };
+            remasterColumn += ImGui::GetStyle().WindowPadding.x + ImGui::GetStyle().FramePadding.x + em;
+            remasterColumn = MinF(remasterColumn, ImGui::GetContentRegionAvail().x - (em * 8.0f));
+        };
+
         for (int32 i = 0; i < itemCount; ++i)
         {
             const char* pszSection = GetSectionTitle(page, i);
@@ -3618,7 +3687,39 @@ private:
             float valueW = em * 9.5f;
             float rowY = rowStartY + ((em * 1.45f) - ImGui::GetFrameHeight()) * 0.5f;
 
-            if (bDifficultySetting)
+            // REMASTER add-on: keep the label readable in a narrow window by
+            // starting the controls after it, and use real sliders / readouts.
+            float remasterMin = 0.0f, remasterMax = 0.0f, remasterValue = 0.0f;
+            bool bRemasterSlider = ((page == PAGE_REMASTER) && CEnhancedGraphicsTab::GetItemRange(i, &remasterMin, &remasterMax, &remasterValue));
+            bool bRemasterReadout = ((page == PAGE_REMASTER) && CEnhancedGraphicsTab::IsReadoutItem(i));
+            if (page == PAGE_REMASTER)
+            {
+                // everything below starts at the shared column
+                valueW = right - remasterColumn;
+                controlW = 0.0f;
+            };
+
+            if (bRemasterSlider)
+            {
+                float sliderX = remasterColumn;
+                ImGui::SetCursorPos(ImVec2(sliderX, rowY));
+                ImGui::SetNextItemWidth(MaxF(em * 5.0f, right - sliderX - (em * 0.25f)));
+                float edit = remasterValue;
+                if (ImGui::SliderFloat("##v", &edit, remasterMin, remasterMax, "%.2f", ImGuiSliderFlags_AlwaysClamp))
+                    PushUIAction(UIACTION_SET_REMASTER, page, i, 0, edit);
+                if (ImGui::IsItemClicked(ImGuiMouseButton_Right))
+                    PushUIAction(UIACTION_RESET_ITEM, page, i);
+            }
+            else if (bRemasterReadout)
+            {
+                float textX = remasterColumn + (em * 0.25f);
+                ImGui::SetCursorPos(ImVec2(textX, rowY + ImGui::GetStyle().FramePadding.y));
+                ImGui::PushClipRect(ImGui::GetCursorScreenPos(),
+                                    ImVec2(ImGui::GetWindowPos().x + right, ImGui::GetCursorScreenPos().y + em * 1.5f), true);
+                ImGui::TextColored(COL_VALUE, "%s", pszValue);
+                ImGui::PopClipRect();
+            }
+            else if (bDifficultySetting)
             {
                 CDebugDifficulty::SETTING setting = static_cast<CDebugDifficulty::SETTING>(i - 1);
                 float value = CDebugDifficulty::GetValue(setting, difficulty);
@@ -3659,6 +3760,24 @@ private:
                 ImGui::SetCursorPos(ImVec2(right - valueW, rowY));
                 if (ImGui::Button("Run", ImVec2(valueW, 0.0f)))
                     PushUIAction(UIACTION_ACTIVATE, page, i);
+            }
+            else if ((page == PAGE_REMASTER) && !bToggle && !bAction)
+            {
+                // enum row (preset): [<] value [>] across the control column
+                float buttonW = ImGui::GetFrameHeight();
+                ImGui::SetCursorPos(ImVec2(remasterColumn, rowY));
+                if (ImGui::ArrowButton("##l", ImGuiDir_Left))
+                    PushUIAction(UIACTION_ADJUST, page, i, -1);
+                ImGui::SetCursorPos(ImVec2(right - buttonW - (em * 0.25f), rowY));
+                if (ImGui::ArrowButton("##r", ImGuiDir_Right))
+                    PushUIAction(UIACTION_ADJUST, page, i, 1);
+                float midW = (right - buttonW - (em * 0.25f)) - (remasterColumn + buttonW);
+                float textW = ImGui::CalcTextSize(pszValue).x;
+                ImGui::SetCursorPos(ImVec2(remasterColumn + buttonW + MaxF(em * 0.25f, (midW - textW) * 0.5f), rowY + ImGui::GetStyle().FramePadding.y));
+                ImGui::PushClipRect(ImGui::GetCursorScreenPos(),
+                                    ImVec2(ImGui::GetWindowPos().x + right - buttonW - (em * 0.25f), ImGui::GetCursorScreenPos().y + em * 1.5f), true);
+                ImGui::TextColored(COL_VALUE, "%s", pszValue);
+                ImGui::PopClipRect();
             }
             else
             {
@@ -3748,7 +3867,7 @@ private:
             // ---- tabs (wrap to the window width) ----
             float avail = ImGui::GetContentRegionAvail().x;
             float x = 0.0f;
-            for (int32 i = 0; i < PAGE_NUM; ++i)
+            for (int32 i = 0; i < VisiblePageNum(); ++i)
             {
                 float w = ImGui::CalcTextSize(s_apszPageName[i]).x + (ImGui::GetStyle().FramePadding.x * 2.0f);
                 if ((i > 0) && ((x + ImGui::GetStyle().ItemSpacing.x + w) <= avail))

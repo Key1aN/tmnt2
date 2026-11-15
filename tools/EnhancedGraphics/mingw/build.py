@@ -113,7 +113,7 @@ def main():
     script = script.replace("  /DISCARD/ :\n  {", "  /DISCARD/ :\n  {\n    *(.sxdata)", 1)
     lds = os.path.join(OUT, "tmnt2_mingw.ld")
     open(lds, "w").write(script)
-    cmd = [CXX, "-o", exe, "@" + rsp, "-Wl,-T," + lds, "-s", "-mwindows", "-static", "-static-libgcc", "-static-libstdc++",
+    cmd = [CXX, "-o", exe, "@" + rsp, "-Wl,-T," + lds] + ([] if os.environ.get("EG_NOSTRIP") else ["-s"]) + ["-mwindows", "-static", "-static-libgcc", "-static-libstdc++",
            "-Wl,--image-base,0x400000", "-Wl,--no-insert-timestamp", "-Wl,--disable-dynamicbase", "-Wl,--disable-nxcompat", "-Wl,-Map," + exe[:-4] + ".map",
            "-L" + os.path.join(RW, "lib", "d3d9", "release"), "-L" + os.path.join(ROOT, "vendor", "cri", "lib", "x86"),
            "-Wl,--start-group"] + ["-l:" + l + ".lib" for l in RWLIBS] + \

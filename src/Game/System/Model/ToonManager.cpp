@@ -206,7 +206,7 @@ void CToonManagerImplement::RefreshEnhancement(void)
         ++nEnhanced;
     };
 
-    if (!m_bEnhancedReported)
+    if (!m_bEnhancedReported && m_szTextureSetName[0])
     {
         CEnhancedGraphics::Log("TOON gradients enhanced=%d of %d (texture set %s)", nEnhanced, int32(CToonManager::PATTERN_MAX), m_szTextureSetName);
         m_bEnhancedReported = true;

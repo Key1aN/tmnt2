@@ -16,7 +16,6 @@ namespace
 {
     const float HORIZONTAL_NY         = 0.95f;  /* |normal.y| for a horizontal triangle          */
     const float MIN_HORIZONTAL_FRAC   = 0.85f;  /* of a material's area                           */
-    const float MIN_OVERLAP_FRAC      = 0.50f;  /* of its horizontal area over collision water    */
     const float MIN_OVERLAP_UVANIM    = 0.25f;  /* ... when the material is UV-animated           */
     const float WATER_DY              = 1.0f;   /* render surface vs "water" collision height     */
     const float DOBON_DY              = 3.0f;   /* render surface vs "dobon" (deep water) floor   */
@@ -39,6 +38,9 @@ namespace
         float       m_fArea;
         float       m_fHorizontalArea;
         float       m_fOverlapArea;
+        float       m_fMinY;
+        float       m_fMaxY;
+        float       m_fAbsNySum;     /* area-weighted |normal.y| */
         bool        m_bUVAnim;
         bool        m_bKeyword;
         bool        m_bInclude;
@@ -284,8 +286,20 @@ namespace
             TriangleNormalArea(a, b, c, &ny, &area);
 
             MATSTAT& m = ctx.m_aMat[matIndex];
+            if (m.m_nTriangle == 0)
+            {
+                m.m_fMinY = 1e30f;
+                m.m_fMaxY = -1e30f;
+            };
             ++m.m_nTriangle;
             m.m_fArea += area;
+            m.m_fAbsNySum += std::fabs(ny) * area;
+            float ys[3] = { a.y, b.y, c.y };
+            for (int32 k = 0; k < 3; ++k)
+            {
+                m.m_fMinY = (ys[k] < m.m_fMinY) ? ys[k] : m.m_fMinY;
+                m.m_fMaxY = (ys[k] > m.m_fMaxY) ? ys[k] : m.m_fMaxY;
+            };
             if (std::fabs(ny) < HORIZONTAL_NY)
                 continue;
 
@@ -397,6 +411,7 @@ namespace WaterSurface
     void Build(RpWorld* pWorld, RpWorld* pWorldCollision, const char* pszStageName)
     {
         CEnhancedGraphics::WaterClear();
+        CEnhancedGraphics::SetWaterMaterialCount(0);
 
         if (!CEnhancedGraphics::IsAvailable() || !pWorld)
             return;
@@ -450,14 +465,17 @@ namespace WaterSurface
             float fHorizontal = (m.m_fArea > 0.0f) ? (m.m_fHorizontalArea / m.m_fArea) : 0.0f;
             float fOverlap = (m.m_fHorizontalArea > 0.0f) ? (m.m_fOverlapArea / m.m_fHorizontalArea) : 0.0f;
 
+            /* v1.1: overlap alone is not enough. On m60x a static sand floor next to a "dobon" pit
+             * overlapped collision water by 50%; TMNT2's water surfaces are UV-animated, floors are not. */
             bool bCandidate = (fHorizontal >= MIN_HORIZONTAL_FRAC) &&
-                              (m.m_bKeyword || (fOverlap >= MIN_OVERLAP_FRAC) || (m.m_bUVAnim && (fOverlap >= MIN_OVERLAP_UVANIM)));
+                              (m.m_bKeyword || (m.m_bUVAnim && (fOverlap >= MIN_OVERLAP_UVANIM)));
             m.m_bWater = m.m_bInclude || (!m.m_bExclude && bCandidate);
 
             if ((m.m_bWater || m.m_bKeyword || m.m_bInclude || m.m_bExclude || (fOverlap > 0.05f) || m.m_bUVAnim) && (nLogged < 64))
             {
-                CEnhancedGraphics::Log("WATER  material %3d %-24s tris=%5d area=%8.1f horizontal=%3.0f%% over_collision_water=%3.0f%% uvanim=%d keyword=%d include=%d exclude=%d -> %s",
-                                       i, MaterialName(m.m_pMaterial), m.m_nTriangle, m.m_fArea,
+                CEnhancedGraphics::Log("WATER  material %3d %-24s tris=%5d area=%8.1f y=[%.2f..%.2f] avg_ny=%.2f horizontal=%3.0f%% over_collision_water=%3.0f%% uvanim=%d keyword=%d include=%d exclude=%d -> %s",
+                                       i, MaterialName(m.m_pMaterial), m.m_nTriangle, m.m_fArea, m.m_fMinY, m.m_fMaxY,
+                                       (m.m_fArea > 0.0f) ? (m.m_fAbsNySum / m.m_fArea) : 0.0f,
                                        fHorizontal * 100.0f, fOverlap * 100.0f,
                                        (m.m_bUVAnim ? 1 : 0), (m.m_bKeyword ? 1 : 0), (m.m_bInclude ? 1 : 0), (m.m_bExclude ? 1 : 0),
                                        (m.m_bWater ? "WATER" : "-"));
@@ -477,6 +495,8 @@ namespace WaterSurface
                 fColorWeight += wgt;
             };
         };
+
+        CEnhancedGraphics::SetWaterMaterialCount(nWaterMaterial);
 
         /* 3. geometry from the chosen render triangles */
         WaterSurfaceMesh::Begin(ctx.m_mesh);

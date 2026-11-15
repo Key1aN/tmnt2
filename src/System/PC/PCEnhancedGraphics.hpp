@@ -1,7 +1,7 @@
 #pragma once
 
 /*
- * TMNT2 Enhanced Graphics v1.0 (feature flag "enhanced-graphics").
+ * TMNT2 Enhanced Graphics v1.1 (feature flag "enhanced-graphics").
  *
  * Runtime-switchable graphics improvements that keep the original cel-shaded
  * look: remapped toon gradients and a stage-aware light rig, soft contact
@@ -129,4 +129,26 @@ public:
 
     /* on-screen confirmation after a switch; returns false when nothing to show */
     static bool GetToast(char* pszBuffer, int32 nBufferSize, float* pfAlpha);
+
+    /* ---- live editing (Debug Tools "Remaster" tab) ----
+     * Keys are the TMNT2_graphics.ini [Overrides] keys. Values shown and edited are the
+     * configured ones (preset + overrides), whether or not ENHANCED is currently on. */
+    static void SetEnhanced(bool bEnhanced);
+    static void SetPreset(PRESET preset);           /* clears all overrides */
+    static int32 FindKey(const char* pszName);       /* -1 when unknown */
+    static bool IsKeyBool(int32 key);
+    static float GetKeyMin(int32 key);
+    static float GetKeyMax(int32 key);
+    static float GetKeyValue(int32 key);             /* bool keys: 0 / 1 */
+    static void SetKeyValue(int32 key, float fValue); /* creates an override */
+    static bool IsKeyOverridden(int32 key);
+    static void ClearKeyOverride(int32 key);
+    static void ClearAllOverrides(void);
+    static int32 GetOverrideCount(void);
+    static bool SaveIni(void);                       /* writes preset + overrides + water lists */
+    static void ReloadIni(void);
+    static void SetWaterMaterialCount(int32 nMaterial);
+    static void GetWaterStats(int32* pnMaterial, int32* pnTriangle, bool* pbBroken);
+    static bool GetLastPerf(float* pfFps, float* pfPostMs, float* pfWaterMs);
+    static bool IsPostAvailable(void);
 };

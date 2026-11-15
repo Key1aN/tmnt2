@@ -203,6 +203,14 @@ namespace
         EGSETTINGS          m_custom;           /* values of the [Overrides] section */
         bool                m_abOverride[OVERRIDE_MAX];
         EGSETTINGS          m_effective;
+        EGSETTINGS          m_configured;       /* preset + overrides, shown/edited in the menu */
+
+        /* menu readouts */
+        float               m_fLastFps;
+        float               m_fLastPostMs;
+        float               m_fLastWaterMs;
+        bool                m_bHaveLastPerf;
+        int32               m_nWaterMaterial;
 
         NAMELIST            m_waterInclude;
         NAMELIST            m_waterExclude;
@@ -326,7 +334,7 @@ namespace
 
         static const char* s_apszLine[] =
         {
-            "; TMNT2 Enhanced Graphics v1.0 settings",
+            "; TMNT2 Enhanced Graphics v1.1 settings",
             "; Read at game start. Ctrl+F8 reloads this file in game.",
             "; F8 = original / enhanced   Shift+F8 = next preset",
             "",
@@ -597,21 +605,18 @@ namespace
 
     void UpdateEffective(const char* pszReason)
     {
+        CEnhancedGraphics::PRESET basePreset = s_state.m_preset;
+        if (basePreset == CEnhancedGraphics::PRESET_CUSTOM)
+            basePreset = CEnhancedGraphics::PRESET_ENHANCED;
+
+        /* Overrides apply to Custom always, and to the other presets too. */
+        s_state.m_configured = MakePreset(basePreset);
+        ApplyOverrides(s_state.m_configured);
+
         if (!s_state.m_bAvailable || !s_state.m_bEnhanced)
-        {
             s_state.m_effective = MakeOriginal();
-        }
         else
-        {
-            CEnhancedGraphics::PRESET basePreset = s_state.m_preset;
-            if (basePreset == CEnhancedGraphics::PRESET_CUSTOM)
-                basePreset = CEnhancedGraphics::PRESET_ENHANCED;
-
-            s_state.m_effective = MakePreset(basePreset);
-
-            /* Overrides apply to Custom always, and to the other presets too. */
-            ApplyOverrides(s_state.m_effective);
-        };
+            s_state.m_effective = s_state.m_configured;
 
         const EGSETTINGS& e = s_state.m_effective;
         CEnhancedGraphics::Log("APPLY reason=%s mode=%s preset=%s toon=%d light=%d shadow=%d contact=%d water=%d bloom=%d grade=%d fxaa=%d trilinear=%d",
@@ -1163,6 +1168,8 @@ namespace
             double dPost  = (q.m_bPost  ? (static_cast<double>(aStamp[3] - aStamp[2]) * 1000.0 / static_cast<double>(freq)) : 0.0);
             s_state.m_dGpuWaterMsSum += dWater;
             s_state.m_dGpuPostMsSum += dPost;
+            s_state.m_fLastWaterMs += (static_cast<float>(dWater) - s_state.m_fLastWaterMs) * 0.1f;
+            s_state.m_fLastPostMs += (static_cast<float>(dPost) - s_state.m_fLastPostMs) * 0.1f;
             ++s_state.m_nGpuSamples;
         };
     };
@@ -1172,7 +1179,7 @@ namespace
     {
         s_d3d.m_iActiveQuery = -1;
 
-        if (!s_state.m_bPerfLog || s_d3d.m_bQueryBroken || !s_state.m_bEnhanced)
+        if (s_d3d.m_bQueryBroken || !s_state.m_bEnhanced)
             return;
 
         IDirect3DDevice9* pDevice = Device();
@@ -1330,7 +1337,7 @@ namespace
     if (BuildPath(wszLog, MAX_PATH, L"TMNT2_graphics.log"))
         _wfopen_s(&s_state.m_pLog, wszLog, L"wb");
 
-    Log("TMNT2 Enhanced Graphics v1.0.0 (feature enhanced-graphics)");
+    Log("TMNT2 Enhanced Graphics v1.1.0 (feature enhanced-graphics)");
     LoadIni();
     ComputeShadowTint();
     UpdateEffective("startup");
@@ -1441,6 +1448,14 @@ namespace
         }
         else if (dMs < 1000.0)
         {
+            /* live readout for the Debug Tools tab (smoothed, independent of the log window) */
+            if (dMs > 0.01)
+            {
+                float fFps = static_cast<float>(1000.0 / dMs);
+                s_state.m_fLastFps = (s_state.m_fLastFps > 0.0f) ? (s_state.m_fLastFps + (fFps - s_state.m_fLastFps) * 0.05f) : fFps;
+                s_state.m_bHaveLastPerf = true;
+            };
+
             ++s_state.m_nFrames;
             s_state.m_dFrameMsSum += dMs;
             if (dMs > s_state.m_dFrameMsMax)
@@ -1991,4 +2006,228 @@ namespace
     std::snprintf(pszBuffer, static_cast<size_t>(nBufferSize), "%s", s_state.m_szToast);
     *pfAlpha = (dMs < 2000.0) ? 1.0f : static_cast<float>((2500.0 - dMs) / 500.0);
     return true;
+};
+
+
+/*=========================================================================
+ *  Live editing (Debug Tools "Remaster" tab)
+ *=======================================================================*/
+
+/*static*/ void CEnhancedGraphics::SetEnhanced(bool bEnhanced)
+{
+    if (!s_state.m_bAvailable || (s_state.m_bEnhanced == bEnhanced))
+        return;
+
+    s_state.m_bEnhanced = bEnhanced;
+    UpdateEffective("menu-toggle");
+    ShowToast();
+};
+
+
+/*static*/ void CEnhancedGraphics::SetPreset(PRESET preset)
+{
+    if (!s_state.m_bAvailable || (preset < 0) || (preset >= PRESET_NUM))
+        return;
+
+    s_state.m_preset = preset;
+    s_state.m_bEnhanced = true;
+    std::memset(s_state.m_abOverride, 0, sizeof(s_state.m_abOverride));
+    UpdateEffective("menu-preset");
+    ShowToast();
+};
+
+
+/*static*/ int32 CEnhancedGraphics::FindKey(const char* pszName)
+{
+    for (int32 i = 0; i < COUNT_OF(s_aKeyInfo); ++i)
+    {
+        if (_stricmp(s_aKeyInfo[i].m_pszName, pszName) == 0)
+            return i;
+    };
+
+    return -1;
+};
+
+
+/*static*/ bool CEnhancedGraphics::IsKeyBool(int32 key)
+{
+    return (key >= 0) && (key < COUNT_OF(s_aKeyInfo)) && (s_aKeyInfo[key].m_type == KEY_BOOL);
+};
+
+
+/*static*/ float CEnhancedGraphics::GetKeyMin(int32 key)
+{
+    return ((key >= 0) && (key < COUNT_OF(s_aKeyInfo))) ? s_aKeyInfo[key].m_fMin : 0.0f;
+};
+
+
+/*static*/ float CEnhancedGraphics::GetKeyMax(int32 key)
+{
+    return ((key >= 0) && (key < COUNT_OF(s_aKeyInfo))) ? s_aKeyInfo[key].m_fMax : 1.0f;
+};
+
+
+/*static*/ float CEnhancedGraphics::GetKeyValue(int32 key)
+{
+    if ((key < 0) || (key >= COUNT_OF(s_aKeyInfo)))
+        return 0.0f;
+
+    const KEYINFO& rKey = s_aKeyInfo[key];
+    const uint8* pBase = reinterpret_cast<const uint8*>(&s_state.m_configured);
+    if (rKey.m_type == KEY_BOOL)
+        return (*reinterpret_cast<const bool*>(pBase + rKey.m_offset) ? 1.0f : 0.0f);
+
+    return *reinterpret_cast<const float*>(pBase + rKey.m_offset);
+};
+
+
+/*static*/ void CEnhancedGraphics::SetKeyValue(int32 key, float fValue)
+{
+    if (!s_state.m_bAvailable || (key < 0) || (key >= COUNT_OF(s_aKeyInfo)))
+        return;
+
+    const KEYINFO& rKey = s_aKeyInfo[key];
+    uint8* pBase = reinterpret_cast<uint8*>(&s_state.m_custom);
+    if (rKey.m_type == KEY_BOOL)
+        *reinterpret_cast<bool*>(pBase + rKey.m_offset) = (fValue >= 0.5f);
+    else
+        *reinterpret_cast<float*>(pBase + rKey.m_offset) = Clampf(fValue, rKey.m_fMin, rKey.m_fMax);
+
+    s_state.m_abOverride[key] = true;
+
+    /* an edit is meant to be seen: switch to ENHANCED if ORIGINAL was showing */
+    bool bWasOriginal = !s_state.m_bEnhanced;
+    s_state.m_bEnhanced = true;
+    UpdateEffective("menu-edit");
+    if (bWasOriginal)
+        ShowToast();
+};
+
+
+/*static*/ bool CEnhancedGraphics::IsKeyOverridden(int32 key)
+{
+    return (key >= 0) && (key < COUNT_OF(s_aKeyInfo)) && s_state.m_abOverride[key];
+};
+
+
+/*static*/ void CEnhancedGraphics::ClearKeyOverride(int32 key)
+{
+    if ((key < 0) || (key >= COUNT_OF(s_aKeyInfo)) || !s_state.m_abOverride[key])
+        return;
+
+    s_state.m_abOverride[key] = false;
+    UpdateEffective("menu-reset-item");
+};
+
+
+/*static*/ void CEnhancedGraphics::ClearAllOverrides(void)
+{
+    std::memset(s_state.m_abOverride, 0, sizeof(s_state.m_abOverride));
+    UpdateEffective("menu-reset-tab");
+};
+
+
+/*static*/ int32 CEnhancedGraphics::GetOverrideCount(void)
+{
+    int32 n = 0;
+    for (int32 i = 0; i < COUNT_OF(s_aKeyInfo); ++i)
+        n += (s_state.m_abOverride[i] ? 1 : 0);
+    return n;
+};
+
+
+/*static*/ bool CEnhancedGraphics::SaveIni(void)
+{
+    wchar_t wszPath[MAX_PATH] = {};
+    if (!s_state.m_bAvailable || !BuildPath(wszPath, MAX_PATH, L"TMNT2_graphics.ini"))
+        return false;
+
+    FILE* pFile = nullptr;
+    if ((_wfopen_s(&pFile, wszPath, L"wb") != 0) || !pFile)
+    {
+        Log("INI save failed (file not writable)");
+        return false;
+    };
+
+    std::fprintf(pFile, "; TMNT2 Enhanced Graphics v1.1 settings (saved from Debug Tools > REMASTER)\r\n");
+    std::fprintf(pFile, "; F8 = original / enhanced   Shift+F8 = next preset   Ctrl+F8 = reload this file\r\n\r\n");
+    std::fprintf(pFile, "[Graphics]\r\n; ClassicPlus | Enhanced | High | Custom\r\nPreset=%s\r\n", PresetIniName(s_state.m_preset));
+    std::fprintf(pFile, "StartEnhanced=%d\r\nToast=%d\r\nPerfLog=%d\r\n\r\n",
+                 (s_state.m_bEnhanced ? 1 : 0), (s_state.m_bToastEnabled ? 1 : 0), (s_state.m_bPerfLog ? 1 : 0));
+
+    std::fprintf(pFile, "[Overrides]\r\n; Active keys override the preset; ';' lines show the preset value for reference.\r\n");
+    for (int32 i = 0; i < COUNT_OF(s_aKeyInfo); ++i)
+    {
+        const KEYINFO& rKey = s_aKeyInfo[i];
+        const char* pszPrefix = (s_state.m_abOverride[i] ? "" : ";");
+        if (rKey.m_type == KEY_BOOL)
+            std::fprintf(pFile, "%s%s=%d\r\n", pszPrefix, rKey.m_pszName, (GetKeyValue(i) >= 0.5f) ? 1 : 0);
+        else
+            std::fprintf(pFile, "%s%s=%.2f\r\n", pszPrefix, rKey.m_pszName, GetKeyValue(i));
+    };
+
+    std::fprintf(pFile, "\r\n[Water]\r\nInclude=");
+    for (int32 i = 0; i < s_state.m_waterInclude.m_nCount; ++i)
+        std::fprintf(pFile, "%s%s", (i ? "," : ""), s_state.m_waterInclude.m_aszName[i]);
+    std::fprintf(pFile, "\r\nExclude=");
+    for (int32 i = 0; i < s_state.m_waterExclude.m_nCount; ++i)
+        std::fprintf(pFile, "%s%s", (i ? "," : ""), s_state.m_waterExclude.m_aszName[i]);
+    std::fprintf(pFile, "\r\nCollisionFallback=%d\r\n", (s_state.m_bWaterCollisionFallback ? 1 : 0));
+
+    std::fclose(pFile);
+    Log("INI saved: preset=%s overrides=%d", PresetIniName(s_state.m_preset), GetOverrideCount());
+    std::snprintf(s_state.m_szToast, sizeof(s_state.m_szToast), "GRAPHICS: SETTINGS SAVED");
+    s_state.m_toastStart = Qpc();
+    return true;
+};
+
+
+/*static*/ void CEnhancedGraphics::ReloadIni(void)
+{
+    if (!s_state.m_bAvailable)
+        return;
+
+    bool bEnhanced = s_state.m_bEnhanced;
+    LoadIni();
+    s_state.m_bEnhanced = bEnhanced;
+    UpdateEffective("menu-reload");
+    ShowToast();
+};
+
+
+/*static*/ void CEnhancedGraphics::SetWaterMaterialCount(int32 nMaterial)
+{
+    s_state.m_nWaterMaterial = nMaterial;
+};
+
+
+/*static*/ void CEnhancedGraphics::GetWaterStats(int32* pnMaterial, int32* pnTriangle, bool* pbBroken)
+{
+    *pnMaterial = s_state.m_nWaterMaterial;
+#if defined(TMNT2_RWDRV_D3D9)
+    *pnTriangle = s_d3d.m_nWaterIndex / 3;
+    *pbBroken = s_d3d.m_bWaterBroken;
+#else /* defined(TMNT2_RWDRV_D3D9) */
+    *pnTriangle = 0;
+    *pbBroken = true;
+#endif /* defined(TMNT2_RWDRV_D3D9) */
+};
+
+
+/*static*/ bool CEnhancedGraphics::GetLastPerf(float* pfFps, float* pfPostMs, float* pfWaterMs)
+{
+    *pfFps = s_state.m_fLastFps;
+    *pfPostMs = s_state.m_fLastPostMs;
+    *pfWaterMs = s_state.m_fLastWaterMs;
+    return s_state.m_bHaveLastPerf;
+};
+
+
+/*static*/ bool CEnhancedGraphics::IsPostAvailable(void)
+{
+#if defined(TMNT2_RWDRV_D3D9)
+    return !s_d3d.m_bPostBroken;
+#else /* defined(TMNT2_RWDRV_D3D9) */
+    return false;
+#endif /* defined(TMNT2_RWDRV_D3D9) */
 };
