@@ -5,6 +5,7 @@
 #include "PCError.hpp"
 #include "PCCrashReporter.hpp"
 #include "PCModFeatures.hpp"
+#include "PCEnhancedGraphics.hpp"
 
 #include "System/Common/Configure.hpp"
 #include "System/Common/Screen.hpp"
@@ -301,6 +302,8 @@ bool CPCGraphicsDevice::Start(void)
 
     RwImageSetGamma(1.2f);
 
+    CEnhancedGraphics::OnEngineStarted();
+
     {
         char szDisplay[384] = {};
         DescribeDisplay(szDisplay, sizeof(szDisplay));
@@ -344,10 +347,19 @@ bool CPCGraphicsDevice::Start(void)
 };
 
 
+void CPCGraphicsDevice::Stop(void)
+{
+    CEnhancedGraphics::OnEngineStopping();
+    CGraphicsDevice::Stop();
+};
+
+
 bool CPCGraphicsDevice::RenderBegin(void)
 {
     if (!CGraphicsDevice::RenderBegin())
         return false;
+
+    CEnhancedGraphics::FrameBegin();
 
     /*
      * Enforce MSAA after RwCameraBeginUpdate and immediately before the game's

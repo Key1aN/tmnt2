@@ -21,6 +21,13 @@
 #include <d3d9.h>
 #endif /* defined(TARGET_PC) && defined(TMNT2_RWDRV_D3D9) */
 
+#if defined(TARGET_PC)
+#include "WaterSurface.hpp"
+#include "Game/System/Model/ToonManager.hpp"
+#include "System/PC/PCEnhancedGraphics.hpp"
+#define WORLDMAP_ENHANCED_GRAPHICS
+#endif /* defined(TARGET_PC) */
+
 
 static const RwRGBAReal AMBIENT_LIGHT_COLOR = { 0.6f, 0.6f, 0.6f, 1.0f };
 static const RwRGBAReal DIRECTIONAL_LIGHT_COLOR = { 1.0f, 1.0f, 1.0f, 1.0f };
@@ -46,6 +53,7 @@ public:
     void SetAmbientLightColor(const RwRGBAReal& rColor);
     void SetDirectionLightColor(const RwRGBAReal& rColor);
     void SetDirectionLightMatrix(RwMatrix* pMatrix);
+    void ApplyEnhancedLights(void);
     const CWorldMap::MAPINFO* GetMapInfo(void) const;
     RpWorld* GetWorld(void) const;
     const CWorldMap::COLLISIONRESULT* GetCollisionResult(void) const;
@@ -75,6 +83,9 @@ private:
     void* m_hUVAnim;
     CWorldMap::MAPINFO* m_pMapInfo;
     CWorldMap::COLLISIONRESULT m_CollisionResult;
+    RwRGBAReal m_lightAmbientSet;      /* last colours written by the stage setup or the light rig */
+    RwRGBAReal m_lightDirectionSet;
+    bool m_bLightRigTracking;
 };
 
 
@@ -87,6 +98,9 @@ CWorldMapManager::CWorldMapManager(void)
 , m_pLightDirection(nullptr)
 , m_hUVAnim(nullptr)
 , m_pMapInfo(nullptr)
+, m_lightAmbientSet(AMBIENT_LIGHT_COLOR)
+, m_lightDirectionSet(DIRECTIONAL_LIGHT_COLOR)
+, m_bLightRigTracking(false)
 {
     ;
 };
@@ -152,6 +166,82 @@ void CWorldMapManager::OnLoaded(void)
 
     if (m_hUVAnim)
         CUVAnim::InitUVAnim(m_hUVAnim);    
+
+#if defined(WORLDMAP_ENHANCED_GRAPHICS)
+    if (CEnhancedGraphics::IsAvailable())
+    {
+        RwRGBA fogColor = { 0, 0, 0, 255 };
+        bool bFog = false;
+        RwV3d vLightTravel = { 0.5f, -0.7071f, 0.5f };
+
+        if (m_pMapInfo)
+        {
+            fogColor = m_pMapInfo->m_foginfo.m_Color;
+            bFog = (m_pMapInfo->m_foginfo.m_bEnable != 0);
+        };
+
+        RwFrame* pLightFrame = (m_pLightDirection ? RpLightGetFrame(m_pLightDirection) : nullptr);
+        if (pLightFrame)
+            vLightTravel = *RwMatrixGetAt(RwFrameGetMatrix(pLightFrame));   /* a directional light shines along its frame's at-vector */
+
+        CEnhancedGraphics::SetStageContext(fogColor, bFog, vLightTravel);
+        CToonManager::RefreshEnhancement();
+
+        m_lightAmbientSet = AMBIENT_LIGHT_COLOR;
+        m_lightDirectionSet = DIRECTIONAL_LIGHT_COLOR;
+        m_bLightRigTracking = true;
+        ApplyEnhancedLights();
+
+        WaterSurface::Build(m_pWorld, m_pWorldCollision, (m_pMapInfo ? m_pMapInfo->m_szName : nullptr));
+    };
+#endif /* defined(WORLDMAP_ENHANCED_GRAPHICS) */
+};
+
+
+void CWorldMapManager::ApplyEnhancedLights(void)
+{
+#if defined(WORLDMAP_ENHANCED_GRAPHICS)
+    if (!m_bLightRigTracking || !m_pLightAmbient || !m_pLightDirection)
+        return;
+
+    /* Leave the lights alone while something else (a boss phase, a scripted flash) is driving them. */
+    const RwRGBAReal* pAmbient = RpLightGetColor(m_pLightAmbient);
+    const RwRGBAReal* pDirection = RpLightGetColor(m_pLightDirection);
+    if (!pAmbient || !pDirection ||
+        (std::memcmp(pAmbient, &m_lightAmbientSet, sizeof(RwRGBAReal)) != 0) ||
+        (std::memcmp(pDirection, &m_lightDirectionSet, sizeof(RwRGBAReal)) != 0))
+    {
+        CEnhancedGraphics::Log("LIGHT rig skipped: stage lights are being changed by gameplay");
+        return;
+    };
+
+    RwRGBAReal ambient = AMBIENT_LIGHT_COLOR;
+    RwRGBAReal direction = DIRECTIONAL_LIGHT_COLOR;
+
+    const EGSETTINGS& rSettings = CEnhancedGraphics::Get();
+    if (rSettings.m_bLightRig)
+    {
+        const float w = rSettings.m_fLightWarmth;
+        const float a = rSettings.m_fAmbientScale;
+        const float k = rSettings.m_fKeyLight;
+
+        ambient.red     = AMBIENT_LIGHT_COLOR.red   * a * (1.0f - 0.04f * w);
+        ambient.green   = AMBIENT_LIGHT_COLOR.green * a * (1.0f - 0.01f * w);
+        ambient.blue    = AMBIENT_LIGHT_COLOR.blue  * a * (1.0f + 0.06f * w);
+        direction.red   = DIRECTIONAL_LIGHT_COLOR.red   * k * (1.0f + 0.04f * w);
+        direction.green = DIRECTIONAL_LIGHT_COLOR.green * k;
+        direction.blue  = DIRECTIONAL_LIGHT_COLOR.blue  * k * (1.0f - 0.06f * w);
+    };
+
+    SetAmbientLightColor(ambient);
+    SetDirectionLightColor(direction);
+    m_lightAmbientSet = *RpLightGetColor(m_pLightAmbient);
+    m_lightDirectionSet = *RpLightGetColor(m_pLightDirection);
+
+    CEnhancedGraphics::Log("LIGHT ambient=(%.3f %.3f %.3f) direction=(%.3f %.3f %.3f)",
+                           ambient.red, ambient.green, ambient.blue,
+                           direction.red, direction.green, direction.blue);
+#endif /* defined(WORLDMAP_ENHANCED_GRAPHICS) */
 };
 
 
@@ -237,6 +327,11 @@ void CWorldMapManager::SetWorldMapEnvironment(void)
 
 void CWorldMapManager::DestroyWorld(void)
 {
+#if defined(WORLDMAP_ENHANCED_GRAPHICS)
+    WaterSurface::Clear();
+    m_bLightRigTracking = false;
+#endif /* defined(WORLDMAP_ENHANCED_GRAPHICS) */
+
     if (m_hUVAnim)
     {
         CUVAnim::DestroyAnimatedMaterialsList(m_hUVAnim);
@@ -346,6 +441,10 @@ void CWorldMapManager::Period(void)
 {
     if (m_hUVAnim)
         CUVAnim::UpdateUVAnim(m_hUVAnim, CGameProperty::GetElapsedTime());
+
+#if defined(WORLDMAP_ENHANCED_GRAPHICS)
+    CEnhancedGraphics::WaterAdvanceTime(CGameProperty::GetElapsedTime());
+#endif /* defined(WORLDMAP_ENHANCED_GRAPHICS) */
 };
 
 
@@ -1047,6 +1146,15 @@ static inline CWorldMapManager& WorldMapManager(void)
 /*static*/ const float CWorldMap::INVALID_MAP_HEIGHT = -100.0f;
 
 
+#if defined(WORLDMAP_ENHANCED_GRAPHICS)
+static void WorldMapApplyEnhancedLights(void)
+{
+    if (s_pWorldMapManager)
+        s_pWorldMapManager->ApplyEnhancedLights();
+};
+#endif /* defined(WORLDMAP_ENHANCED_GRAPHICS) */
+
+
 /*static*/ void CWorldMap::Initialize(void)
 {
     if (!s_pWorldMapManager)
@@ -1058,6 +1166,10 @@ static inline CWorldMapManager& WorldMapManager(void)
         
         s_pWorldMapManager = new CWorldMapManager;
     };
+
+#if defined(WORLDMAP_ENHANCED_GRAPHICS)
+    CEnhancedGraphics::RegisterApplyCallback(&WorldMapApplyEnhancedLights);
+#endif /* defined(WORLDMAP_ENHANCED_GRAPHICS) */
 };
 
 

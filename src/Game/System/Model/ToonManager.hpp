@@ -26,6 +26,7 @@ public:
     static void RegistModel(CModelToon* pModel);
     static void RemoveModel(CModelToon* pModel);
     static void SetTextureSet(const char* pszName);
+    static void RefreshEnhancement(void);
 
 private:
     static const char* m_apszPatternTextureName[];

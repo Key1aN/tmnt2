@@ -13,6 +13,7 @@ public:
     static bool IsDebugToolsEnabled(void);
     static bool IsKaraiBossVariantEnabled(void);
     static bool IsComboAssistEnabled(void);
+    static bool IsEnhancedGraphicsEnabled(void);
 
 private:
     enum FLAG
@@ -24,6 +25,7 @@ private:
         FLAG_DEBUG_TOOLS         = (1 << 4),
         FLAG_KARAI_BOSS_VARIANT  = (1 << 5),
         FLAG_COMBO_ASSIST        = (1 << 6),
+        FLAG_ENHANCED_GRAPHICS   = (1 << 7),
     };
 
     static unsigned int m_flags;

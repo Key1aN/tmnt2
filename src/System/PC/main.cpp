@@ -5,6 +5,7 @@
 #include "PCFramework.hpp"
 #include "PCCrashReporter.hpp"
 #include "PCModFeatures.hpp"
+#include "PCEnhancedGraphics.hpp"
 
 #include "System/Common/Configure.hpp"
 
@@ -35,8 +36,9 @@ _tWinMain(
 )
 {
     CPCCrashReporter::Install();
-    CPCCrashReporter::Breadcrumb("BUILD TMNT2_Core_Karai_Boss_Variant_v1_4_1_US");
+    CPCCrashReporter::Breadcrumb("BUILD TMNT2_Core_Enhanced_Graphics_v1_0_0_US");
     CPCModFeatures::Initialize();
+    CEnhancedGraphics::Initialize();
 
 #ifdef VLDCHECK    
     VLDEnable();
@@ -56,6 +58,7 @@ _tWinMain(
     
     bool bResult = CPCFramework::StartAndRun();
 
+    CEnhancedGraphics::Terminate();
     CPCSetting::Terminate();
 
 #if defined(NDEBUG)

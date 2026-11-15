@@ -37,6 +37,36 @@
 #if defined(_DEBUG) || defined(TMNT2_DEBUG_TOOLS)
 #include "GameStageDebug.hpp"
 #include "Game/System/Misc/DebugShape.hpp"
+
+#if defined(TARGET_PC)
+#include "Game/System/2d/GameFont.hpp"
+#include "System/Common/Sprite.hpp"
+#include "System/Common/System2D.hpp"
+#include "System/PC/PCEnhancedGraphics.hpp"
+#define GAMESTAGE_ENHANCED_GRAPHICS
+
+
+/* Enhanced Graphics: short confirmation after F8 / Shift+F8 (bottom-left, HUD layer). */
+static void DrawEnhancedGraphicsToast(void)
+{
+    char szText[96];
+    float fAlpha = 0.0f;
+    if (!CEnhancedGraphics::GetToast(szText, sizeof(szText), &fAlpha) || !CGameFont::IsOpen())
+        return;
+
+    const float x = CSprite::m_fVirtualScreenX + 14.0f;
+    const float y = CSprite::m_fVirtualScreenY + CSprite::m_fVirtualScreenH - 34.0f;
+    const RwUInt8 a = static_cast<RwUInt8>(Clamp(fAlpha, 0.0f, 1.0f) * 255.0f);
+
+    CSystem2D::PushRenderState();
+    CGameFont::SetHeight(13.0f);
+    CGameFont::SetRGBA(0x00, 0x00, 0x00, static_cast<RwUInt8>(a * 0.85f));
+    CGameFont::Show(szText, x + 1.0f, y + 1.0f);
+    CGameFont::SetRGBA(0xFF, 0xD8, 0x50, a);
+    CGameFont::Show(szText, x, y);
+    CSystem2D::PopRenderState();
+};
+#endif /* defined(TARGET_PC) */
 #endif /* defined(_DEBUG) || defined(TMNT2_DEBUG_TOOLS) */
 
 #ifdef TARGET_PC
@@ -273,6 +303,9 @@ void CGameStage::Draw(void) const
         CCharacterManager::Draw();
         CGimmickManager::Draw(CGimmickInfo::DRAWPRI_POSTCHARA);
         CWorldMap::Draw(CWorldMap::DRAWTYPE_AFTER);
+#if defined(GAMESTAGE_ENHANCED_GRAPHICS)
+        CEnhancedGraphics::WaterDraw();     /* after characters so submerged parts sort by depth; before splashes */
+#endif /* defined(GAMESTAGE_ENHANCED_GRAPHICS) */
         CShotManager::Draw();
         CGimmickManager::Draw(CGimmickInfo::DRAWPRI_POSTALPHAMAP);
 
@@ -281,6 +314,10 @@ void CGameStage::Draw(void) const
 #endif /* defined(_DEBUG) || defined(TMNT2_DEBUG_TOOLS) */
         
         CEffectManager::Draw(CCamera::CameraCurrent());        
+
+#if defined(GAMESTAGE_ENHANCED_GRAPHICS)
+        CEnhancedGraphics::PostProcess();   /* 3D scene only: radar, gauges and every 2D HUD element come after */
+#endif /* defined(GAMESTAGE_ENHANCED_GRAPHICS) */
         
         if (m_bCreatedRadar)
             CGameRadar::Draw();
@@ -310,6 +347,10 @@ void CGameStage::Draw(void) const
 
     CGaugeInformation::MissionInfoDraw();
     CGaugeInformation::DispBattleNexusInfo();
+
+#if defined(GAMESTAGE_ENHANCED_GRAPHICS)
+    DrawEnhancedGraphicsToast();
+#endif /* defined(GAMESTAGE_ENHANCED_GRAPHICS) */
 };
 
 

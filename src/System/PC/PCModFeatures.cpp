@@ -82,6 +82,8 @@ namespace
             m_flags |= FLAG_KARAI_BOSS_VARIANT;
         else if (std::strcmp(line, "feature=combo-assist") == 0)
             m_flags |= FLAG_COMBO_ASSIST;
+        else if (std::strcmp(line, "feature=enhanced-graphics") == 0)
+            m_flags |= FLAG_ENHANCED_GRAPHICS;
     }
     std::fclose(stream);
 
@@ -134,4 +136,10 @@ namespace
 /*static*/ bool CPCModFeatures::IsComboAssistEnabled(void)
 {
     return ((m_flags & FLAG_COMBO_ASSIST) != 0);
+};
+
+
+/*static*/ bool CPCModFeatures::IsEnhancedGraphicsEnabled(void)
+{
+    return ((m_flags & FLAG_ENHANCED_GRAPHICS) != 0);
 };

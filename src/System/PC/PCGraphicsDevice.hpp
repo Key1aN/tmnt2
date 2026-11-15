@@ -20,6 +20,7 @@ public:
     virtual bool Initialize(void) override;
     virtual void Terminate(void) override;
     virtual bool Start(void) override;
+    virtual void Stop(void) override;
     virtual bool RenderBegin(void) override;
     virtual void Flip(void) override;
     virtual int32 ScreenWidth(void) override;

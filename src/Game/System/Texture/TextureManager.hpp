@@ -13,5 +13,6 @@ public:
     static void ReadSet(const char* pszName, void* pBuffer, uint32 uBufferSize);
     static RwTexture* GetRwTexture(const char* pszName);
     static RwTexDictionary* GetRwTextureDictionary(const char* pszName);
-    static void SetCurrentTextureSet(const char* pszName);    
+    static void SetCurrentTextureSet(const char* pszName);
+    static void ApplyEnhancedFiltering(void);    
 };

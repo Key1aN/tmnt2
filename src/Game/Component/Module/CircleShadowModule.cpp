@@ -7,6 +7,84 @@
 #include "Game/System/Misc/RenderStateStack.hpp"
 #include "System/Common/RenderState.hpp"
 
+#if defined(TARGET_PC)
+#include "System/PC/PCEnhancedGraphics.hpp"
+#define SHADOW_ENHANCED_GRAPHICS
+#endif /* defined(TARGET_PC) */
+
+
+#if defined(SHADOW_ENHANCED_GRAPHICS)
+namespace
+{
+    RwTexture* s_pSoftShadowTexture = nullptr;
+    bool s_bSoftShadowTried = false;
+
+
+    /* 64x64 soft disc: smooth radial falloff to zero at the edge, cool dark colour. */
+    RwTexture* CreateSoftShadowTexture(void)
+    {
+        const int32 SIZE = 64;
+        RwImage* pImage = RwImageCreate(SIZE, SIZE, 32);
+        if (!pImage)
+            return nullptr;
+
+        if (!RwImageAllocatePixels(pImage))
+        {
+            RwImageDestroy(pImage);
+            return nullptr;
+        };
+
+        uint8* pPixels = RwImageGetPixels(pImage);
+        const int32 stride = RwImageGetStride(pImage);
+        for (int32 y = 0; y < SIZE; ++y)
+        {
+            for (int32 x = 0; x < SIZE; ++x)
+            {
+                float fx = ((static_cast<float>(x) + 0.5f) / static_cast<float>(SIZE)) * 2.0f - 1.0f;
+                float fy = ((static_cast<float>(y) + 0.5f) / static_cast<float>(SIZE)) * 2.0f - 1.0f;
+                float r = std::sqrt(fx * fx + fy * fy);
+                float t = Clamp(r, 0.0f, 1.0f);
+                float s = t * t * (3.0f - 2.0f * t);
+                float a = std::pow(1.0f - s, 1.35f);
+
+                uint8* p = pPixels + (y * stride) + (x * 4);
+                p[0] = 18;
+                p[1] = 20;
+                p[2] = 32;
+                p[3] = static_cast<uint8>(Clamp(a, 0.0f, 1.0f) * 255.0f + 0.5f);
+            };
+        };
+
+        RwRaster* pRaster = RwRasterCreate(SIZE, SIZE, 0, rwRASTERTYPETEXTURE | rwRASTERFORMAT8888);
+        RwTexture* pTexture = nullptr;
+        if (pRaster && RwRasterSetFromImage(pRaster, pImage))
+            pTexture = RwTextureCreate(pRaster);
+
+        if (!pTexture && pRaster)
+            RwRasterDestroy(pRaster);
+
+        RwImageDestroy(pImage);
+
+        if (pTexture)
+        {
+            RwTextureSetName(pTexture, "eg_soft_shadow");
+            RwTextureSetFilterMode(pTexture, rwFILTERLINEAR);
+            RwTextureSetAddressing(pTexture, rwTEXTUREADDRESSCLAMP);
+        };
+
+        CEnhancedGraphics::Log("SHADOW soft texture %s", (pTexture ? "created" : "FAILED (original shadows kept)"));
+        return pTexture;
+    };
+
+
+    float SmoothStep01(float x)
+    {
+        float t = Clamp(x, 0.0f, 1.0f);
+        return t * t * (3.0f - 2.0f * t);
+    };
+};
+#endif /* defined(SHADOW_ENHANCED_GRAPHICS) */
+
 
 class CCircleShadowModuleForCharacter final : public CCircleShadowModule
 {
@@ -70,6 +148,14 @@ private:
 	RsStack.Set(rwRENDERSTATEDESTBLEND, rwBLENDINVSRCALPHA);
     RsStack.Push(rwRENDERSTATEVERTEXALPHAENABLE);
 
+#if defined(SHADOW_ENHANCED_GRAPHICS)
+    if (CEnhancedGraphics::Get().m_bShadow && !s_pSoftShadowTexture && !s_bSoftShadowTried)
+    {
+        s_bSoftShadowTried = true;
+        s_pSoftShadowTexture = CreateSoftShadowTexture();
+    };
+#endif /* defined(SHADOW_ENHANCED_GRAPHICS) */
+
     for (CCircleShadowModule& it : m_listDraw)
         it.DrawNode();
 };
@@ -82,8 +168,14 @@ CCircleShadowModule::CCircleShadowModule(float w, float h)
 : IModule(MODULETYPE::CIRCLE_SHADOW)
 , m_pTexture(nullptr)
 , m_bEnable(true)
+, m_bDrawRequest(false)
+, m_uSoftAlpha(0)
+, m_uCoreAlpha(0)
+, m_bEnhancedReady(false)
 {
     RwMatrixSetIdentity(&m_matrix);
+    RwMatrixSetIdentity(&m_matrixSoft);
+    RwMatrixSetIdentity(&m_matrixCore);
     
     CTextureManager::SetCurrentTextureSet("common_ef");;
     m_pTexture = CTextureManager::GetRwTexture("Shadow1");
@@ -100,6 +192,19 @@ CCircleShadowModule::~CCircleShadowModule(void)
 {
     ASSERT(!m_listDraw.empty());
     m_listDraw.erase(&m_nodeDraw);
+
+#if defined(SHADOW_ENHANCED_GRAPHICS)
+    /* the soft texture lives as long as any shadow does (one stage) */
+    if (m_listDraw.empty())
+    {
+        if (s_pSoftShadowTexture)
+        {
+            RwTextureDestroy(s_pSoftShadowTexture);
+            s_pSoftShadowTexture = nullptr;
+        };
+        s_bSoftShadowTried = false;
+    };
+#endif /* defined(SHADOW_ENHANCED_GRAPHICS) */
 };
 
 
@@ -159,6 +264,120 @@ void CCircleShadowModule::Run(void)
 
     for (int32 i = 0; i < COUNT_OF(m_aVertices); ++i)
         RwIm3DVertexSetRGBA(&m_aVertices[i], 255, 255, 255, uAlphaBasis);
+
+#if defined(SHADOW_ENHANCED_GRAPHICS)
+    m_bEnhancedReady = false;
+    if (CEnhancedGraphics::Get().m_bShadow)
+        RunEnhanced(vPosition, fT, matShadow);
+#endif /* defined(SHADOW_ENHANCED_GRAPHICS) */
+};
+
+
+void CCircleShadowModule::RunEnhanced(const RwV3d& rvGround, float fT, const RwMatrix& rmatBasis)
+{
+#if defined(SHADOW_ENHANCED_GRAPHICS)
+    const EGSETTINGS& e = CEnhancedGraphics::Get();
+    const float fMaxHeight = 5.0f;
+    const float fHeightAbove = fT * fMaxHeight;
+
+    /* Soft blob: widens and fades with height, but never disappears (landing spot stays readable). */
+    float fSoftScale = e.m_fShadowSize * (1.0f + 0.30f * fT);
+    float fSoftAlpha = e.m_fShadowOpacity * (1.0f - 0.75f * SmoothStep01(fT));
+
+    /* Contact core: only near the ground, gone by about one unit of height. */
+    float fCoreScale = e.m_fShadowSize * 0.55f;
+    float fCoreAlpha = 0.0f;
+    if (e.m_bContactShadow)
+    {
+        float k = 1.0f - SmoothStep01(fHeightAbove / 1.0f);
+        fCoreAlpha = e.m_fContactOpacity * k * k;
+    };
+
+    m_uSoftAlpha = static_cast<uint8>(Clamp(fSoftAlpha, 0.0f, 1.0f) * 255.0f + 0.5f);
+    m_uCoreAlpha = static_cast<uint8>(Clamp(fCoreAlpha, 0.0f, 1.0f) * 255.0f + 0.5f);
+
+    /* Push the soft blob a little away from the light, along the ground. */
+    RwV3d vTravel;
+    CEnhancedGraphics::GetLightTravel(&vTravel);
+    RwV3d vOffset = Math::VECTOR3_ZERO;
+    float fLenXZ = std::sqrt(vTravel.x * vTravel.x + vTravel.z * vTravel.z);
+    if (fLenXZ > 0.05f)
+    {
+        float fWidth = std::fabs(RwIm3DVertexGetPos(&m_aVertices[0])->x) * 2.0f;
+        float fPush = e.m_fShadowSunOffset * fWidth * fSoftScale;
+        vOffset.x = (vTravel.x / fLenXZ) * fPush;
+        vOffset.z = (vTravel.z / fLenXZ) * fPush;
+    };
+
+    RwMatrix matRotate;
+    RwMatrixSetIdentity(&matRotate);
+    Math::Matrix_RotateY(&matRotate, GetDirection());
+
+    RwV3d avPos[2] = { rvGround, rvGround };
+    avPos[0].x += vOffset.x;
+    avPos[0].z += vOffset.z;
+    avPos[1].y += 0.01f;    /* core sits just above the soft blob */
+
+    const float afScale[2] = { fSoftScale, fCoreScale };
+    RwMatrix* apMatrix[2] = { &m_matrixSoft, &m_matrixCore };
+    for (int32 i = 0; i < 2; ++i)
+    {
+        RwMatrix matScaling;
+        RwMatrixSetIdentity(&matScaling);
+        Math::Matrix_Scale(&matScaling, afScale[i], afScale[i], afScale[i]);
+
+        RwMatrix matTranslation;
+        RwMatrixSetIdentity(&matTranslation);
+        Math::Matrix_Translate(&matTranslation, &avPos[i]);
+
+        RwMatrixSetIdentity(apMatrix[i]);
+        Math::Matrix_Multiply(apMatrix[i], &matScaling, &matRotate);
+        Math::Matrix_Multiply(apMatrix[i], apMatrix[i], &rmatBasis);
+        Math::Matrix_Multiply(apMatrix[i], apMatrix[i], &matTranslation);
+    };
+
+    m_bEnhancedReady = true;
+#endif /* defined(SHADOW_ENHANCED_GRAPHICS) */
+};
+
+
+void CCircleShadowModule::DrawEnhanced(void)
+{
+#if defined(SHADOW_ENHANCED_GRAPHICS)
+    /* Raster, filter and addressing are restored locally below, so RenderWare never keeps a
+     * pointer to the soft-shadow raster (it is destroyed with the stage's last shadow). */
+    void* pPrevRaster = nullptr;
+    void* pPrevAddress = nullptr;
+    void* pPrevFilter = nullptr;
+    RwRenderStateGet(rwRENDERSTATETEXTURERASTER, &pPrevRaster);
+    RwRenderStateSet(rwRENDERSTATETEXTURERASTER, RwTextureGetRaster(s_pSoftShadowTexture));
+    RwRenderStateGet(rwRENDERSTATETEXTUREADDRESS, &pPrevAddress);
+    RwRenderStateGet(rwRENDERSTATETEXTUREFILTER, &pPrevFilter);
+    RwRenderStateSet(rwRENDERSTATETEXTUREADDRESS, reinterpret_cast<void*>(rwTEXTUREADDRESSCLAMP));
+    RwRenderStateSet(rwRENDERSTATETEXTUREFILTER, reinterpret_cast<void*>(rwFILTERLINEAR));
+
+    const uint8 auAlpha[2] = { m_uSoftAlpha, m_uCoreAlpha };
+    RwMatrix* apMatrix[2] = { &m_matrixSoft, &m_matrixCore };
+    for (int32 i = 0; i < 2; ++i)
+    {
+        if (auAlpha[i] == 0)
+            continue;
+
+        for (int32 v = 0; v < COUNT_OF(m_aVertices); ++v)
+            RwIm3DVertexSetRGBA(&m_aVertices[v], 255, 255, 255, auAlpha[i]);
+
+        /* no rwIM3D_ALLOPAQUE: the vertex alpha carries the fade */
+        if (RwIm3DTransform(m_aVertices, COUNT_OF(m_aVertices), apMatrix[i], rwIM3D_VERTEXUV))
+        {
+            RwIm3DRenderPrimitive(rwPRIMTYPETRISTRIP);
+            RwIm3DEnd();
+        };
+    };
+
+    RwRenderStateSet(rwRENDERSTATETEXTUREADDRESS, pPrevAddress);
+    RwRenderStateSet(rwRENDERSTATETEXTUREFILTER, pPrevFilter);
+    RwRenderStateSet(rwRENDERSTATETEXTURERASTER, pPrevRaster);
+#endif /* defined(SHADOW_ENHANCED_GRAPHICS) */
 };
 
 
@@ -206,6 +425,15 @@ void CCircleShadowModule::DrawNode(void)
 {
     if (!m_bEnable || !m_bDrawRequest)
         return;
+
+#if defined(SHADOW_ENHANCED_GRAPHICS)
+    if (m_bEnhancedReady && s_pSoftShadowTexture && CEnhancedGraphics::Get().m_bShadow)
+    {
+        DrawEnhanced();
+        m_bDrawRequest = false;
+        return;
+    };
+#endif /* defined(SHADOW_ENHANCED_GRAPHICS) */
 
     if (m_pTexture)
         RENDERSTATE_PUSH(rwRENDERSTATETEXTURERASTER, RwTextureGetRaster(m_pTexture));

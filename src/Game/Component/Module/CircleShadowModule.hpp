@@ -27,6 +27,9 @@ public:
     void DrawNode(void);
 
 protected:
+    void RunEnhanced(const RwV3d& rvGround, float fT, const RwMatrix& rmatBasis);
+    void DrawEnhanced(void);
+
     static CList<CCircleShadowModule> m_listDraw;
     CListNode<CCircleShadowModule> m_nodeDraw;
     RwIm3DVertex m_aVertices[4];
@@ -34,4 +37,11 @@ protected:
     RwTexture* m_pTexture;
     bool m_bEnable;
     bool m_bDrawRequest;
+
+    /* Enhanced Graphics: soft blob + contact core (used only while enhanced shadows are on) */
+    RwMatrix m_matrixSoft;
+    RwMatrix m_matrixCore;
+    uint8 m_uSoftAlpha;
+    uint8 m_uCoreAlpha;
+    bool m_bEnhancedReady;
 };

@@ -2,6 +2,39 @@
 
 #include "rtpitexd.h"
 
+#if defined(TARGET_PC)
+#include "System/PC/PCEnhancedGraphics.hpp"
+#define TEXTURE_ENHANCED_GRAPHICS
+#endif /* defined(TARGET_PC) */
+
+
+namespace
+{
+    /* Enhanced Graphics: trilinear filtering for textures that have mip levels. */
+    bool s_bTrilinear = false;
+
+    struct FILTERSTATS
+    {
+        int32 m_nTexture;
+        int32 m_nMipmapped;
+    };
+
+
+    RwTextureFilterMode GameFilterMode(RwTexture* pRwTexture, FILTERSTATS* pStats)
+    {
+        RwRaster* pRaster = RwTextureGetRaster(pRwTexture);
+        bool bMipmapped = (pRaster && (RwRasterGetNumLevels(pRaster) > 1));
+
+        if (pStats)
+        {
+            ++pStats->m_nTexture;
+            pStats->m_nMipmapped += (bMipmapped ? 1 : 0);
+        };
+
+        return ((s_bTrilinear && bMipmapped) ? rwFILTERLINEARMIPLINEAR : rwFILTERLINEAR);
+    };
+};
+
 
 #ifdef _DEBUG
 #define TEXTURE_SET_NUM (256)
@@ -34,11 +67,13 @@ private:
         RwTexDictionary* TextureDictionary(void) const;
         const char* Name(void) const;
         int32 Generation(void) const;
+        bool IsGameFiltered(void) const { return m_bGameFiltered; };
 
     protected:
         char m_szName[TEX_NAME_MAX];
         RwTexDictionary* m_pRwTexDictionary;
         int32 m_iGeneration;
+        bool m_bGameFiltered;   /* textures went through SetLinearFilterCallback */
     };
 
     class CNullTextureSet : public CTextureSet
@@ -66,6 +101,7 @@ public:
     RwTexDictionary* GetRwTextureDictionary(const char* pszName);
     CTextureSet* FindTextureSet(const char* pszName);
     void GarbageCollection(void);
+    void ApplyFiltering(int32* pnTexture, int32* pnMipmapped);
 
 private:
     CTextureSet m_aTextureSet[TEXTURE_SET_NUM];
@@ -80,7 +116,7 @@ private:
 /*static*/ RwTexture* CTextureContainer::CTextureSet::SetLinearFilterCallback(RwTexture* pRwTexture, void* pData)
 {
     ASSERT(pRwTexture);    
-    RwTextureSetFilterMode(pRwTexture, rwFILTERLINEAR);
+    RwTextureSetFilterMode(pRwTexture, GameFilterMode(pRwTexture, static_cast<FILTERSTATS*>(pData)));
 
     return pRwTexture;
 };
@@ -101,6 +137,7 @@ private:
 CTextureContainer::CTextureSet::CTextureSet(void)
 : m_pRwTexDictionary(nullptr)
 , m_iGeneration(-1)
+, m_bGameFiltered(false)
 {
     m_szName[0] = '\0';
 };
@@ -124,6 +161,8 @@ void CTextureContainer::CTextureSet::Initialize(const char* pszName, void* pBuff
         m_pRwTexDictionary = ReadRwTexDictionary(pBuffer, uBufferSize);
     else
         m_pRwTexDictionary = RwTexDictionaryCreate();
+
+    m_bGameFiltered = true;
 
     ASSERT(m_pRwTexDictionary);
 };
@@ -169,6 +208,7 @@ void CTextureContainer::CTextureSet::AddSet(void* pBuffer, uint32 uBufferSize)
     RwTexDictionary* pRwTexDictionary = ReadRwTexDictionary(pBuffer, uBufferSize);
     ASSERT(pRwTexDictionary);
 
+    m_bGameFiltered = true;
     RwTexDictionaryForAllTextures(pRwTexDictionary, TexDictionaryAddTextureCallback, m_pRwTexDictionary);
     RwTexDictionaryDestroy(pRwTexDictionary);
 };
@@ -401,6 +441,20 @@ CTextureContainer::CTextureSet* CTextureContainer::FindTextureSet(const char* ps
 };
 
 
+void CTextureContainer::ApplyFiltering(int32* pnTexture, int32* pnMipmapped)
+{
+    FILTERSTATS stats = { 0, 0 };
+    for (CTextureSet& it : m_listUsing)
+    {
+        if (it.IsGameFiltered() && it.TextureDictionary())
+            RwTexDictionaryForAllTextures(it.TextureDictionary(), CTextureSet::SetLinearFilterCallback, &stats);
+    };
+
+    *pnTexture = stats.m_nTexture;
+    *pnMipmapped = stats.m_nMipmapped;
+};
+
+
 void CTextureContainer::GarbageCollection(void) 
 {
     auto it = m_listUsing.begin();
@@ -438,6 +492,28 @@ static inline CTextureContainer& TextureContainer(void)
 {
     if (!s_pTextureContainer)
         s_pTextureContainer = new CTextureContainer;
+
+#if defined(TEXTURE_ENHANCED_GRAPHICS)
+    s_bTrilinear = CEnhancedGraphics::Get().m_bTrilinear;
+    CEnhancedGraphics::RegisterApplyCallback(&CTextureManager::ApplyEnhancedFiltering);
+#endif /* defined(TEXTURE_ENHANCED_GRAPHICS) */
+};
+
+
+/*static*/ void CTextureManager::ApplyEnhancedFiltering(void)
+{
+#if defined(TEXTURE_ENHANCED_GRAPHICS)
+    bool bTrilinear = CEnhancedGraphics::Get().m_bTrilinear;
+    if (!s_pTextureContainer || (bTrilinear == s_bTrilinear))
+        return;
+
+    s_bTrilinear = bTrilinear;
+
+    int32 nTexture = 0, nMipmapped = 0;
+    s_pTextureContainer->ApplyFiltering(&nTexture, &nMipmapped);
+    CEnhancedGraphics::Log("TEXTURES filter=%s textures=%d mipmapped=%d",
+                           (bTrilinear ? "trilinear(mipmapped)" : "original-linear"), nTexture, nMipmapped);
+#endif /* defined(TEXTURE_ENHANCED_GRAPHICS) */
 };
 
 
