@@ -1,0 +1,525 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>TMNT2 Enemy AI Replay</title>
+<style>
+  :root {
+    --bg: #0b0f17; --panel: #121826; --line: #243049; --text: #e6ebf5; --dim: #8d99b0; --acc: #5ec8ff;
+    --wait: #9aa2b0; --move: #489cff; --attack: #ff4040; --guard: #ffe030; --special: #ff9828; --hit: #b060ff; --other: #f0f0f0;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 13px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  header { display: flex; align-items: center; gap: 12px; padding: 10px 16px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+  header h1 { font-size: 15px; margin: 0 12px 0 0; color: var(--acc); font-weight: 600; }
+  button, select, input[type=range] { accent-color: var(--acc); }
+  button, select { background: #1a2335; color: var(--text); border: 1px solid var(--line); border-radius: 6px; padding: 5px 10px; font: inherit; cursor: pointer; }
+  button:hover { border-color: var(--acc); }
+  label.file { background: #1a2335; border: 1px solid var(--line); border-radius: 6px; padding: 5px 10px; cursor: pointer; }
+  label.file input { display: none; }
+  main { display: grid; grid-template-columns: minmax(360px, 1fr) minmax(380px, 1.1fr); gap: 12px; padding: 12px 16px; }
+  section { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; min-width: 0; }
+  section h2 { font-size: 12px; letter-spacing: .06em; text-transform: uppercase; color: var(--dim); margin: 0 0 8px; font-weight: 600; }
+  .wide { grid-column: 1 / -1; }
+  canvas { width: 100%; display: block; background: #070a10; border-radius: 6px; }
+  .controls { display: flex; gap: 8px; align-items: center; margin-top: 8px; flex-wrap: wrap; }
+  .controls input[type=range] { flex: 1; min-width: 160px; }
+  .mono { font-family: ui-monospace, Consolas, monospace; font-size: 12px; }
+  .legend { display: flex; gap: 12px; flex-wrap: wrap; font-size: 12px; color: var(--dim); margin-top: 6px; }
+  .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 5px; vertical-align: -1px; }
+  table { border-collapse: collapse; width: 100%; font-size: 12px; }
+  th, td { text-align: left; padding: 3px 8px 3px 0; border-bottom: 1px solid #1c2538; white-space: nowrap; }
+  th { color: var(--dim); font-weight: 500; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .dec { border-left: 3px solid var(--line); padding: 4px 8px; margin: 6px 0; }
+  .dec.cur { border-left-color: var(--acc); background: #172034; }
+  .dec .h { font-weight: 600; }
+  .dec .ev { color: var(--dim); font-family: ui-monospace, Consolas, monospace; font-size: 11.5px; }
+  .yes { color: #7be08a; } .no { color: #ff8a8a; }
+  #drop { border: 2px dashed var(--line); border-radius: 10px; padding: 40px; text-align: center; color: var(--dim); margin: 16px; }
+  #drop.over { border-color: var(--acc); color: var(--text); }
+  .note { color: var(--dim); font-size: 12px; }
+  .pill { display: inline-block; padding: 1px 8px; border-radius: 10px; background: #1a2335; border: 1px solid var(--line); font-size: 11.5px; margin-right: 6px; }
+  #decisions { max-height: 420px; overflow: auto; }
+  .bar { height: 10px; border-radius: 2px; display: inline-block; vertical-align: middle; }
+</style>
+</head>
+<body>
+<header>
+  <h1>TMNT2 Enemy AI Replay</h1>
+  <label class="file">Open TMNT2_aitrace.jsonl<input type="file" id="fileA" accept=".jsonl,.json,.txt"></label>
+  <label class="file">Compare with second file<input type="file" id="fileB" accept=".jsonl,.json,.txt"></label>
+  <select id="session" title="Each recording start (header line) begins a session"></select>
+  <button id="exportStats">Export statistics (JSON)</button>
+  <span class="note" id="fileInfo"></span>
+</header>
+
+<div id="drop">Drop a <b>TMNT2_aitrace.jsonl</b> file here (it is written next to TMNT2.exe when "Record to TMNT2_aitrace.jsonl" is ON in Debug Tools &rarr; AI VIEW).<br>
+Everything shown comes from that file. This page does not generate or simulate any data.</div>
+
+<main id="app" hidden>
+  <section>
+    <h2>Top-down replay <span class="pill" id="clock">0.0 s</span></h2>
+    <canvas id="radar" width="720" height="720"></canvas>
+    <div class="controls">
+      <button id="play">Play</button>
+      <select id="speed"><option value="0.25">0.25&times;</option><option value="0.5">0.5&times;</option><option value="1" selected>1&times;</option><option value="2">2&times;</option><option value="4">4&times;</option></select>
+      <input type="range" id="scrub" min="0" max="1000" value="0">
+      <label class="note">Range <input type="range" id="range" min="3" max="30" value="8" style="width:90px"></label>
+    </div>
+    <div class="legend">
+      <span><i style="background:var(--attack)"></i>attack</span><span><i style="background:var(--guard)"></i>guard</span>
+      <span><i style="background:var(--move)"></i>move</span><span><i style="background:var(--wait)"></i>wait</span>
+      <span><i style="background:var(--special)"></i>back-away</span><span><i style="background:var(--hit)"></i>hit / down</span>
+      <span>white outline = in attack range and facing P1 &middot; inner red ring = 2.0 attack distance</span>
+    </div>
+  </section>
+
+  <section>
+    <h2>Decision history &mdash; <select id="enemy"></select> <span class="note">(click an enemy on the radar or timeline)</span></h2>
+    <div id="decisions"></div>
+  </section>
+
+  <section class="wide">
+    <h2>Timeline (status category per enemy)</h2>
+    <canvas id="timeline" width="1400" height="160"></canvas>
+    <div class="note">Click to jump. The white line is the replay time.</div>
+  </section>
+
+  <section>
+    <h2>Combat overview (this session)</h2>
+    <div id="overview"></div>
+  </section>
+
+  <section>
+    <h2>Rolls: threshold vs observed</h2>
+    <div id="rolls"></div>
+  </section>
+
+  <section class="wide" id="compareBox" hidden>
+    <h2>Compare: file A vs file B</h2>
+    <div id="compare"></div>
+  </section>
+</main>
+
+<script>
+"use strict";
+// ---- constants mirrored from src/Game/Component/Enemy/AITrace.hpp ----
+const CAT = ["wait", "move", "attack", "guard", "special", "hit", "other"];
+const CAT_LABEL = ["Wait", "Move", "Attack", "Guard", "Back-away", "Hit / down", "Other"];
+const CAT_COLOR = ["#9aa2b0", "#489cff", "#ff4040", "#ffe030", "#ff9828", "#b060ff", "#f0f0f0"];
+const ORDER = ["NOTHING", "WAIT", "MOVE", "RUN HOME", "ATTACK", "GUARD"];
+const REASON = ["previous order done", "previous order refused / timed out", "re-decided while waiting/moving", "forced reaction while waiting/moving"];
+const TYPE = { 1: "turn", 2: "side-walk left", 3: "side-walk right", 4: "walk", 5: "run", 6: "jump", 7: "A", 8: "AA", 9: "AAA", 10: "B", 11: "C", 12: "run attack",
+  13: "fire A", 14: "fire B", 15: "fire C", 16: "fire AA", 17: "fire BB", 18: "fire CC", 19: "back away" };
+const FREQ = ["Attack A", "Attack AA", "Attack AAA", "Attack B", "Attack C", "Run attack",
+  "Guard vs A-chain", "Guard vs B", "Guard vs shuriken", "Guard vs jump attack", "Guard vs run attack", "Guard vs throw",
+  "Move approach", "Move formation", "Trigger attack", "Trigger move", "Trigger escape", "Trigger low HP", "Fire convergence",
+  "Fire range", "Fire range rate", "Fire repeat", "Fire repeat count", "Fire repeat chase", "Attack interval", "Common 1", "Jump attack (common 2)"];
+const EV = { TARGET: 0, TARGET_KEEP: 1, TARGET_RESULT: 2, PATROL_RUN: 3, ELIGIBLE: 4, SELECT: 5, FREQ: 6, FALLBACK: 7, WAIT_MOVE: 8, WAIT_ACTIVITY: 9,
+  WAIT_NOPOINT: 10, MOVE_ROLL: 11, MOVE_ACTIVITY: 12, MOVE_FAIL: 13, UNDERWAIT: 14, GUARD_REACT: 15, BACKAWAY: 16, ATTACK_BLOCKED: 17 };
+const ELIG = { OUTSIDE_PATROL: 1, NO_TARGET: 2, GUARD: 4, ATTACK: 8, RUN_ATTACK: 16, BACKAWAY: 32, JUMP_ATTACK: 64, MOVE_REFUSED: 128 };
+const MULT_LABEL = { enemy_damage: "Enemy damage", enemy_hp: "Enemy HP", player_damage: "Player damage", attack_freq: "Attack frequency", guard_freq: "Guard frequency",
+  projectile_freq: "Projectile frequency", projectile_range: "Projectile range", ai_thinking: "AI thinking", ai_activity: "AI activity", ai_awareness: "AI awareness",
+  attack_interval: "Attack interval", knockback: "Knockback" };
+
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s).replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
+const pct = (v) => Math.round(v * 100);
+
+function formatEvent(ev) {
+  const [k, idx, value, roll, pass] = ev;
+  const yn = pass ? '<span class="yes">YES</span>' : '<span class="no">no</span>';
+  const p = pct(value), r = Math.floor(roll * 100);
+  switch (k) {
+    case EV.TARGET: return idx < 0 ? "Target: no player passes view / distance / path checks" : `Take P${idx + 1} as target? activity ${p}%, roll ${r} &rarr; ${yn}`;
+    case EV.TARGET_KEEP: return `Switch target? impulsiveness ${p}%, roll ${r} &rarr; ${yn}`;
+    case EV.TARGET_RESULT: return idx < 0 ? "Target result: NONE" : `Target result: P${idx + 1}`;
+    case EV.PATROL_RUN: return `Outside patrol area: run home? move ${p}%, roll ${r} &rarr; ${yn}`;
+    case EV.ELIGIBLE: {
+      const f = idx, parts = [];
+      if (f & ELIG.OUTSIDE_PATROL) parts.push("outside patrol area");
+      if (f & ELIG.NO_TARGET) parts.push("no target");
+      if (f & ELIG.BACKAWAY) parts.push("BACK-AWAY");
+      if (f & ELIG.JUMP_ATTACK) parts.push("JUMP-ATTACK");
+      if (f & ELIG.GUARD) parts.push("player attacking in front (guard)");
+      if (f & ELIG.ATTACK) parts.push("in attack range");
+      if (f & ELIG.RUN_ATTACK) parts.push("in run-attack range");
+      if (f & ELIG.MOVE_REFUSED) parts.push("last move refused");
+      if (!parts.length) parts.push("target out of range");
+      return "Checks: " + parts.join(" &middot; ");
+    }
+    case EV.SELECT: return `Action selector &rarr; <b>${ORDER[idx] || idx}</b>`;
+    case EV.FREQ: return `${FREQ[idx] || "freq " + idx}: ${Math.round(value)}%, roll ${Math.floor(roll)} &rarr; ${yn}`;
+    case EV.FALLBACK: return `${ORDER[idx] || idx} not taken &rarr; falls back to WAIT`;
+    case EV.WAIT_MOVE: return `Wait: wander to random point? move ${p}%, roll ${r} &rarr; ${yn}`;
+    case EV.WAIT_ACTIVITY: return `Wait: turn toward target instead of standing? activity ${p}%, roll ${r} &rarr; ${yn}`;
+    case EV.WAIT_NOPOINT: return "Wait: random wander point not reachable";
+    case EV.MOVE_ROLL: return `Move: approach target? move ${p}%, roll ${r} &rarr; ${yn}`;
+    case EV.MOVE_ACTIVITY: return `Move (close): run instead of walk? activity ${p}%, roll ${r} &rarr; ${yn}`;
+    case EV.MOVE_FAIL: return "Move refused: " + (["no active player", "no path to player", "player beyond action radius", "already facing (no turn needed)"][idx] || idx);
+    case EV.UNDERWAIT: return `Stop waiting and re-decide? activity ${p}%, roll ${r} &rarr; ${yn}`;
+    case EV.GUARD_REACT: return "Player attacking in front while waiting/moving &rarr; guard roll";
+    case EV.BACKAWAY: return "Back-away: player attacking in front, cooldown ready &rarr; back away (no roll)";
+    case EV.ATTACK_BLOCKED: return "Attack blocked: " + (["no active player", "player in an unhittable state", "player is down"][idx] || idx);
+    default: return "event " + k;
+  }
+}
+
+// ---- parsing ----
+function parse(text) {
+  const sessions = [];
+  let cur = null, bad = 0;
+  for (const raw of text.split(/\r?\n/)) {
+    const line = raw.trim();
+    if (!line) continue;
+    let o;
+    try { o = JSON.parse(line); } catch (e) { bad++; continue; }
+    if (o.k === "hdr" || !cur) {
+      cur = { hdr: o.k === "hdr" ? o : null, pos: [], st: [], dec: [], gone: [], sum: [] };
+      sessions.push(cur);
+      if (o.k === "hdr") continue;
+    }
+    if (cur[o.k]) cur[o.k].push(o);
+  }
+  sessions.forEach(analyse);
+  return { sessions: sessions.filter((s) => s.pos.length || s.st.length || s.dec.length), bad };
+}
+
+function analyse(s) {
+  const times = [].concat(s.pos.map((o) => o.t), s.st.map((o) => o.t), s.dec.map((o) => o.t));
+  s.t0 = Math.min(...times); s.t1 = Math.max(...times);
+  if (!isFinite(s.t0)) { s.t0 = 0; s.t1 = 0; }
+  s.enemies = new Map();     // label -> { id, segs:[{t,c,s}], dec:[] }
+  const get = (e, id) => { if (!s.enemies.has(e)) s.enemies.set(e, { label: e, id, segs: [], dec: [], gone: null }); return s.enemies.get(e); };
+  for (const o of s.st) get(o.e, o.id).segs.push({ t: o.t, c: o.c, s: o.s });
+  for (const o of s.dec) get(o.e, o.id).dec.push(o);
+  for (const o of s.gone) { const en = s.enemies.get(o.e); if (en) en.gone = o.t; }
+  // slots are reused after an enemy is removed; the label stays, the timeline simply continues.
+
+  // ---- statistics derived only from recorded status changes ----
+  const edges = [];
+  for (const en of s.enemies.values()) {
+    en.catTime = new Array(CAT.length).fill(0);
+    en.attackStarts = 0;
+    for (let i = 0; i < en.segs.length; i++) {
+      const seg = en.segs[i];
+      const end = i + 1 < en.segs.length ? en.segs[i + 1].t : (en.gone ?? s.t1);
+      if (end > seg.t) en.catTime[seg.c] += end - seg.t;
+      if (seg.c === 2 && (i === 0 || en.segs[i - 1].c !== 2)) { en.attackStarts++; edges.push({ t: seg.t, d: +1, start: true }); }
+      if (seg.c === 2 && (i + 1 >= en.segs.length || en.segs[i + 1].c !== 2)) edges.push({ t: end, d: -1 });
+    }
+  }
+  edges.sort((a, b) => a.t - b.t || a.d - b.d);
+  let n = 0, last = s.t0, overlapStarts = 0, starts = 0, maxAt = 0;
+  const timeBy = [];
+  for (const e of edges) {
+    timeBy[n] = (timeBy[n] || 0) + Math.max(0, e.t - last);
+    last = e.t;
+    if (e.start) { starts++; if (n > 0) overlapStarts++; }
+    n += e.d; maxAt = Math.max(maxAt, n);
+  }
+  timeBy[n] = (timeBy[n] || 0) + Math.max(0, s.t1 - last);
+  s.stats = { span: s.t1 - s.t0, starts, overlapStarts, maxAt, timeBy: Array.from(timeBy, (v) => v || 0) };
+
+  // in range vs attacking, from 10 Hz position samples
+  let samples = 0, inRangeSum = 0, inRangeNotAttacking = 0, attackingSum = 0;
+  for (const p of s.pos) {
+    samples++;
+    for (const e of p.e) {
+      const [label, , , , status, inRange] = e;
+      const en = s.enemies.get(label);
+      const c = en ? catAt(en, p.t) : -1;
+      if (inRange) { inRangeSum++; if (c !== 2) inRangeNotAttacking++; }
+      if (c === 2) attackingSum++;
+    }
+  }
+  s.stats.posSamples = samples;
+  s.stats.avgInRange = samples ? inRangeSum / samples : 0;
+  s.stats.avgAttacking = samples ? attackingSum / samples : 0;
+  s.stats.inRangeIdleShare = inRangeSum ? inRangeNotAttacking / inRangeSum : 0;
+
+  // decisions and rolls
+  const orders = new Array(ORDER.length).fill(0), reasons = new Array(REASON.length).fill(0);
+  const rolls = new Map();
+  const addRoll = (key, thr, pass) => {
+    if (!rolls.has(key)) rolls.set(key, { n: 0, pass: 0, thr: 0 });
+    const r = rolls.get(key); r.n++; r.pass += pass ? 1 : 0; r.thr += thr;
+  };
+  let attackFallbacks = 0, attackChosen = 0;
+  for (const d of s.dec) {
+    orders[d.o] = (orders[d.o] || 0) + 1;
+    reasons[d.r] = (reasons[d.r] || 0) + 1;
+    for (const ev of d.ev) {
+      const [k, idx, value, , pass] = ev;
+      if (k === EV.FREQ) addRoll(FREQ[idx] || "freq " + idx, value / 100, pass);
+      else if (k === EV.TARGET && idx >= 0) addRoll("Take target (activity)", value, pass);
+      else if (k === EV.UNDERWAIT) addRoll("Stop waiting (activity)", value, pass);
+      else if (k === EV.WAIT_MOVE) addRoll("Wait: wander (move)", value, pass);
+      else if (k === EV.WAIT_ACTIVITY) addRoll("Wait: turn (activity)", value, pass);
+      else if (k === EV.MOVE_ROLL) addRoll("Move: approach (move)", value, pass);
+      else if (k === EV.MOVE_ACTIVITY) addRoll("Move: run (activity)", value, pass);
+      else if (k === EV.PATROL_RUN) addRoll("Run home (move)", value, pass);
+      if (k === EV.SELECT && idx === 4) attackChosen++;
+      if (k === EV.FALLBACK && idx === 4) attackFallbacks++;
+    }
+  }
+  s.stats.orders = orders; s.stats.reasons = reasons; s.stats.rolls = rolls;
+  s.stats.attackChosen = attackChosen; s.stats.attackFallbacks = attackFallbacks;
+  s.stats.decisions = s.dec.length;
+  const catTotal = new Array(CAT.length).fill(0);
+  for (const en of s.enemies.values()) en.catTime.forEach((v, i) => (catTotal[i] += v));
+  s.stats.catTotal = catTotal;
+}
+
+function catAt(en, t) {
+  let c = -1;
+  for (const seg of en.segs) { if (seg.t <= t) c = seg.c; else break; }
+  return c;
+}
+
+// ---- state ----
+let A = null, B = null, S = null, now = 0, playing = false, lastFrame = 0, selected = null, posIndex = 0;
+
+function loadFile(file, which) {
+  const reader = new FileReader();
+  reader.onload = () => {
+    const parsed = parse(reader.result);
+    parsed.name = file.name;
+    if (which === "B") { B = parsed; renderCompare(); return; }
+    A = parsed;
+    $("drop").hidden = true; $("app").hidden = false;
+    const sel = $("session"); sel.innerHTML = "";
+    A.sessions.forEach((s, i) => {
+      const h = s.hdr;
+      const label = `Session ${i + 1}: ${s.stats.span.toFixed(1)} s, ${s.enemies.size} enemies` + (h ? `, ${h.ai || ""} ${h.preset || ""}` : "");
+      sel.add(new Option(label, i));
+    });
+    $("fileInfo").textContent = `${file.name}: ${A.sessions.length} session(s)` + (A.bad ? `, ${A.bad} unreadable line(s) skipped` : "");
+    selectSession(0);
+    renderCompare();
+  };
+  reader.readAsText(file);
+}
+
+function selectSession(i) {
+  S = A.sessions[i];
+  if (!S) return;
+  now = S.t0; posIndex = 0;
+  const labels = [...S.enemies.keys()].sort((a, b) => a - b);
+  selected = labels[0] ?? null;
+  const es = $("enemy"); es.innerHTML = "";
+  for (const l of labels) es.add(new Option(`#${l}` + (S.enemies.get(l).id != null ? ` (enemy id ${S.enemies.get(l).id})` : ""), l));
+  renderOverview(); renderRolls(); drawAll();
+}
+
+// ---- drawing ----
+function posAt(t) {
+  const P = S.pos;
+  if (!P.length) return null;
+  if (posIndex >= P.length || P[posIndex].t > t) posIndex = 0;
+  while (posIndex + 1 < P.length && P[posIndex + 1].t <= t) posIndex++;
+  return P[posIndex];
+}
+
+function drawRadar() {
+  const cv = $("radar"), g = cv.getContext("2d"), W = cv.width, H = cv.height;
+  g.clearRect(0, 0, W, H);
+  const range = +$("range").value, scale = (W / 2) / range, cx = W / 2, cy = H / 2;
+  g.strokeStyle = "rgba(255,255,255,.12)"; g.lineWidth = 1;
+  for (let r = 5; r <= range; r += 5) { g.beginPath(); g.arc(cx, cy, r * scale, 0, Math.PI * 2); g.stroke(); }
+  g.strokeStyle = "rgba(255,96,96,.45)"; g.beginPath(); g.arc(cx, cy, 2 * scale, 0, Math.PI * 2); g.stroke();
+  const p = posAt(now);
+  if (!p) { g.fillStyle = "#8d99b0"; g.font = "16px system-ui"; g.fillText("No position samples in this session.", 20, 30); return; }
+  const [px, pz, pdir] = p.p;
+  const toS = (x, z) => [cx + (x - px) * scale, cy - (z - pz) * scale];
+  // player
+  g.save(); g.translate(cx, cy); g.rotate(pdir);
+  g.fillStyle = "#fff"; g.beginPath(); g.moveTo(0, -14); g.lineTo(9, 9); g.lineTo(-9, 9); g.closePath(); g.fill(); g.restore();
+  g.font = "13px system-ui";
+  S._hit = [];
+  for (const e of p.e) {
+    const [label, x, z, dir, status, inRange] = e;
+    const en = S.enemies.get(label);
+    const c = en ? catAt(en, now) : 6;
+    let [sx, sy] = toS(x, z);
+    const off = sx < 8 || sy < 8 || sx > W - 8 || sy > H - 8;
+    sx = Math.max(8, Math.min(W - 8, sx)); sy = Math.max(8, Math.min(H - 8, sy));
+    const col = CAT_COLOR[c] || "#fff";
+    if (!off) { g.strokeStyle = col + "55"; g.beginPath(); g.moveTo(sx, sy); g.lineTo(cx, cy); g.stroke(); }
+    if (inRange) { g.strokeStyle = "#fff"; g.lineWidth = 2.5; g.strokeRect(sx - 10, sy - 10, 20, 20); g.lineWidth = 1; }
+    if (label === selected) { g.strokeStyle = "#ffd060"; g.lineWidth = 2; g.beginPath(); g.arc(sx, sy, 17, 0, Math.PI * 2); g.stroke(); g.lineWidth = 1; }
+    g.fillStyle = col; g.fillRect(sx - 7, sy - 7, 14, 14);
+    g.strokeStyle = col; g.lineWidth = 3; g.beginPath(); g.moveTo(sx, sy); g.lineTo(sx + Math.sin(dir) * 20, sy - Math.cos(dir) * 20); g.stroke(); g.lineWidth = 1;
+    g.fillStyle = label === selected ? "#ffd060" : "#fff"; g.fillText("#" + label, sx + 11, sy - 9);
+    S._hit.push({ label, sx, sy });
+  }
+  $("clock").textContent = `${(now - S.t0).toFixed(1)} s / ${(S.t1 - S.t0).toFixed(1)} s`;
+}
+
+function drawTimeline() {
+  const cv = $("timeline"), g = cv.getContext("2d");
+  const labels = [...S.enemies.keys()].sort((a, b) => a - b);
+  const rowH = 18, top = 6, left = 48;
+  cv.height = Math.max(60, top + labels.length * (rowH + 4) + 20);
+  const W = cv.width, span = Math.max(0.001, S.t1 - S.t0), x = (t) => left + ((t - S.t0) / span) * (W - left - 8);
+  g.clearRect(0, 0, W, cv.height);
+  g.font = "12px system-ui";
+  labels.forEach((l, r) => {
+    const en = S.enemies.get(l), y = top + r * (rowH + 4);
+    g.fillStyle = l === selected ? "#ffd060" : "#e6ebf5"; g.fillText("#" + l, 8, y + 13);
+    for (let i = 0; i < en.segs.length; i++) {
+      const seg = en.segs[i], end = i + 1 < en.segs.length ? en.segs[i + 1].t : (en.gone ?? S.t1);
+      g.fillStyle = CAT_COLOR[seg.c] || "#fff";
+      g.fillRect(x(seg.t), y, Math.max(1, x(end) - x(seg.t)), rowH);
+    }
+  });
+  g.fillStyle = "#8d99b0";
+  for (let s = 0; s <= span; s += span > 120 ? 30 : span > 30 ? 10 : 1) g.fillText(s.toFixed(0) + "s", x(S.t0 + s) - 6, cv.height - 4);
+  g.strokeStyle = "#fff"; g.lineWidth = 2; g.beginPath(); g.moveTo(x(now), 0); g.lineTo(x(now), cv.height - 16); g.stroke(); g.lineWidth = 1;
+  S._tl = { left, W, rowH, top, labels, span };
+}
+
+function renderDecisions() {
+  const box = $("decisions");
+  const en = S && S.enemies.get(selected);
+  if (!en) { box.innerHTML = '<div class="note">No enemy selected.</div>'; return; }
+  const past = en.dec.filter((d) => d.t <= now + 1e-6);
+  if (!past.length) { box.innerHTML = '<div class="note">No decisions recorded for this enemy before the replay time.</div>'; return; }
+  const list = past.slice(-12).reverse();
+  box.innerHTML = list.map((d, i) => {
+    const type = TYPE[d.ty] && (d.o === 2 || d.o === 4) ? " " + TYPE[d.ty] : "";
+    const tgt = d.tg >= 0 ? ` &rarr; P${d.tg + 1} at ${d.d.toFixed(1)}` : "";
+    const head = `${(now - d.t).toFixed(1)} s ago: <b>${ORDER[d.o] || d.o}${type}</b>${tgt}`;
+    const meta = `${REASON[d.r] || d.r}; previous order ran ${d.prev.toFixed(1)} s; while waiting: ${d.wc} checks, ${d.wa} activity rolls failed, ${d.wn} with no target`;
+    const evs = i === 0 || list.length <= 4 ? d.ev.map((e) => `<div class="ev">${formatEvent(e)}</div>`).join("") : "";
+    return `<div class="dec ${i === 0 ? "cur" : ""}"><div class="h">${head}</div><div class="note">${meta}</div>${evs}</div>`;
+  }).join("");
+}
+
+function renderOverview() {
+  const st = S.stats, h = S.hdr;
+  let html = "";
+  if (h) {
+    html += `<div style="margin-bottom:6px"><span class="pill">AI mode: ${esc(h.ai)}</span><span class="pill">Preset: ${esc(h.preset)}${h.override ? " (override)" : ""}</span><span class="pill">${h.lab ? "Combat Lab" : "normal game"}</span><span class="pill">Rules: ${esc(h.ruleset)}</span></div>`;
+    const changed = (h.mult_names || []).map((n, i) => [n, h.mult[i]]).filter(([, v]) => Math.abs(v - 1) > 1e-3);
+    html += `<div class="note" style="margin-bottom:8px">Multipliers: ${changed.length ? changed.map(([n, v]) => `${MULT_LABEL[n] || n} ${v.toFixed(2)}&times;`).join(", ") : "all 1.00&times; (retail)"}</div>`;
+  }
+  const total = st.catTotal.reduce((a, b) => a + b, 0) || 1;
+  html += "<table><tr><th>Category</th><th class=num>Enemy-seconds</th><th class=num>Share</th><th></th></tr>";
+  st.catTotal.forEach((v, i) => {
+    if (v <= 0) return;
+    html += `<tr><td><i class="bar" style="width:10px;background:${CAT_COLOR[i]}"></i> ${CAT_LABEL[i]}</td><td class=num>${v.toFixed(1)}</td><td class=num>${(100 * v / total).toFixed(1)}%</td><td><span class="bar" style="width:${Math.round(160 * v / total)}px;background:${CAT_COLOR[i]}"></span></td></tr>`;
+  });
+  html += "</table>";
+  const overlapTime = st.timeBy.slice(2).reduce((a, b) => a + b, 0);
+  html += `<table style="margin-top:10px">
+    <tr><td>Recorded span</td><td class=num>${st.span.toFixed(1)} s</td></tr>
+    <tr><td>Attack starts</td><td class=num>${st.starts}</td></tr>
+    <tr><td>&hellip; started while another enemy was attacking</td><td class=num>${st.overlapStarts} (${st.starts ? (100 * st.overlapStarts / st.starts).toFixed(0) : 0}%)</td></tr>
+    <tr><td>Most enemies attacking at once</td><td class=num>${st.maxAt}</td></tr>
+    <tr><td>Time with 2+ enemies attacking</td><td class=num>${overlapTime.toFixed(1)} s (${st.span ? (100 * overlapTime / st.span).toFixed(1) : 0}%)</td></tr>
+    <tr><td>Average enemies in range + facing (10 Hz)</td><td class=num>${st.avgInRange.toFixed(2)}</td></tr>
+    <tr><td>Average enemies attacking (10 Hz)</td><td class=num>${st.avgAttacking.toFixed(2)}</td></tr>
+    <tr><td>In-range samples where the enemy was NOT attacking</td><td class=num>${(100 * st.inRangeIdleShare).toFixed(0)}%</td></tr>
+    <tr><td>Decisions recorded</td><td class=num>${st.decisions}</td></tr>
+    <tr><td>Attack chosen by selector / attack rolls all failed &rarr; WAIT</td><td class=num>${st.attackChosen} / ${st.attackFallbacks}</td></tr>
+  </table>`;
+  html += `<table style="margin-top:10px"><tr><th>Enemies attacking</th>${st.timeBy.map((_, i) => `<th class=num>${i}</th>`).join("")}</tr><tr><td>Seconds</td>${st.timeBy.map((v) => `<td class=num>${v.toFixed(1)}</td>`).join("")}</tr></table>`;
+  html += `<table style="margin-top:10px"><tr><th>Final order</th>${ORDER.slice(1).map((o) => `<th class=num>${o}</th>`).join("")}</tr><tr><td>Count</td>${st.orders.slice(1).map((v) => `<td class=num>${v}</td>`).join("")}</tr></table>`;
+  if (S.sum.length) {
+    const s = S.sum[S.sum.length - 1];
+    html += `<div class="note" style="margin-top:8px">In-game summary line (${esc(s.why)}): ${s.attack_starts} attack starts, ${s.overlapping_starts} overlapping, max ${s.max_attacking} at once over ${s.span.toFixed(1)} s.</div>`;
+  }
+  $("overview").innerHTML = html;
+}
+
+function renderRolls() {
+  const rows = [...S.stats.rolls.entries()].sort((a, b) => b[1].n - a[1].n);
+  if (!rows.length) { $("rolls").innerHTML = '<div class="note">No rolls recorded.</div>'; return; }
+  $("rolls").innerHTML = `<table><tr><th>Roll</th><th class=num>Times</th><th class=num>Avg threshold</th><th class=num>Passed</th></tr>` +
+    rows.map(([k, r]) => `<tr><td>${esc(k)}</td><td class=num>${r.n}</td><td class=num>${(100 * r.thr / r.n).toFixed(0)}%</td><td class=num>${(100 * r.pass / r.n).toFixed(0)}%</td></tr>`).join("") +
+    `</table><div class="note" style="margin-top:6px">Attack rolls are only made after the selector chose ATTACK, in this order: run attack (if eligible), C, B, AAA, AA, A. A later roll is only reached when every earlier roll failed, so its "Times" is lower.</div>`;
+}
+
+function statRow(s) {
+  const st = s.stats, total = st.catTotal.reduce((a, b) => a + b, 0) || 1;
+  const overlapTime = st.timeBy.slice(2).reduce((a, b) => a + b, 0);
+  return {
+    "Session": s.hdr ? `${s.hdr.ai} / ${s.hdr.preset}` : "?",
+    "Span (s)": st.span.toFixed(1),
+    "Enemies": s.enemies.size,
+    "Attack share": (100 * st.catTotal[2] / total).toFixed(1) + "%",
+    "Guard share": (100 * st.catTotal[3] / total).toFixed(1) + "%",
+    "Move share": (100 * st.catTotal[1] / total).toFixed(1) + "%",
+    "Wait share": (100 * st.catTotal[0] / total).toFixed(1) + "%",
+    "Attack starts / min": st.span ? (60 * st.starts / st.span).toFixed(1) : "0",
+    "Overlapping starts": st.starts ? (100 * st.overlapStarts / st.starts).toFixed(0) + "%" : "0%",
+    "Time 2+ attacking": st.span ? (100 * overlapTime / st.span).toFixed(1) + "%" : "0%",
+    "Max at once": st.maxAt,
+    "In range but not attacking": (100 * st.inRangeIdleShare).toFixed(0) + "%",
+  };
+}
+
+function renderCompare() {
+  if (!A || !B) return;
+  $("compareBox").hidden = false;
+  const rows = [...A.sessions.map((s, i) => ["A" + (i + 1), statRow(s)]), ...B.sessions.map((s, i) => ["B" + (i + 1), statRow(s)])];
+  const keys = Object.keys(rows[0][1]);
+  $("compare").innerHTML = `<div class="note">A = ${esc(A.name)}, B = ${esc(B.name)}. Both columns are computed the same way from recorded status changes.</div><div style="overflow:auto"><table><tr><th></th>${rows.map(([n]) => `<th class=num>${n}</th>`).join("")}</tr>` +
+    keys.map((k) => `<tr><td>${k}</td>${rows.map(([, r]) => `<td class=num>${esc(r[k])}</td>`).join("")}</tr>`).join("") + "</table></div>";
+}
+
+function drawAll() { if (!S) return; drawRadar(); drawTimeline(); renderDecisions(); $("scrub").value = Math.round(1000 * (now - S.t0) / Math.max(0.001, S.t1 - S.t0)); }
+
+function tick(ts) {
+  if (playing && S) {
+    const dt = lastFrame ? (ts - lastFrame) / 1000 : 0;
+    now = Math.min(S.t1, now + dt * +$("speed").value);
+    if (now >= S.t1) { playing = false; $("play").textContent = "Play"; }
+    drawAll();
+  }
+  lastFrame = ts;
+  requestAnimationFrame(tick);
+}
+requestAnimationFrame(tick);
+
+// ---- events ----
+$("fileA").onchange = (e) => e.target.files[0] && loadFile(e.target.files[0], "A");
+$("fileB").onchange = (e) => e.target.files[0] && loadFile(e.target.files[0], "B");
+$("session").onchange = (e) => selectSession(+e.target.value);
+$("enemy").onchange = (e) => { selected = +e.target.value; drawAll(); };
+$("play").onclick = () => { if (!S) return; if (now >= S.t1) now = S.t0; playing = !playing; $("play").textContent = playing ? "Pause" : "Play"; };
+$("scrub").oninput = (e) => { if (!S) return; now = S.t0 + (+e.target.value / 1000) * (S.t1 - S.t0); drawAll(); };
+$("range").oninput = drawAll;
+$("radar").onclick = (e) => {
+  if (!S || !S._hit) return;
+  const r = e.target.getBoundingClientRect(), k = e.target.width / r.width, x = (e.clientX - r.left) * k, y = (e.clientY - r.top) * k;
+  let best = null, bd = 30 * 30;
+  for (const h of S._hit) { const d = (h.sx - x) ** 2 + (h.sy - y) ** 2; if (d < bd) { bd = d; best = h.label; } }
+  if (best != null) { selected = best; $("enemy").value = best; drawAll(); }
+};
+$("timeline").onclick = (e) => {
+  if (!S || !S._tl) return;
+  const r = e.target.getBoundingClientRect(), k = e.target.width / r.width, x = (e.clientX - r.left) * k, y = (e.clientY - r.top) * (e.target.height / r.height);
+  const tl = S._tl;
+  if (x >= tl.left) now = S.t0 + ((x - tl.left) / (tl.W - tl.left - 8)) * tl.span;
+  const row = Math.floor((y - tl.top) / (tl.rowH + 4));
+  if (row >= 0 && row < tl.labels.length) { selected = tl.labels[row]; $("enemy").value = selected; }
+  drawAll();
+};
+$("exportStats").onclick = () => {
+  if (!A) return;
+  const out = A.sessions.map((s) => ({ header: s.hdr, ...statRow(s), timeByAttacking: s.stats.timeBy, orders: Object.fromEntries(ORDER.map((o, i) => [o, s.stats.orders[i] || 0])),
+    rolls: Object.fromEntries([...s.stats.rolls].map(([k, r]) => [k, { times: r.n, avgThreshold: r.thr / r.n, passRate: r.pass / r.n }])) }));
+  const blob = new Blob([JSON.stringify({ source: A.name, generatedFrom: "recorded TMNT2_aitrace.jsonl (no simulated data)", sessions: out }, null, 2)], { type: "application/json" });
+  const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = "tmnt2_ai_stats.json"; a.click();
+};
+const drop = $("drop");
+["dragenter", "dragover"].forEach((t) => document.addEventListener(t, (e) => { e.preventDefault(); drop.classList.add("over"); }));
+["dragleave", "drop"].forEach((t) => document.addEventListener(t, (e) => { e.preventDefault(); drop.classList.remove("over"); }));
+document.addEventListener("drop", (e) => { const f = e.dataTransfer.files[0]; if (f) loadFile(f, A ? "B" : "A"); });
+document.addEventListener("keydown", (e) => { if (e.key === " " && S && e.target.tagName !== "INPUT") { e.preventDefault(); $("play").click(); } });
+</script>
+</body>
+</html>
