@@ -6,6 +6,7 @@
 #include "Game/System/Map/WorldMap.hpp"
 #include "Game/System/Misc/RenderStateStack.hpp"
 #include "System/Common/RenderState.hpp"
+#include <cmath>
 
 #if defined(TARGET_PC)
 #include "System/PC/PCEnhancedGraphics.hpp"
@@ -172,6 +173,7 @@ CCircleShadowModule::CCircleShadowModule(float w, float h)
 , m_uSoftAlpha(0)
 , m_uCoreAlpha(0)
 , m_bEnhancedReady(false)
+, m_bOnWater(false)
 {
     RwMatrixSetIdentity(&m_matrix);
     RwMatrixSetIdentity(&m_matrixSoft);
@@ -212,6 +214,7 @@ void CCircleShadowModule::Run(void)
 {
     RwV3d vPosition = Math::VECTOR3_ZERO;
     GetPosition(&vPosition);
+    m_bOnWater = false;
 
     float fHeight = CWorldMap::GetMapHeight(&vPosition);
 
@@ -241,7 +244,12 @@ void CCircleShadowModule::Run(void)
         vSurface.y = fHeight;
         CWorldMap::GetWaterSurfacePosition(&vSurface);
         if ((vSurface.y > fHeight) && (vSurface.y < (fHeight + 3.0f)) && (vSurface.y < (vPosition.y + fChrHeight + 3.0f)))
-            vPosition.y = vSurface.y + 0.40f;   /* measured: lower lifts were still hidden by the stage's water sheets */
+        {
+            /* v1.1.2: sit on the surface right above the feet; a vertical lift (v1.1.1) made the
+             * shadow look shifted behind the character. Depth handling is in DrawEnhanced. */
+            vPosition.y = vSurface.y + 0.02f;
+            m_bOnWater = true;
+        };
     };
 #endif /* defined(SHADOW_ENHANCED_GRAPHICS) */
 
@@ -367,11 +375,50 @@ void CCircleShadowModule::DrawEnhanced(void)
     RwRenderStateSet(rwRENDERSTATETEXTURERASTER, RwTextureGetRaster(s_pSoftShadowTexture));
     RwRenderStateGet(rwRENDERSTATETEXTUREADDRESS, &pPrevAddress);
     RwRenderStateGet(rwRENDERSTATETEXTUREFILTER, &pPrevFilter);
+    /* v1.1.2: water collision polygons can face down; the shadow quad takes its orientation
+     * from them, so never cull it (it was invisible in the Nexus pool). */
+    void* pPrevCull = nullptr;
+    RwRenderStateGet(rwRENDERSTATECULLMODE, &pPrevCull);
+    RwRenderStateSet(rwRENDERSTATECULLMODE, reinterpret_cast<void*>(rwCULLMODECULLNONE));
     RwRenderStateSet(rwRENDERSTATETEXTUREADDRESS, reinterpret_cast<void*>(rwTEXTUREADDRESSCLAMP));
     RwRenderStateSet(rwRENDERSTATETEXTUREFILTER, reinterpret_cast<void*>(rwFILTERLINEAR));
 
     const uint8 auAlpha[2] = { m_uSoftAlpha, m_uCoreAlpha };
     RwMatrix* apMatrix[2] = { &m_matrixSoft, &m_matrixCore };
+
+    /* v1.1.2: on water the shadow sits on the surface right under the character (no vertical
+     * lift, so it stays centred) and is pulled toward the camera along the view ray: same spot on
+     * screen, but in front of the stage's water sheets in the depth test. Characters standing in
+     * front still cover it. */
+    RwV3d vPull = { 0.0f, 0.0f, 0.0f };
+    if (m_bOnWater)
+    {
+        RwCamera* pCamera = RwCameraGetCurrentCamera();
+        RwFrame* pCamFrame = (pCamera ? RwCameraGetFrame(pCamera) : nullptr);
+        if (pCamFrame)
+        {
+            const RwV3d* pCam = &RwFrameGetLTM(pCamFrame)->pos;
+            RwV3d vToCam = { pCam->x - m_matrixSoft.pos.x, pCam->y - m_matrixSoft.pos.y, pCam->z - m_matrixSoft.pos.z };
+            float fLen = std::sqrt((vToCam.x * vToCam.x) + (vToCam.y * vToCam.y) + (vToCam.z * vToCam.z));
+            if (fLen > 3.0f)
+            {
+                /* the same height gain as v1.1.1's 0.40 lift (shown visible on real hardware),
+                 * but along the view ray so the shadow stays exactly under the character */
+                float fDirY = vToCam.y / fLen;
+                float fPull = 0.40f / ((fDirY > 0.25f) ? fDirY : 0.25f);
+                fPull = (fPull < 1.6f) ? fPull : 1.6f;
+                vPull.x = (vToCam.x / fLen) * fPull;
+                vPull.y = (vToCam.y / fLen) * fPull;
+                vPull.z = (vToCam.z / fLen) * fPull;
+            };
+        };
+    };
+    for (int32 i = 0; i < 2; ++i)
+    {
+        apMatrix[i]->pos.x += vPull.x;
+        apMatrix[i]->pos.y += vPull.y;
+        apMatrix[i]->pos.z += vPull.z;
+    };
     for (int32 i = 0; i < 2; ++i)
     {
         if (auAlpha[i] == 0)
@@ -388,6 +435,14 @@ void CCircleShadowModule::DrawEnhanced(void)
         };
     };
 
+    for (int32 i = 0; i < 2; ++i)
+    {
+        apMatrix[i]->pos.x -= vPull.x;
+        apMatrix[i]->pos.y -= vPull.y;
+        apMatrix[i]->pos.z -= vPull.z;
+    };
+
+    RwRenderStateSet(rwRENDERSTATECULLMODE, pPrevCull);
     RwRenderStateSet(rwRENDERSTATETEXTUREADDRESS, pPrevAddress);
     RwRenderStateSet(rwRENDERSTATETEXTUREFILTER, pPrevFilter);
     RwRenderStateSet(rwRENDERSTATETEXTURERASTER, pPrevRaster);

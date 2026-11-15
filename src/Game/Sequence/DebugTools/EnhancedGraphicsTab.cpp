@@ -1,4 +1,5 @@
 #include "EnhancedGraphicsTab.hpp"
+#include "Game/System/Map/WaterSurface.hpp"
 
 #if defined(TARGET_PC)
 #include "System/PC/PCEnhancedGraphics.hpp"
@@ -23,6 +24,7 @@ namespace
         ROW_SAVE,
         ROW_RELOAD,
         ROW_RESET,
+        ROW_EXPORT_WATER,
     };
 
     struct ROWINFO
@@ -63,6 +65,7 @@ namespace
 
         { ROW_KEY, "WATER",         "Stylized water",          "Water",          0.0f,  "LIVE - WATER STAGES", "Animated overlay with waves, sky reflection, toon highlights and shoreline foam on the surfaces detected as water. Collision, splashes and ripples are unchanged." },
         { ROW_READ_WATER, nullptr,  "Detected on this stage",  nullptr,          0.0f,  "READOUT", "Water materials and triangles found when the stage loaded. Every candidate and the reason for the decision are in TMNT2_graphics.log; [Water] Include / Exclude in TMNT2_graphics.ini override it by texture name." },
+        { ROW_EXPORT_WATER, nullptr, "Export stage water textures", nullptr,      0.0f,  "FILE", "Saves this stage's water textures (the detected water plus every water-named or animated candidate) as .tga files in TMNT2_water_textures next to the game. The result is in TMNT2_graphics.log." },
         { ROW_KEY, nullptr,         "Water strength",          "WaterStrength",  0.05f, "LIVE", "Overall opacity of the overlay. 0 hides it." },
         { ROW_KEY, nullptr,         "Reflection",              "WaterReflection",0.05f, "LIVE", "Sky/fog reflection at glancing angles." },
         { ROW_KEY, nullptr,         "Highlights",              "WaterSpecular",  0.05f, "LIVE", "Crisp cartoon light glints on the waves." },
@@ -344,6 +347,9 @@ namespace
     case ROW_SAVE:   CEnhancedGraphics::SaveIni();           break;
     case ROW_RELOAD: CEnhancedGraphics::ReloadIni();         break;
     case ROW_RESET:  CEnhancedGraphics::ClearAllOverrides(); break;
+    case ROW_EXPORT_WATER:
+        CEnhancedGraphics::Log("WATER export: %d texture(s) written", WaterSurface::ExportTextures());
+        break;
     case ROW_MASTER:
     case ROW_PRESET:
         AdjustItem(index, 1, 1);

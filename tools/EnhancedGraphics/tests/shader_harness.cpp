@@ -298,25 +298,38 @@ int main()
                 V4 n1 = TexPointWrap(wave, u + ps[9][0] * t, v + ps[9][1] * t);
                 V4 n2 = TexPointWrap(wave, u * 1.73f + ps[9][2] * t + .37f, v * 1.73f + ps[9][3] * t + .37f);
                 V4 n3 = TexPointWrap(wave, u * 4.1f - ps[9][0] * t * 1.6f + .71f, v * 4.1f - ps[9][1] * t * 1.6f + .71f);
-                float dx = (n1.x + n2.x - 1) * ps[8][3] + (n3.x * 2 - 1) * ps[8][3] * .35f * ps[10][1];
-                float dz = (n1.y + n2.y - 1) * ps[8][3] + (n3.y * 2 - 1) * ps[8][3] * .35f * ps[10][1];
-                float nl = std::sqrt(dx * dx + 1 + dz * dz), N[3] = { dx / nl, 1 / nl, dz / nl };
                 float tc[3] = { ps[0][0] - wx, ps[0][1] - wy, ps[0][2] - wz }, dist = std::sqrt(tc[0] * tc[0] + tc[1] * tc[1] + tc[2] * tc[2]);
                 float V[3] = { tc[0] / dist, tc[1] / dist, tc[2] / dist };
+                float att = 1.0f / (1.0f + dist * 0.025f);
+                float dx = ((n1.x + n2.x - 1) * ps[8][3] + (n3.x * 2 - 1) * ps[8][3] * .35f * ps[10][1]) * att;
+                float dz = ((n1.y + n2.y - 1) * ps[8][3] + (n3.y * 2 - 1) * ps[8][3] * .35f * ps[10][1]) * att;
+                float nl = std::sqrt(dx * dx + 1 + dz * dz), N[3] = { dx / nl, 1 / nl, dz / nl };
                 float ndv = clamp01(N[0] * V[0] + N[1] * V[1] + N[2] * V[2]), fres = std::pow(1 - ndv, 4.0f), fresT = smooth(0.06f, 0.45f, fres);
                 float vn = V[0] * N[0] + V[1] * N[1] + V[2] * N[2], R[3] = { 2 * vn * N[0] - V[0], 2 * vn * N[1] - V[1], 2 * vn * N[2] - V[2] };
                 float sky[3]; for (int k = 0; k < 3; ++k) sky[k] = lerpf(ps[4][k], ps[5][k], clamp01(R[1] * 1.6f));
                 float sp = std::pow(clamp01(R[0] * ps[1][0] + R[1] * ps[1][1] + R[2] * ps[1][2]), ps[1][3]);
                 float spT = smooth(0.42f, 0.52f, sp) * .85f + sp * .15f;
-                float col[3]; for (int k = 0; k < 3; ++k) { col[k] = lerpf(ps[2][k], ps[3][k], d); col[k] = lerpf(col[k], sky[k], fresT * ps[4][3]); col[k] += ps[6][k] * spT * ps[5][3]; }
+                float tint[3], m[3];
+                for (int k = 0; k < 3; ++k) tint[k] = lerpf(ps[2][k], ps[3][k], d);
+                float tl = std::max(tint[0] * LW[0] + tint[1] * LW[1] + tint[2] * LW[2], 0.05f);
+                float sl = std::max(sky[0] * LW[0] + sky[1] * LW[1] + sky[2] * LW[2], 0.05f);
+                float shade = 1 + ((N[0] * ps[1][0] + N[1] * ps[1][1] + N[2] * ps[1][2]) - ps[1][1]) * 1.5f;
                 float fn = n1.w * .6f + n2.w * .4f, band = fracf(s * 2.5f - t * .25f + fn * .35f);
                 float foamLines = smooth(.80f, .86f, band) * s * s, foamEdge = smooth(.80f, .96f, s + (fn - .5f) * .25f);
                 float foam = clamp01(std::max(foamLines * .8f, foamEdge)) * ps[6][3];
-                const float fc[3] = { .94f, .97f, 1.0f }; for (int k = 0; k < 3; ++k) col[k] = lerpf(col[k], fc[k], foam);
-                float a = lerpf(ps[2][3], ps[3][3], d) + fresT * .25f * ps[4][3] + spT * ps[5][3] * .5f + foam;
+                float amt = clamp01(lerpf(ps[2][3], ps[3][3], d) * 2.4f) * ps[10][0];
                 float f = clamp01((ps[8][1] - dist) / std::max(ps[8][1] - ps[8][0], 0.001f));
-                for (int k = 0; k < 3; ++k) col[k] = lerpf(ps[7][k], col[k], lerpf(1, f, ps[7][3]));
-                want[py * WW + px] = { clamp01(col[0]), clamp01(col[1]), clamp01(col[2]), clamp01(a) * ps[10][0] };
+                for (int k = 0; k < 3; ++k) {
+                    m[k] = lerpf(1, tint[k] / tl, 0.12f + 0.10f * d);
+                    m[k] *= shade;
+                    m[k] *= lerpf(1, sky[k] / sl * 1.25f, fresT * ps[4][3] * 0.6f);
+                    m[k] += ps[6][k] * spT * ps[5][3] * 0.9f;
+                    m[k] = lerpf(m[k], 1.8f, foam * 0.8f);
+                    m[k] = lerpf(1, m[k], amt);
+                    float fogN = lerpf(1, 0.85f + ps[7][k] * 0.3f, ps[7][3]);
+                    m[k] = lerpf(fogN, m[k], lerpf(1, f, ps[7][3]));
+                }
+                want[py * WW + px] = { clamp01(m[0] * .5f), clamp01(m[1] * .5f), clamp01(m[2] * .5f), 1 };
             }
             // point sampling can land on the neighbouring texel when a coordinate sits on a texel edge: allow a few
             Compare(c.n, got, want, 4, 4.5f / 255, 0.03);

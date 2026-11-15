@@ -19,4 +19,8 @@ namespace WaterSurface
 {
     void Build(RpWorld* pWorld, RpWorld* pWorldCollision, const char* pszStageName);
     void Clear(void);
+
+    /* v1.1.2: writes the current stage's water textures (chosen water and every named /
+     * UV-animated candidate) as 32-bit TGA files to TMNT2_water_textures\. Returns the count. */
+    int32 ExportTextures(void);
 };

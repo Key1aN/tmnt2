@@ -87,9 +87,9 @@ namespace
         s.m_fWaterStrength      = 1.00f;
         s.m_fWaterReflection    = 0.55f;
         s.m_fWaterSpecular      = 0.80f;
-        s.m_fWaterFoam          = 0.70f;
+        s.m_fWaterFoam          = 0.10f;     /* v1.1.2: most TMNT2 water is calm, indoor or murky */
         s.m_fWaterWaveScale     = 0.18f;
-        s.m_fWaterWaveStrength  = 0.35f;
+        s.m_fWaterWaveStrength  = 0.20f;
         s.m_bWaterDetail        = false;
 
         s.m_bBloom              = true;
@@ -117,7 +117,7 @@ namespace
             s.m_fShadowSunOffset    = 0.15f;
             s.m_fWaterReflection    = 0.70f;
             s.m_fWaterSpecular      = 1.00f;
-            s.m_fWaterFoam          = 0.80f;
+            s.m_fWaterFoam          = 0.25f;
             s.m_bWaterDetail        = true;
             s.m_fBloomIntensity     = 0.17f;
             s.m_fBloomThreshold     = 0.78f;
@@ -375,9 +375,9 @@ namespace
             ";WaterStrength=1.00",
             ";WaterReflection=0.55",
             ";WaterSpecular=0.80",
-            ";WaterFoam=0.70",
+            ";WaterFoam=0.10",
             ";WaterWaveScale=0.18",
-            ";WaterWaveStrength=0.35",
+            ";WaterWaveStrength=0.20",
             ";WaterDetail=0",
             ";Bloom=1",
             ";BloomIntensity=0.14",
@@ -1344,7 +1344,7 @@ namespace
     if (BuildPath(wszLog, MAX_PATH, L"TMNT2_graphics.log"))
         _wfopen_s(&s_state.m_pLog, wszLog, L"wb");
 
-    Log("TMNT2 Enhanced Graphics v1.1.1 (feature enhanced-graphics)");
+    Log("TMNT2 Enhanced Graphics v1.1.2 (feature enhanced-graphics)");
     LoadIni();
     ComputeShadowTint();
     UpdateEffective("startup");
@@ -1811,7 +1811,7 @@ namespace
         { 1.0f, 1.0f - warm * 0.5f, 1.0f - warm, e.m_fWaterFoam },
         { fogR, fogG, fogB, (fogEnable ? 1.0f : 0.0f) },
         { fFogStart, fFogEnd, e.m_fWaterWaveScale, e.m_fWaterWaveStrength },
-        { 0.020f, 0.013f, -0.016f, 0.021f },
+        { 0.010f, 0.0065f, -0.008f, 0.0105f },     /* v1.1.2: slow drift, stage water is near still */
         { e.m_fWaterStrength, (e.m_bWaterDetail ? 1.0f : 0.0f), 0.0f, 0.0f },
     };
 
@@ -1821,8 +1821,10 @@ namespace
     guard.Set(D3DRS_ZWRITEENABLE, FALSE);
     guard.Set(D3DRS_ZFUNC, D3DCMP_LESSEQUAL);
     guard.Set(D3DRS_ALPHABLENDENABLE, TRUE);
-    guard.Set(D3DRS_SRCBLEND, D3DBLEND_SRCALPHA);
-    guard.Set(D3DRS_DESTBLEND, D3DBLEND_INVSRCALPHA);
+    /* v1.1.2: modulate 2x (dest * 2 * src). The shader's 0.5 leaves the game's own water as it
+     * is; the overlay brightens or darkens it relative to the stage's lighting. */
+    guard.Set(D3DRS_SRCBLEND, D3DBLEND_DESTCOLOR);
+    guard.Set(D3DRS_DESTBLEND, D3DBLEND_SRCCOLOR);
     guard.Set(D3DRS_CULLMODE, D3DCULL_NONE);
     guard.Set(D3DRS_FOGENABLE, FALSE);
     guard.Set(D3DRS_ALPHATESTENABLE, FALSE);

@@ -1,4 +1,4 @@
-name: Build TMNT2 Core Enhanced Graphics v1.1.1 US
+name: Build TMNT2 Core Enhanced Graphics v1.1.2 US
 
 on:
   workflow_dispatch:
@@ -15,7 +15,7 @@ jobs:
     timeout-minutes: 40
 
     steps:
-      - name: Check out Enhanced Graphics v1.1.1 source
+      - name: Check out Enhanced Graphics v1.1.2 source
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
@@ -112,7 +112,7 @@ jobs:
         shell: pwsh
         run: cmake --preset vs2022 -DOPT_EU_BUILD=OFF -DOPT_DEBUG_TOOLS=ON
 
-      - name: Build TMNT2 Core Enhanced Graphics v1.1.1 US
+      - name: Build TMNT2 Core Enhanced Graphics v1.1.2 US
         shell: pwsh
         run: cmake --build --preset vs2022-release --parallel
 
@@ -129,16 +129,16 @@ jobs:
             Where-Object { $_.FullName -notmatch "\\vendor\\" } | Sort-Object LastWriteTimeUtc -Descending | Select-Object -First 1
           if (-not $pdb -or -not $map) { throw "The matching PDB or MAP was not found." }
           $exeText = [System.Text.Encoding]::ASCII.GetString([System.IO.File]::ReadAllBytes($exe.FullName))
-          foreach ($marker in @("feature=enhanced-graphics", "TMNT2_graphics.ini", "TMNT2 Enhanced Graphics v1.1.1", "BUILD TMNT2_Core_Enhanced_Graphics_v1_1_1_US", "Enhanced camera (F7)", "CAMERA OVERHAUL", "v1.2.24", "REMASTER", "Save to TMNT2_graphics.ini")) {
+          foreach ($marker in @("feature=enhanced-graphics", "TMNT2_graphics.ini", "TMNT2 Enhanced Graphics v1.1.2", "BUILD TMNT2_Core_Enhanced_Graphics_v1_1_2_US", "Enhanced camera (F7)", "CAMERA OVERHAUL", "v1.2.24", "REMASTER", "Save to TMNT2_graphics.ini")) {
             if (-not $exeText.Contains($marker)) { throw "Marker missing from the EXE: $marker" }
           }
           $artifactDir = Join-Path $env:GITHUB_WORKSPACE "artifact-enhanced-graphics-v1-1-0-us"
           New-Item -ItemType Directory -Force -Path $artifactDir | Out-Null
-          $baseName = "TMNT2_Core_Enhanced_Graphics_v1_1_1_US"
+          $baseName = "TMNT2_Core_Enhanced_Graphics_v1_1_2_US"
           Copy-Item $exe.FullName (Join-Path $artifactDir "$baseName.exe") -Force
           Copy-Item $pdb.FullName (Join-Path $artifactDir "$baseName.pdb") -Force
           Copy-Item $map.FullName (Join-Path $artifactDir "$baseName.map") -Force
-          Copy-Item "$env:GITHUB_WORKSPACE\ENHANCED_GRAPHICS_V1_1_1_US.md" $artifactDir -Force
+          Copy-Item "$env:GITHUB_WORKSPACE\ENHANCED_GRAPHICS_V1_1_2_US.md" $artifactDir -Force
           Get-ChildItem $artifactDir -File | Get-FileHash -Algorithm SHA256 |
             ForEach-Object { "$($_.Hash.ToLowerInvariant())  $($_.Path | Split-Path -Leaf)" } |
             Set-Content (Join-Path $artifactDir "SHA256SUMS.txt") -Encoding utf8
@@ -161,7 +161,7 @@ jobs:
           git -c user.name="github-actions" -c user.email="github-actions@users.noreply.github.com" commit -q -m "Build outputs for $env:GITHUB_SHA (run $env:GITHUB_RUN_NUMBER)"
           git push -q -f "https://x-access-token:$env:GH_TOKEN@github.com/$env:GITHUB_REPOSITORY.git" drop:refs/heads/build-drops/enhanced-graphics-v1-1-0-us
 
-      - name: Upload TMNT2 Core Enhanced Graphics v1.1.1 US artifact
+      - name: Upload TMNT2 Core Enhanced Graphics v1.1.2 US artifact
         uses: actions/upload-artifact@v4
         with:
           name: TMNT2-Core-Enhanced-Graphics-v1-1-0-US-run-${{ github.run_number }}

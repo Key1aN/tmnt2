@@ -44,4 +44,5 @@ protected:
     uint8 m_uSoftAlpha;
     uint8 m_uCoreAlpha;
     bool m_bEnhancedReady;
+    bool m_bOnWater;        /* v1.1.2: shadow sits on a water surface: pulled toward the camera at draw time */
 };

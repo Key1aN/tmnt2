@@ -10,7 +10,9 @@
 #include "rpuvanim.h"
 
 #include <cmath>
+#include <cstdio>
 #include <cstring>
+#include <direct.h>
 #include <vector>
 
 
@@ -498,6 +500,58 @@ namespace
     };
 
 
+    /* textures of this stage's water candidates, for ExportTextures (cleared with the stage) */
+    std::vector<RwTexture*> s_apExportTexture;
+    char s_szExportStage[32] = { 0 };
+
+
+    bool WriteTga(const char* pszPath, RwRaster* pRaster)
+    {
+        int32 w = RwRasterGetWidth(pRaster), h = RwRasterGetHeight(pRaster);
+        if ((w <= 0) || (h <= 0) || (w > 4096) || (h > 4096))
+            return false;
+
+        RwImage* pImage = RwImageCreate(w, h, 32);
+        if (!pImage)
+            return false;
+
+        bool bOK = false;
+        if (RwImageAllocatePixels(pImage) && RwImageSetFromRaster(pImage, pRaster))
+        {
+            FILE* pFile = std::fopen(pszPath, "wb");
+            if (pFile)
+            {
+                uint8 hdr[18] = { 0 };
+                hdr[2] = 2;                                   /* uncompressed true colour */
+                hdr[12] = uint8(w & 0xFF); hdr[13] = uint8(w >> 8);
+                hdr[14] = uint8(h & 0xFF); hdr[15] = uint8(h >> 8);
+                hdr[16] = 32;
+                hdr[17] = 0x28;                               /* top-left origin, 8 alpha bits */
+                std::fwrite(hdr, 1, sizeof(hdr), pFile);
+                const uint8* pPixels = RwImageGetPixels(pImage);
+                int32 stride = RwImageGetStride(pImage);
+                std::vector<uint8> row(static_cast<size_t>(w) * 4);
+                for (int32 y = 0; y < h; ++y)
+                {
+                    const uint8* p = pPixels + (y * stride);
+                    for (int32 x = 0; x < w; ++x)
+                    {
+                        row[x * 4 + 0] = p[x * 4 + 2];        /* RGBA -> BGRA */
+                        row[x * 4 + 1] = p[x * 4 + 1];
+                        row[x * 4 + 2] = p[x * 4 + 0];
+                        row[x * 4 + 3] = p[x * 4 + 3];
+                    };
+                    std::fwrite(&row[0], 1, row.size(), pFile);
+                };
+                bOK = (std::fclose(pFile) == 0);
+            };
+        };
+
+        RwImageDestroy(pImage);
+        return bOK;
+    };
+
+
     bool AverageTextureColor(RpMaterial* pMaterial, float afSum[3])
     {
         RwTexture* pTexture = (pMaterial ? RpMaterialGetTexture(pMaterial) : nullptr);
@@ -560,6 +614,8 @@ namespace WaterSurface
     {
         CEnhancedGraphics::WaterClear();
         CEnhancedGraphics::SetWaterMaterialCount(0);
+        s_apExportTexture.clear();
+        std::snprintf(s_szExportStage, sizeof(s_szExportStage), "%s", (pszStageName ? pszStageName : "stage"));
 
         if (!CEnhancedGraphics::IsAvailable() || !pWorld)
             return;
@@ -653,6 +709,16 @@ namespace WaterSurface
             m.m_bClipToCollision = m.m_bWater && !m.m_bInclude && !bNamedOrAnimated;
             m.m_bStrong = m.m_bInclude || bNamedOrAnimated;
 
+            if (m.m_bWater || m.m_bKeyword || m.m_bInclude || m.m_bUVAnim)
+            {
+                RwTexture* pTexture = (m.m_pMaterial ? RpMaterialGetTexture(m.m_pMaterial) : nullptr);
+                bool bKnown = false;
+                for (size_t k = 0; k < s_apExportTexture.size(); ++k)
+                    bKnown = bKnown || (s_apExportTexture[k] == pTexture);
+                if (pTexture && !bKnown)
+                    s_apExportTexture.push_back(pTexture);
+            };
+
             if ((m.m_bWater || m.m_bKeyword || m.m_bInclude || m.m_bExclude || (fOverlap > 0.05f) || m.m_bUVAnim) && (nLogged < 64))
             {
                 CEnhancedGraphics::Log("WATER  material %3d %-24s%s%-10s tris=%5d area=%8.1f y=[%.2f..%.2f] avg_ny=%.2f horizontal=%3.0f%% over_collision_water=%3.0f%% uvanim=%d keyword=%d include=%d exclude=%d -> %s",
@@ -670,6 +736,22 @@ namespace WaterSurface
                 ++nLogged;
             };
 
+        };
+
+        /* 2b'. a floor accepted only for lying over collision water is dropped when the stage
+         * has real water (named or animated): m41n's tile floor 41tylu01 sits under the sewer's
+         * animated water sheets and would otherwise get a second overlay. */
+        bool bAnyStrong = false;
+        for (size_t i = 0; i < ctx.m_aMat.size(); ++i)
+            bAnyStrong = bAnyStrong || (ctx.m_aMat[i].m_bWater && ctx.m_aMat[i].m_bStrong);
+        for (int32 i = 0; bAnyStrong && (i < static_cast<int32>(ctx.m_aMat.size())); ++i)
+        {
+            MATSTAT& m = ctx.m_aMat[i];
+            if (m.m_bWater && !m.m_bStrong)
+            {
+                m.m_bWater = false;
+                CEnhancedGraphics::Log("WATER  material %3d %s: wet floor under the stage's own water, skipped", i, MaterialName(m.m_pMaterial));
+            };
         };
 
         /* 2c. stacked layers: stages draw one pool as several coplanar layers (Nexus: two
@@ -813,6 +895,41 @@ namespace WaterSurface
     void Clear(void)
     {
         CEnhancedGraphics::WaterClear();
+        s_apExportTexture.clear();
+    };
+
+
+    int32 ExportTextures(void)
+    {
+        _mkdir("TMNT2_water_textures");
+        int32 nWritten = 0;
+        for (size_t i = 0; i < s_apExportTexture.size(); ++i)
+        {
+            RwTexture* pTexture = s_apExportTexture[i];
+            RwRaster* pRaster = RwTextureGetRaster(pTexture);
+            if (!pRaster)
+                continue;
+
+            char szPath[260];
+            const char* pszTex = RwTextureGetName(pTexture);
+            size_t nStage = std::strlen(s_szExportStage);
+            bool bPrefixed = (nStage > 0) && (std::strncmp(pszTex, s_szExportStage, nStage) == 0);
+            if (bPrefixed)
+                std::snprintf(szPath, sizeof(szPath), "TMNT2_water_textures\\%s.tga", pszTex);
+            else
+                std::snprintf(szPath, sizeof(szPath), "TMNT2_water_textures\\%s_%s.tga", s_szExportStage, pszTex);
+#if defined(TMNT2_RWDRV_D3D9)
+            if (RwD3D9RasterIsCompressed(pRaster))
+            {
+                CEnhancedGraphics::Log("WATER export %s: compressed (DXT) texture, skipped", RwTextureGetName(pTexture));
+                continue;
+            };
+#endif /* defined(TMNT2_RWDRV_D3D9) */
+            bool bOK = WriteTga(szPath, pRaster);
+            CEnhancedGraphics::Log("WATER export %s -> %s", szPath, (bOK ? "ok" : "FAILED"));
+            nWritten += (bOK ? 1 : 0);
+        };
+        return nWritten;
     };
 };
 
@@ -824,6 +941,7 @@ namespace WaterSurface
 {
     void Build(RpWorld*, RpWorld*, const char*) {};
     void Clear(void) {};
+    int32 ExportTextures(void) { return 0; };
 };
 
 
