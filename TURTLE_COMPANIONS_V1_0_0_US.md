@@ -129,7 +129,7 @@ Also: the keyboard lock-on key (T) now locks for the turtle you control.
 | MSVC Win32 release build in CI (`claude/turtle-companions-v1-0-0-us`), retail-path hooks all inside `TMNT2_DEBUG_TOOLS` (CI check) | PASS |
 | MinGW syntax check of every changed file, with and without Debug Tools | PASS |
 | Package: T2DELTA payload re-applied to your retail `TMNT2.exe` rebuilds the core byte for byte | PASS |
-| Real game under Wine with your `TMNT.DAT`, test build that allows the team in Combat Lab (`-companiontest`, never shipped): team of 4 created (Leo human, Raph/Mikey/Don AI), companions pick different enemies, play A / AA / AAB / AABB / AABBB / B strings, guard, recover from knockdowns, follow; automatic switch every 6 s, 44 switches in 2.3 min, "YOU: DONATELLO" badge, 1P marker moves; no crash | PASS |
+| Real game under Wine with your `TMNT.DAT`, test build that allows the team in Combat Lab (`-companiontest`, never shipped): team of 4 created (Leo human, Raph/Mikey/Don AI), companions pick different enemies, play A / AA / AAB / AABB / AABBB / B strings, guard, recover from knockdowns, follow; automatic switch every 6 s, 22 switches in 2.3 min, "YOU: DONATELLO" badge, 1P marker moves; no crash | PASS |
 | First run found companions hopping at an unreachable follow spot (water edge); fixed and re-run: no hopping | FIXED |
 | Story stage, F9 / OFF path, instant switching with companions off, physical pad | **NOT VERIFIED** here |
 
