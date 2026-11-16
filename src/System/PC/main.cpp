@@ -36,7 +36,7 @@ _tWinMain(
 )
 {
     CPCCrashReporter::Install();
-    CPCCrashReporter::Breadcrumb("BUILD TMNT2_Core_Enhanced_Graphics_v1_1_2_US");
+    CPCCrashReporter::Breadcrumb("BUILD TMNT2_Core_Turtle_Companions_v1_0_2_EG_v1_1_3_US");
     CPCModFeatures::Initialize();
     CEnhancedGraphics::Initialize();
 

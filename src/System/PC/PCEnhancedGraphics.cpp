@@ -1061,6 +1061,42 @@ namespace
     };
 
 
+    /* RenderWare's state cache starts every entry at 0xFFFFFFFF ("never set") and only fills in
+     * the states RW itself uses. Restoring such an entry wrote 0xFFFFFFFF to the device, e.g.
+     * D3DRS_SRGBWRITEENABLE = TRUE, which gamma-encoded every later draw (washed-out, very
+     * white frame on real GPUs; wined3d/llvmpipe ignores sRGB writes, so tests missed it).
+     * Unknown entries are restored to the Direct3D 9 default instead. */
+    static const RwUInt32 RW_STATE_UNKNOWN = 0xFFFFFFFF;
+
+    RwUInt32 D3DDefaultRenderState(RwUInt32 state)
+    {
+        switch (state)
+        {
+        case D3DRS_ZENABLE:             return D3DZB_TRUE;
+        case D3DRS_ZWRITEENABLE:        return TRUE;
+        case D3DRS_ZFUNC:               return D3DCMP_LESSEQUAL;
+        case D3DRS_SRCBLEND:            return D3DBLEND_ONE;
+        case D3DRS_DESTBLEND:           return D3DBLEND_ZERO;
+        case D3DRS_CULLMODE:            return D3DCULL_CCW;
+        case D3DRS_COLORWRITEENABLE:    return 0x0000000F;
+        default:                        return FALSE;   /* every boolean enable guarded here */
+        };
+    };
+
+
+    RwUInt32 D3DDefaultSamplerState(RwUInt32 type)
+    {
+        switch (type)
+        {
+        case D3DSAMP_ADDRESSU:
+        case D3DSAMP_ADDRESSV:          return D3DTADDRESS_WRAP;
+        case D3DSAMP_MINFILTER:
+        case D3DSAMP_MAGFILTER:         return D3DTEXF_POINT;
+        default:                        return 0;       /* MIPFILTER NONE, SRGBTEXTURE FALSE */
+        };
+    };
+
+
     struct STATEGUARD
     {
         RSSAVE   m_aRS[16];
@@ -1076,6 +1112,8 @@ namespace
             r.m_state = state;
             r.m_value = 0;
             RwD3D9GetRenderState(state, &r.m_value);
+            if (r.m_value == RW_STATE_UNKNOWN)
+                r.m_value = D3DDefaultRenderState(state);
             RwD3D9SetRenderState(state, value);
         };
 
@@ -1093,6 +1131,8 @@ namespace
                 {
                     m_aSamp[stage][i] = 0;
                     RwD3D9GetSamplerState(stage, s_aType[i], &m_aSamp[stage][i]);
+                    if (m_aSamp[stage][i] == RW_STATE_UNKNOWN)
+                        m_aSamp[stage][i] = D3DDefaultSamplerState(s_aType[i]);
                 };
             };
         };
@@ -1740,6 +1780,8 @@ namespace
     RwD3D9GetRenderState(D3DRS_FOGCOLOR, &fogColor);
     RwD3D9GetRenderState(D3DRS_FOGSTART, &fogStartBits);
     RwD3D9GetRenderState(D3DRS_FOGEND, &fogEndBits);
+    if (fogEnable == RW_STATE_UNKNOWN)
+        fogEnable = FALSE;
     float fFogStart, fFogEnd;
     std::memcpy(&fFogStart, &fogStartBits, sizeof(float));
     std::memcpy(&fFogEnd, &fogEndBits, sizeof(float));

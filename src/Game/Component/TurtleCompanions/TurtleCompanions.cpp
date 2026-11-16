@@ -174,6 +174,7 @@ namespace
         bool  m_bFillTeam;
         bool  m_bSwitchEffect;
         bool  m_bShuriken;
+        bool  m_bNexus;
         float m_afTune[TUNE_NUM];
 
         TEAM  m_team;
@@ -215,6 +216,7 @@ namespace
             s_tc.m_bFillTeam = true;
             s_tc.m_bSwitchEffect = true;
             s_tc.m_bShuriken = true;
+            s_tc.m_bNexus = true;
             for (int32 i = 0; i < TUNE_NUM; ++i)
                 s_tc.m_afTune[i] = s_aTuneInfo[i].m_fDefault;
             s_tc.m_idLoadedStage = STAGEID::ID_NONE;
@@ -406,10 +408,14 @@ namespace
         if (!Tc().m_bEnabled || !CPCModFeatures::IsDebugToolsEnabled())
             return false;
 
-        if (CCombatLab::IsActive())
+        // Battle Nexus fights and Combat Lab: switchable (TEAM tab), on by default
+        if (CCombatLab::IsActive() && !Tc().m_bNexus)
             return false;
 
-        if (CGameData::Attribute().IsNexusMode() || CGameData::Attribute().IsPlayDemoMode())
+        if (CGameData::Attribute().IsNexusMode() && !Tc().m_bNexus)
+            return false;
+
+        if (CGameData::Attribute().IsPlayDemoMode())
             return false;
 
         if (CPadStreamSwitch::m_mode != CPadStream::MODE_NONE)
@@ -431,6 +437,8 @@ namespace
 
     static bool IsEligibleStageMode(GAMETYPES::STAGEMODE mode)
     {
+        if ((mode == GAMETYPES::STAGEMODE_NEXUS) && Tc().m_bNexus)
+            return true;
         return (mode == GAMETYPES::STAGEMODE_NORMAL);
     };
 
@@ -748,6 +756,7 @@ namespace
         ITEM_ENABLE = 0,
         ITEM_INSTANT,
         ITEM_FILL,
+        ITEM_NEXUS,
         ITEM_EFFECT,
         ITEM_SHURIKEN,
         ITEM_TUNE_FIRST,
@@ -1488,6 +1497,10 @@ namespace
     {
         std::snprintf(pszBuffer, capacity, "%-29s  %s", "Team", tc.m_bFillTeam ? "All four turtles" : "Selected only");
     }
+    else if (index == ITEM_NEXUS)
+    {
+        std::snprintf(pszBuffer, capacity, "%-29s  %s", "Battle Nexus and Combat Lab", tc.m_bNexus ? "ON" : "OFF");
+    }
     else if (index == ITEM_EFFECT)
     {
         std::snprintf(pszBuffer, capacity, "%-29s  %s", "Switch effect", tc.m_bSwitchEffect ? "ON" : "OFF");
@@ -1534,7 +1547,7 @@ namespace
     if (index == ITEM_ENABLE)
     {
         rpszScope = "NEXT STAGE START - SINGLE PLAYER";
-        rpszDescription = "ON: in single-player story stages the whole team is on the field and the turtles you do not control fight beside you. OFF: retail, one turtle at a time. F9 switches at any time; it takes effect when the next stage (or a retry) starts. Not used in co-op, Battle Nexus, vehicle stages, the lair or Combat Lab.";
+        rpszDescription = "ON: in single-player story stages the whole team is on the field and the turtles you do not control fight beside you. OFF: retail, one turtle at a time. F9 switches at any time; it takes effect when the next stage (or a retry) starts. Also in Battle Nexus and Combat Lab (row below). Not used in co-op, vehicle stages or the lair.";
     }
     else if (index == ITEM_INSTANT)
     {
@@ -1545,6 +1558,11 @@ namespace
     {
         rpszScope = "NEXT STAGE START";
         rpszDescription = "All four turtles: turtles you did not pick at character select join the team as companions (up to four characters). Selected only: just the characters you picked; with one character there are no companions.";
+    }
+    else if (index == ITEM_NEXUS)
+    {
+        rpszScope = "NEXT STAGE START";
+        rpszDescription = "ON: the team also fights in Battle Nexus arenas (tournaments, Nexus fights) and in Combat Lab. OFF: those stay one turtle at a time, as retail.";
     }
     else if (index == ITEM_EFFECT)
     {
@@ -1589,6 +1607,10 @@ namespace
     else if (index == ITEM_FILL)
     {
         tc.m_bFillTeam = !tc.m_bFillTeam;
+    }
+    else if (index == ITEM_NEXUS)
+    {
+        tc.m_bNexus = !tc.m_bNexus;
     }
     else if (index == ITEM_EFFECT)
     {
@@ -1636,6 +1658,10 @@ namespace
     else if (index == ITEM_FILL)
     {
         tc.m_bFillTeam = true;
+    }
+    else if (index == ITEM_NEXUS)
+    {
+        tc.m_bNexus = true;
     }
     else if (index == ITEM_EFFECT)
     {
