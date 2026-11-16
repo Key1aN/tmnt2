@@ -93,6 +93,7 @@ private:
     void pause(void);
     void resume(void);
     void updatePlayData(void);
+    void addRecoveryObj(void);
     void updateResultData(void);
     void createCamera(RpWorld* pWorld);
     void destroyCamera(void);

@@ -6,6 +6,7 @@
 #include "Game/Component/CombatLab/CombatLab.hpp"
 #include "EnhancedGraphicsTab.hpp"
 #include "Game/Component/CombatOverhaul/CombatOverhaul.hpp"
+#include "Game/Component/TurtleCompanions/TurtleCompanions.hpp"
 #include "Game/Component/Enemy/AITrace.hpp"
 #include "Game/Component/Enemy/EnemyUtils.hpp"
 
@@ -71,6 +72,7 @@ namespace
         PAGE_COMBATLAB,
         PAGE_AIVIEW,
         PAGE_OVERHAUL,
+        PAGE_COMPANIONS,
         PAGE_REMASTER,      /* add-on: only while the enhanced-graphics package is enabled (keep last) */
 
         PAGE_NUM,
@@ -90,6 +92,7 @@ namespace
         "COMBAT LAB",
         "AI VIEW",
         "OVERHAUL",
+        "TEAM",
         "REMASTER",
     };
 
@@ -321,7 +324,7 @@ namespace
 
     // ---- v1.2.10 menu renderer (game font + flat panels) ----
 
-    static const char* MENU_VERSION = "v1.2.24";
+    static const char* MENU_VERSION = "v1.2.26";
 
     enum MENUSIZE
     {
@@ -482,6 +485,9 @@ namespace
 
         if (page == PAGE_OVERHAUL)
             return CCombatOverhaul::GetItemHeader(index);
+
+        if (page == PAGE_COMPANIONS)
+            return CTurtleCompanions::GetItemHeader(index);
 
         if (page == PAGE_REMASTER)
             return CEnhancedGraphicsTab::GetItemHeader(index);
@@ -851,8 +857,13 @@ public:
             if (CPCSpecific::IsKeyTrigger(DIK_F7))
                 CMapCamera::m_tuning.m_bEnable = !CMapCamera::m_tuning.m_bEnable;
 
+            // Turtle Companions: F9 switches AI companions for the next stage start.
+            if (CPCSpecific::IsKeyTrigger(DIK_F9))
+                CTurtleCompanions::SetEnabled(!CTurtleCompanions::IsEnabled());
+
+            // the keyboard lock-on belongs to the turtle you control
             if (!m_bOpen && CPCSpecific::IsKeyTrigger(DIK_T))
-                CCombatOverhaul::RequestLockOnToggle(0);
+                CCombatOverhaul::RequestLockOnToggle(CTurtleCompanions::GetHumanPlayerNo());
         };
 
         if (m_bOpen && !bAvailable)
@@ -1059,6 +1070,7 @@ public:
         case PAGE_COMBATLAB:  return (selected == LABITEM_ENEMY_COUNT);
         case PAGE_AIVIEW:     return ((selected == AIITEM_RADAR_RANGE) || (selected == AIITEM_TIMELINE_SPAN));
         case PAGE_OVERHAUL:   return CCombatOverhaul::IsNumericItem(selected);
+        case PAGE_COMPANIONS: return CTurtleCompanions::IsNumericItem(selected);
         case PAGE_REMASTER:   return CEnhancedGraphicsTab::IsNumericItem(selected);
         default:              return false;
         };
@@ -1350,6 +1362,10 @@ private:
             CCombatOverhaul::AdjustItem(selected, direction, multiplier);
             break;
 
+        case PAGE_COMPANIONS:
+            CTurtleCompanions::AdjustItem(selected, direction, multiplier);
+            break;
+
         case PAGE_REMASTER:
             CEnhancedGraphicsTab::AdjustItem(selected, direction, multiplier);
             break;
@@ -1481,6 +1497,11 @@ private:
                 CCombatOverhaul::AdjustItem(selected, 1, 1);
             break;
 
+        case PAGE_COMPANIONS:
+            if (!CTurtleCompanions::IsNumericItem(selected))
+                CTurtleCompanions::AdjustItem(selected, 1, 1);
+            break;
+
         case PAGE_REMASTER:
             CEnhancedGraphicsTab::ActivateItem(selected);
             break;
@@ -1562,6 +1583,10 @@ private:
             CCombatOverhaul::ResetItem(selected);
             break;
 
+        case PAGE_COMPANIONS:
+            CTurtleCompanions::ResetItem(selected);
+            break;
+
         case PAGE_REMASTER:
             CEnhancedGraphicsTab::ResetItem(selected);
             break;
@@ -1626,6 +1651,10 @@ private:
             CCombatOverhaul::ResetAll();
             break;
 
+        case PAGE_COMPANIONS:
+            CTurtleCompanions::ResetAll();
+            break;
+
         case PAGE_REMASTER:
             CEnhancedGraphicsTab::ResetAll();
             break;
@@ -1647,7 +1676,7 @@ private:
         if (CGameProperty::GetPlayerNum() <= 0)
             return;
 
-        IGamePlayer* pPlayer = CGameProperty::Player(0);
+        IGamePlayer* pPlayer = CGameProperty::Player(CTurtleCompanions::GetHumanPlayerNo());
         if (!pPlayer || !pPlayer->IsAlive())
             return;
 
@@ -2019,6 +2048,7 @@ private:
         case PAGE_COMBATLAB:  return LABITEM_NUM;
         case PAGE_AIVIEW:     return AIITEM_NUM;
         case PAGE_OVERHAUL:   return CCombatOverhaul::GetItemNum();
+        case PAGE_COMPANIONS: return CTurtleCompanions::GetItemNum();
         case PAGE_REMASTER:   return (CEnhancedGraphicsTab::IsVisible() ? CEnhancedGraphicsTab::GetItemNum() : 0);
         default:              return 0;
         };
@@ -2706,6 +2736,10 @@ private:
             CCombatOverhaul::FormatItem(index, buffer, capacity);
             break;
 
+        case PAGE_COMPANIONS:
+            CTurtleCompanions::FormatItem(index, buffer, capacity);
+            break;
+
         case PAGE_REMASTER:
             CEnhancedGraphicsTab::FormatItem(index, buffer, capacity);
             break;
@@ -2868,6 +2902,10 @@ private:
 
         case PAGE_OVERHAUL:
             CCombatOverhaul::GetItemHelp(index, scope, description);
+            break;
+
+        case PAGE_COMPANIONS:
+            CTurtleCompanions::GetItemHelp(index, scope, description);
             break;
 
         case PAGE_REMASTER:
@@ -3382,7 +3420,7 @@ private:
                      s.m_iLastDamage);
         y += lineH;
 
-        IGamePlayer* pPlayer = (CGameProperty::GetPlayerNum() > 0 ? CGameProperty::Player(0) : nullptr);
+        IGamePlayer* pPlayer = (CGameProperty::GetPlayerNum() > 0 ? CGameProperty::Player(CTurtleCompanions::GetHumanPlayerNo()) : nullptr);
         CPlayerCharacter* pChr = (pPlayer && pPlayer->IsAlive() ? pPlayer->GetCurrentCharacter() : nullptr);
         if (pChr)
         {
@@ -4119,7 +4157,7 @@ private:
         };
 
         // Without the visualizer: the enemy nearest to P1.
-        IGamePlayer* pPlayer = (CGameProperty::GetPlayerNum() > 0 ? CGameProperty::Player(0) : nullptr);
+        IGamePlayer* pPlayer = (CGameProperty::GetPlayerNum() > 0 ? CGameProperty::Player(CTurtleCompanions::GetHumanPlayerNo()) : nullptr);
         if (!pPlayer)
             return nullptr;
 
@@ -4168,7 +4206,7 @@ private:
         zd.m_fSH = static_cast<float>(CScreen::Height());
         const float px = MaxF(1.0f, zd.m_fSH / 480.0f);
 
-        IGamePlayer* pPlayer = (CGameProperty::GetPlayerNum() > 0 ? CGameProperty::Player(0) : nullptr);
+        IGamePlayer* pPlayer = (CGameProperty::GetPlayerNum() > 0 ? CGameProperty::Player(CTurtleCompanions::GetHumanPlayerNo()) : nullptr);
         bool bPlayer = (pPlayer && pPlayer->IsAlive());
         RwV3d vPlayer = Math::VECTOR3_ZERO;
         if (bPlayer)
@@ -4680,7 +4718,7 @@ private:
         if (!CEnemyAITrace::IsEnabled() || !pCamera || !CGameStage::GetCurrent() || !CGameProperty::IsCameraViewAvailable())
             return;
 
-        IGamePlayer* pPlayer = (CGameProperty::GetPlayerNum() > 0 ? CGameProperty::Player(0) : nullptr);
+        IGamePlayer* pPlayer = (CGameProperty::GetPlayerNum() > 0 ? CGameProperty::Player(CTurtleCompanions::GetHumanPlayerNo()) : nullptr);
         if (!pPlayer || !pPlayer->IsAlive())
             return;
 
@@ -5351,7 +5389,7 @@ private:
         const char* pszPlayerMotion = nullptr;
         if (CGameProperty::GetPlayerNum() > 0)
         {
-            IGamePlayer* pPlayer = CGameProperty::Player(0);
+            IGamePlayer* pPlayer = CGameProperty::Player(CTurtleCompanions::GetHumanPlayerNo());
             if (pPlayer && pPlayer->IsAlive())
             {
                 charId = static_cast<int32>(pPlayer->GetCurrentCharacterID());
@@ -5483,7 +5521,7 @@ private:
 
         if (m_bMoveLog && (CGameProperty::GetPlayerNum() > 0))
         {
-            IGamePlayer* pPlayer = CGameProperty::Player(0);
+            IGamePlayer* pPlayer = CGameProperty::Player(CTurtleCompanions::GetHumanPlayerNo());
             CPlayerCharacter* pCharacter = ((pPlayer && pPlayer->IsAlive()) ? pPlayer->GetCurrentCharacter() : nullptr);
             if (pCharacter)
             {
@@ -5754,7 +5792,12 @@ private:
             if (!CCombatOverhaul::GetPlayerHud(no, hud))
                 continue;
 
-            float x = (sw * 0.035f) + (static_cast<float>(no) * sw * 0.24f);
+            // Turtle Companions: only the turtle you control gets the gauges
+            if (CTurtleCompanions::IsAISlot(no))
+                continue;
+
+            int32 column = (CTurtleCompanions::IsActive() ? 0 : no);
+            float x = (sw * 0.035f) + (static_cast<float>(column) * sw * 0.24f);
             float y = blockY;
 
             if (hud.m_fPosture >= 0.0f)
@@ -5871,6 +5914,49 @@ private:
 
             CSystem2D::PopRenderState();
         };
+
+        DrawCompanionBadge(sw, sh, scale, (bBadge ? (badgeY + badgeH + (14.0f * scale)) : badgeY));
+    };
+
+
+    // Turtle Companions: "YOU: RAPHAEL" after a switch, ON / OFF after F9.
+    void DrawCompanionBadge(float sw, float sh, float scale, float y) const
+    {
+        char szText[64];
+        bool bOn = true;
+        if (!CTurtleCompanions::GetBadgeText(szText, sizeof(szText), bOn))
+            return;
+
+        RwCamera* pCamera = CCamera::CameraCurrent();
+        if (!pCamera)
+            return;
+
+        static IM2DBATCH s_batch;
+        s_batch.m_nVertex = 0;
+        s_batch.m_fZ = RwIm2DGetNearScreenZ();
+        s_batch.m_fRhw = 1.0f / RwCameraGetNearClipPlane(pCamera);
+
+        const float h = 16.0f * scale;
+        const float halfW = 165.0f * scale;
+        RwRGBA back = { 0x00, 0x00, 0x00, 0xB0 };
+        RwRGBA edge = (bOn ? RwRGBA{ 0xFF, 0xB0, 0x30, 0xF0 } : RwRGBA{ 0xC8, 0xC8, 0xD0, 0xF0 });
+        Im2DQuad(s_batch, (sw * 0.5f) - halfW, y - (5.0f * scale), (sw * 0.5f) + halfW, y + h + (7.0f * scale), back);
+        OverhaulFrame(s_batch, (sw * 0.5f) - halfW, y - (5.0f * scale), (sw * 0.5f) + halfW, y + h + (7.0f * scale), 2.0f * scale, edge);
+
+        CSystem2D::PushRenderState();
+        RwRenderStateSet(rwRENDERSTATETEXTURERASTER, nullptr);
+        RwIm2DRenderPrimitive(rwPRIMTYPETRILIST, s_batch.m_aVertex, s_batch.m_nVertex);
+        CSystem2D::PopRenderState();
+
+        if (CGameFont::IsOpen())
+        {
+            CSystem2D::PushRenderState();
+            RwRGBA color = (bOn ? RwRGBA{ 0xFF, 0xD0, 0x60, 0xFF } : RwRGBA{ 0xE8, 0xE8, 0xF0, 0xFF });
+            DrawOverhaulText(szText, sw * 0.5f, y, h, color, true);
+            CSystem2D::PopRenderState();
+        };
+
+        (void)sh;
     };
 
 
@@ -6014,7 +6100,7 @@ private:
 
         IGamePlayer* pPlayer = nullptr;
         if (CGameProperty::GetPlayerNum() > 0)
-            pPlayer = CGameProperty::Player(0);
+            pPlayer = CGameProperty::Player(CTurtleCompanions::GetHumanPlayerNo());
 
         if (!pPlayer || !pPlayer->IsAlive())
         {
@@ -6141,7 +6227,7 @@ private:
 
         if (CGameProperty::GetPlayerNum() > 0)
         {
-            IGamePlayer* pPlayer = CGameProperty::Player(0);
+            IGamePlayer* pPlayer = CGameProperty::Player(CTurtleCompanions::GetHumanPlayerNo());
             if (pPlayer && pPlayer->IsAlive())
             {
                 RwV3d playerPosition = Math::VECTOR3_ZERO;

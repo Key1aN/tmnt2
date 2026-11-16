@@ -15,6 +15,10 @@
 #include "Game/System/Misc/ScreenFade.hpp"
 #include "System/Common/Controller.hpp"
 
+#if defined(TMNT2_DEBUG_TOOLS)
+#include "Game/Component/TurtleCompanions/TurtleCompanions.hpp"
+#endif /* defined(TMNT2_DEBUG_TOOLS) */
+
 
 /*static*/ CDummyStageState* CDummyStageState::Instance(void)
 {
@@ -87,6 +91,11 @@ void CLoadStageSeqState::LoadPlayers(void)
         const CGamePlayParam::CHARAINFO& CharaInfo = CGameData::PlayParam().CharaInfo(i);
         CGameLoader::LoadPlayer(CharaInfo.m_CharacterID, CharaInfo.m_Costume);
     };
+
+#if defined(TMNT2_DEBUG_TOOLS)
+    // Turtle Companions: the turtles that were not picked join as companions.
+    CTurtleCompanions::OnLoadPlayers(m_idStage);
+#endif /* defined(TMNT2_DEBUG_TOOLS) */
 };
 
 
@@ -223,7 +232,12 @@ void CPlayStageSeqState::OnAttach(CStageBaseSequence* pSeq, const void* pParam)
     ASSERT(pMapCamera);
     
     pMapCamera->SetCameraMode(CMapCamera::MODE_AUTOCHANGE);
-    if (CGameProperty::GetPlayerNum() > 1)
+    int32 nPathPlayerNum = CGameProperty::GetPlayerNum();
+#if defined(TMNT2_DEBUG_TOOLS)
+    // Turtle Companions: the single-player camera paths, framed on the human.
+    nPathPlayerNum = CTurtleCompanions::BalancePlayerNum(nPathPlayerNum);
+#endif /* defined(TMNT2_DEBUG_TOOLS) */
+    if (nPathPlayerNum > 1)
         pMapCamera->SetPathMode(CMapCamera::PATHMODE_MULTIPLAYER);
     else
         pMapCamera->SetPathMode(CMapCamera::PATHMODE_SINGLEPLAYER);

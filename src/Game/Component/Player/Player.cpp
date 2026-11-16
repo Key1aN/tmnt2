@@ -7,6 +7,10 @@
 #include "Game/System/GameObject/GameObjectManager.hpp"
 #include "System/Common/Controller.hpp"
 
+#if defined(TMNT2_DEBUG_TOOLS)
+#include "Game/Component/TurtleCompanions/TurtleCompanions.hpp"
+#endif /* defined(TMNT2_DEBUG_TOOLS) */
+
 
 /*static*/ CPlayer* CPlayer::New(int32 nNo, int32 nControllerNo)
 {
@@ -73,6 +77,14 @@ void CPlayer::Run(void)
 {
     if (m_bSleep)
         return;
+
+#if defined(TMNT2_DEBUG_TOOLS)
+    // Turtle Companions: with the whole team on the field, Change Character
+    // moves the human to the next turtle (read once per frame by the team).
+    CTurtleCompanions::Period();
+    if (CTurtleCompanions::IsActive())
+        return;
+#endif /* defined(TMNT2_DEBUG_TOOLS) */
     
     if (IsEnableCharacterChanging())
     {
@@ -265,6 +277,13 @@ void CPlayer::ChangeNextCharacter(void)
 
     if (idChrNext != m_pCurrentCharacterInfo->m_pCharacter->GetID())
     {
+#if defined(TMNT2_DEBUG_TOOLS)
+        // Instant switching outside the idle state: the turtle that leaves is
+        // put back to idle first, so it is idle when it is next switched in.
+        if (CTurtleCompanions::IsInstantSwitch() &&
+            (m_pCurrentCharacterInfo->m_pCharacter->GetStatus() != PLAYERTYPES::STATUS_IDLE))
+            m_pCurrentCharacterInfo->m_pCharacter->ForceIdle();
+#endif /* defined(TMNT2_DEBUG_TOOLS) */
         SetCurrentCharacter(idChrNext, true);
         ASSERT(m_pCurrentCharacterInfo->m_pCharacter);
         CGameSound::PlaySE(SDCODE_SE(4118));

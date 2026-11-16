@@ -53,6 +53,7 @@ static const float COMBO_LATE_WINDOW = 0.30f;
 
 #if defined(TMNT2_DEBUG_TOOLS)
 #include "Game/Component/CombatOverhaul/CombatOverhaul.hpp"
+#include "Game/Component/TurtleCompanions/TurtleCompanions.hpp"
 #endif /* defined(TMNT2_DEBUG_TOOLS) */
 
 
@@ -485,6 +486,7 @@ void CPlayerCharacter::OnMessageAttackResult(CHitCatchData* pCatch)
 void CPlayerCharacter::OnMessageReceivedDamage(int32 nDamage)
 {
 #if defined(TMNT2_DEBUG_TOOLS)
+    nDamage = CTurtleCompanions::ScaleReceivedDamage(*this, nDamage);
     CCombatOverhaul::OnPlayerReceivedDamage(*this, nDamage);
 #endif /* defined(TMNT2_DEBUG_TOOLS) */
 	CGameProperty::Player(m_nPlayerNo)->AddHP(-nDamage);
@@ -1678,6 +1680,12 @@ void CPlayerCharacter::SetReplacePosition(RwV3d* pvPosition)
 
 bool CPlayerCharacter::IsEnableCharacterChanging(void) const
 {
+#if defined(TMNT2_DEBUG_TOOLS)
+    bool bInstantResult = false;
+    if (CTurtleCompanions::CanRetailSwitch(*this, bInstantResult))
+        return bInstantResult;
+#endif /* defined(TMNT2_DEBUG_TOOLS) */
+
     if (TestAttribute(PLAYERTYPES::ATTRIBUTE_CONFUSION))
         return false;
 

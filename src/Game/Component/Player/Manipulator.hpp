@@ -139,6 +139,11 @@ public:
     // Combat Overhaul input rules; returns true when it handled this frame.
     bool RunCombatOverhaul(PLAYERTYPES::STATUS status);
 #endif /* defined(TMNT2_DEBUG_TOOLS) */
+#if defined(TMNT2_DEBUG_TOOLS)
+    // Turtle Companions: the pad this manipulator reads (-1 = the AI drives it).
+    int32 InputPort(void) const;
+    void RunCompanionAI(void);
+#endif /* defined(TMNT2_DEBUG_TOOLS) */
 #if defined(TARGET_PC)
     bool IsChordWithHeldButton(uint32 uDigital, uint32 uDigitalTrigger) const;
     void UpdateChordTimers(uint32 uDigitalTrigger);

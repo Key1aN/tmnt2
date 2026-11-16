@@ -12,6 +12,10 @@
 #include "Game/Component/GameData/GameData.hpp"
 #include "Game/System/Sound/GameSound.hpp"
 
+#if defined(TMNT2_DEBUG_TOOLS)
+#include "Game/Component/TurtleCompanions/TurtleCompanions.hpp"
+#endif /* defined(TMNT2_DEBUG_TOOLS) */
+
 
 /*static*/ CGamePropertyObject* CGameEvent::m_pProperty = nullptr;
 
@@ -60,12 +64,23 @@
 	IGamePlayer* pGamePlayer = CGameProperty::GetGamePlayer(nPlayerNo);
 
 	PLAYERID::VALUE idChr = pGamePlayer->GetCurrentCharacterID();
-    CGameData::PlayResult().AddTechnicalAction(idChr, GAMETYPES::TECACT_FALLEN);
 
-	if (CGameData::Record().Secret().IsUnlockedSecret(SECRETID::ID_CHALLENGE_ABYSS))
-		pGamePlayer->AddHP(-pGamePlayer->GetHPMax());
-	else
-		pGamePlayer->AddHP(-GAMETYPES::ATTACKPOWER_MAX);
+    bool bPenalty = true;
+#if defined(TMNT2_DEBUG_TOOLS)
+    // Turtle Companions: a companion that falls is put back without costing health.
+    if (CTurtleCompanions::IsAISlot(nPlayerNo))
+        bPenalty = false;
+#endif /* defined(TMNT2_DEBUG_TOOLS) */
+
+    if (bPenalty)
+    {
+        CGameData::PlayResult().AddTechnicalAction(idChr, GAMETYPES::TECACT_FALLEN);
+
+        if (CGameData::Record().Secret().IsUnlockedSecret(SECRETID::ID_CHALLENGE_ABYSS))
+            pGamePlayer->AddHP(-pGamePlayer->GetHPMax());
+        else
+            pGamePlayer->AddHP(-GAMETYPES::ATTACKPOWER_MAX);
+    };
   
     RwV3d vPosition = Math::VECTOR3_ZERO;
 	pGamePlayer->GetLastPosition(&vPosition);
@@ -119,7 +134,12 @@
     {
     case ITEMID::ID_HEAL_SMALL:
         {
-            int32 iHP = CGameProperty::GetPlayerNum() * 100;
+            int32 nPlayerNum = CGameProperty::GetPlayerNum();
+#if defined(TMNT2_DEBUG_TOOLS)
+            // Turtle Companions: a small heal stays at the single-player amount.
+            nPlayerNum = CTurtleCompanions::BalancePlayerNum(nPlayerNum);
+#endif /* defined(TMNT2_DEBUG_TOOLS) */
+            int32 iHP = nPlayerNum * 100;
             if (iHP < 100)
                 iHP = 100;
             

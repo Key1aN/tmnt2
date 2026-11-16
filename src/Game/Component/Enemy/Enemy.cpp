@@ -58,6 +58,7 @@
 #include "ConcreteEnemyCharacter/071NinjaRatsB.hpp"
 #include "ConcreteEnemyCharacter/072NinjaRatsC.hpp"
 #include "ConcreteEnemyCharacter/073NinjaRatsD.hpp"
+
 #include "ConcreteEnemyCharacter/074Traximus.hpp"
 #include "ConcreteEnemyCharacter/075Leatherhead.hpp"
 #include "ConcreteEnemyCharacter/076EliteFootA.hpp"
@@ -83,6 +84,10 @@
 #include "Game/Component/GameMain/GameProperty.hpp"
 #include "Game/Component/GameMain/GameEvent.hpp"
 
+#if defined(TMNT2_DEBUG_TOOLS)
+#include "Game/Component/TurtleCompanions/TurtleCompanions.hpp"
+#endif /* defined(TMNT2_DEBUG_TOOLS) */
+
 
 static void PostCreateEvent(CEnemyCharacter* pEnemyChr)
 {
@@ -102,7 +107,12 @@ static void PostCreateEvent(CEnemyCharacter* pEnemyChr)
     if (bIsExBoss)
         return;
 
-    float fHpScaleRatio = static_cast<float>(CGameProperty::GetPlayerNum() - 1);
+    int32 nPlayerNum = CGameProperty::GetPlayerNum();
+#if defined(TMNT2_DEBUG_TOOLS)
+    // Turtle Companions: boss health stays at the single-player value.
+    nPlayerNum = CTurtleCompanions::BalancePlayerNum(nPlayerNum);
+#endif /* defined(TMNT2_DEBUG_TOOLS) */
+    float fHpScaleRatio = static_cast<float>(nPlayerNum - 1);
     fHpScaleRatio *= (1.0f / static_cast<float>(GAMETYPES::PLAYERS_MAX));
     fHpScaleRatio += 1.0f;
 
